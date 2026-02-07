@@ -1,0 +1,27 @@
+title: Создать точку входа workers/bot/__main__.py
+status: open
+created_at: 07.02.2026
+completed_at: null
+
+description: |
+  Точка входа бота по паттерну royalestate_bot.
+  Инициализирует BotApplication, регистрирует хендлеры, запускает polling.
+
+recommendation: |
+  - workers/bot/__main__.py:
+    1. Загрузить переменные из .env (python-dotenv)
+    2. Прочитать BOT_TOKEN, BOT_DB_URL, REDIS_URL (без ANTHROPIC_API_KEY)
+    3. Создать BotApplication(bot_token, database_url, redis_url, ...)
+       - phrases_json_path: Path("data/phrases.json")
+       - roles_json_path: Path("data/roles.json")
+       - languages_json_path: Path("data/languages.json")
+    4. Создать AgentClient()
+       - cwd="/home/sumarokov" — авторизация через подписку Claude Code
+    5. Создать TextMessageHandler с зависимостями
+    6. Зарегистрировать handler через message_handler_registry.register(
+         handler=text_handler, content_types=["text"]
+       )
+    7. app.run()
+  - Обработка исключений на верхнем уровне (try-except в __main__)
+
+solution: null

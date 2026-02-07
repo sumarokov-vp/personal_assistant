@@ -1,0 +1,26 @@
+title: Создать обработчик текстовых сообщений
+status: open
+created_at: 07.02.2026
+completed_at: null
+
+description: |
+  Обработчик принимает текстовое сообщение из Telegram,
+  отправляет в AgentClient и возвращает ответ пользователю.
+
+recommendation: |
+  - src/chat/handlers/text_message_handler.py: TextMessageHandler
+    - Реализует IMessageHandler из bot_framework
+    - allowed_roles: {"admin"} (только владелец)
+    - Зависимости: IAgentClient, IMessageService
+    - IMessageService — единый сервис (send + replace + delete)
+      из bot_framework, легко переключаться между send и replace
+    - В handle():
+      1. message_service.send("Думаю...", chat_id)
+      2. agent_client.send_message(user_id, text)
+      3. message_service.replace(chat_id, message_id, ответ)
+  - src/chat/actions/send_to_agent_action.py: SendToAgentAction
+    - Зависимость: IMessageService (не отдельные sender/replacer)
+    - Инкапсулирует логику отправки в агент и получения ответа
+    - Обработка длинных ответов (Telegram лимит 4096 символов — разбить на части)
+
+solution: null

@@ -1,0 +1,34 @@
+title: Инициализировать проект с uv и bot_framework
+status: done
+created_at: 07.02.2026
+completed_at: 07.02.2026
+
+description: |
+  Проект пустой. Нужно создать pyproject.toml, установить зависимости,
+  подготовить структуру каталогов по паттерну royalestate_bot.
+
+recommendation: |
+  - uv init с python 3.13+
+  - uv add bot-framework[all] --path /home/sumarokov/projects/bot_framework
+  - uv add claude-agent-sdk python-dotenv
+  - uv add --dev ruff mypy pyright import-linter pytest
+  - Создать структуру каталогов:
+    - workers/bot/
+    - src/agent/, src/agent/protocols/
+    - src/chat/, src/chat/handlers/, src/chat/actions/
+    - data/
+    - deploy/
+  - Создать __init__.py во всех пакетах
+  - Создать .env.example
+  - Обновить .gitignore (.env, __pycache__, .agent-branch, .mypy_cache)
+  - Скопировать конфиг ruff/mypy/pyright из royalestate_bot pyproject.toml
+
+solution: |
+  Инициализирован проект через uv init (Python 3.13+). Создан pyproject.toml с зависимостями:
+  bot-framework[all]==0.3.0 (editable, локальный путь), claude-agent-sdk, python-dotenv.
+  Dev: ruff, mypy, pyright, import-linter, pytest. Создана структура каталогов:
+  workers/bot/, src/agent/protocols/, src/chat/handlers/, src/chat/actions/, data/, deploy/.
+  Все Python-пакеты содержат __init__.py. Конфигурация ruff/mypy/pyright/import-linter
+  скопирована из royalestate_bot и адаптирована (убраны project-specific excludes,
+  import-linter layers: workers->src, src.chat->src.agent). .gitignore и .env.example созданы.
+  uv sync выполнен успешно, установлено 62 пакета.

@@ -1,0 +1,30 @@
+title: Создать конфигурационные JSON файлы
+status: done
+created_at: 07.02.2026
+completed_at: 07.02.2026
+
+description: |
+  bot_framework требует JSON файлы для ролей, фраз и языков.
+  Для MVP нужен минимальный набор.
+
+recommendation: |
+  Создать data/:
+  - roles.json: одна роль "admin" (бот персональный, доступ только владельцу)
+  - languages.json: только русский (ru) как default
+  - phrases.json: минимальные фразы:
+    - bot.start.welcome: приветствие
+    - bot.start.menu_title: заголовок меню
+    - bot.chat.thinking: "Думаю..." (отправляется пока ждём ответ Claude)
+    - bot.chat.error: "Произошла ошибка"
+
+solution: |
+  Создана папка data/ с тремя JSON файлами:
+  - roles.json: одна роль "admin" (Bot owner)
+  - languages.json: русский язык (ru) как единственный и default
+  - phrases.json: 4 фразы для бота (welcome, menu_title, thinking, error) +
+    все обязательные ключи bot_framework: commands (list_title, menu_button),
+    language menu (select_title, changed, menu_button), request_role flow
+    (select_title, already_has_role, sent, no_supervisors, no_roles,
+    supervisor.title, button.approve, button.reject, approved, rejected,
+    request_role_flow.select_role, request_role_flow.role_requested),
+    shared.time (hours_short, minutes_short).

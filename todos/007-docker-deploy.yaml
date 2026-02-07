@@ -1,0 +1,34 @@
+title: Настроить Docker-деплой на локальный сервер
+status: open
+created_at: 07.02.2026
+completed_at: null
+
+description: |
+  Деплой на текущий сервер через Docker.
+  Один сервер, без разделения на dev/prod (по паттерну royalestate_bot,
+  но упрощённо). Redis база 4.
+  Контейнер должен иметь доступ к ~/.claude для авторизации и конфига SDK.
+
+recommendation: |
+  - deploy/Dockerfile:
+    - Base: python:3.13-slim
+    - Извлечь зависимости из pyproject.toml → requirements.txt
+    - pip install (без локальных editable)
+    - Скопировать src/, workers/, data/
+    - CMD: python -m workers.bot
+  - deploy/docker-compose.yml:
+    - Сервис bot: build from Dockerfile
+    - network_mode: host (доступ к локальным PostgreSQL и Redis)
+    - env_file: .env
+    - restart: unless-stopped
+    - volumes:
+      - /home/sumarokov/.claude:/home/sumarokov/.claude:ro
+        (авторизация подписки из session-env + CLAUDE.md, скиллы, команды)
+    - Без отдельного Redis-сервиса (используем локальный Redis, база 4)
+  - deploy/deploy.sh:
+    - docker compose down
+    - docker compose build --no-cache
+    - docker compose up -d
+    - docker compose logs -f
+
+solution: null

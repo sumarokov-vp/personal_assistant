@@ -1,0 +1,31 @@
+title: Создать обёртку над Claude Agent SDK
+status: open
+created_at: 07.02.2026
+completed_at: null
+
+description: |
+  Нужен клиент, который принимает текст от пользователя,
+  отправляет в Claude Agent SDK и возвращает ответ.
+  Должен поддерживать продолжение диалога (session).
+  SDK использует подписку Claude Code с машины — без API ключа.
+
+recommendation: |
+  - src/agent/protocols/i_agent_client.py: протокол IAgentClient
+    - метод: send_message(user_id: int, text: str) -> str
+  - src/agent/client.py: AgentClient реализация
+    - Использует ClaudeSDKClient для диалогов с сохранением контекста
+    - Хранит dict[int, ClaudeSDKClient] — по одному клиенту на user_id
+    - ClaudeAgentOptions:
+      - cwd: "/home/sumarokov" (SDK подхватит ~/.claude)
+      - permission_mode: "auto"
+      - Без system_prompt — загрузит CLAUDE.md из ~/.claude
+      - Без API ключа — авторизация через подписку (сессии из ~/.claude/session-env)
+    - SDK получит доступ к:
+      - ~/.claude/session-env/ (авторизация подписки)
+      - ~/.claude/CLAUDE.md (инструкции)
+      - ~/.claude/skills/ (todoist, research и т.д.)
+      - ~/.claude/commands/ (пользовательские команды)
+      - ~/.claude/scripts/ (reminders.sh и т.д.)
+    - Собирает streaming ответ в строку и возвращает
+
+solution: null

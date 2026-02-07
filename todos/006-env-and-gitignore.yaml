@@ -1,0 +1,28 @@
+title: Создать .env.example и .gitignore
+status: done
+created_at: 07.02.2026
+completed_at: 07.02.2026
+
+description: |
+  Файл .env.example для документации переменных окружения.
+  .gitignore для Python-проекта.
+
+recommendation: |
+  - .env.example:
+    BOT_TOKEN=
+    BOT_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable
+    REDIS_URL=redis://localhost:6379/4
+  - .gitignore:
+    .env
+    __pycache__/
+    *.pyc
+    .mypy_cache/
+    .ruff_cache/
+    .agent-branch
+    dist/
+    *.egg-info/
+    .venv/
+
+solution: |
+  Создан .env.example с переменными BOT_TOKEN, BOT_DB_URL, REDIS_URL.
+  Создан .gitignore со стандартными Python-исключениями и проектными файлами (.env, .agent-branch, .venv/).
