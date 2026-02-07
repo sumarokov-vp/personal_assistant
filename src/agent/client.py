@@ -22,6 +22,10 @@ class AgentClient:
             options = ClaudeAgentOptions(
                 cwd="/home/sumarokov",
                 permission_mode="bypassPermissions",
+                system_prompt={"type": "preset", "preset": "claude_code"},
+                tools={"type": "preset", "preset": "claude_code"},
+                settings='{"enabledPlugins": {}}',
+                setting_sources=["user", "project", "local"],
             )
             self._clients[user_id] = ClaudeSDKClient(options)
         return self._clients[user_id]
@@ -41,16 +45,21 @@ class AgentClient:
         await client.query(text)
 
         response_parts: list[str] = []
+        result_text: str | None = None
         async for message in client.receive_response():
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
                         response_parts.append(block.text)
-            elif isinstance(message, ResultMessage) and message.is_error:
-                await self._reset_client(user_id)
-                raise RuntimeError(f"Claude SDK error: {message.result}")
+            elif isinstance(message, ResultMessage):
+                if message.is_error:
+                    await self._reset_client(user_id)
+                    raise RuntimeError(f"Claude SDK error: {message.result}")
+                result_text = message.result
 
-        return "\n".join(response_parts)
+        if response_parts:
+            return "\n".join(response_parts)
+        return result_text or ""
 
     async def _reset_client(self, user_id: int) -> None:
         if user_id in self._clients:

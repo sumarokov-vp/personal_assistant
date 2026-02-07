@@ -21,6 +21,8 @@ class SendToAgentAction:
         thinking_message_id: int,
     ) -> None:
         response = self.agent_client.send_message(user_id, text)
+        if not response.strip():
+            response = "Пустой ответ от агента"
         chunks = _split_message(response)
 
         self.message_service.replace(
