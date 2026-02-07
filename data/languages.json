@@ -1,0 +1,6 @@
+{
+  "languages": [
+    {"code": "ru", "name": "Russian", "native_name": "Русский"}
+  ],
+  "default_language": "ru"
+}

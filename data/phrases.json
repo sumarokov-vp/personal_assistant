@@ -1,0 +1,71 @@
+{
+  "bot.start.welcome": {
+    "ru": "Привет! Я твой персональный ассистент."
+  },
+  "bot.start.menu_title": {
+    "ru": "Главное меню"
+  },
+  "bot.chat.thinking": {
+    "ru": "Думаю..."
+  },
+  "bot.chat.error": {
+    "ru": "Произошла ошибка при обработке запроса."
+  },
+  "commands.list_title": {
+    "ru": "Список команд"
+  },
+  "commands.menu_button": {
+    "ru": "Меню команд"
+  },
+  "language.select_title": {
+    "ru": "Выберите язык:"
+  },
+  "language.changed": {
+    "ru": "Язык успешно изменён!"
+  },
+  "language.menu_button": {
+    "ru": "Язык"
+  },
+  "request_role.select_title": {
+    "ru": "Выберите роль:"
+  },
+  "request_role.already_has_role": {
+    "ru": "У вас уже есть эта роль"
+  },
+  "request_role.sent": {
+    "ru": "Запрос на роль отправлен"
+  },
+  "request_role.no_supervisors": {
+    "ru": "Нет супервайзеров для одобрения этой роли"
+  },
+  "request_role.no_roles": {
+    "ru": "Нет доступных ролей"
+  },
+  "request_role.supervisor.title": {
+    "ru": "Запрос на роль"
+  },
+  "request_role.button.approve": {
+    "ru": "Одобрить"
+  },
+  "request_role.button.reject": {
+    "ru": "Отклонить"
+  },
+  "request_role.approved": {
+    "ru": "Ваш запрос на роль одобрен"
+  },
+  "request_role.rejected": {
+    "ru": "Ваш запрос на роль отклонён"
+  },
+  "request_role_flow.select_role": {
+    "ru": "Выберите роль:"
+  },
+  "request_role_flow.role_requested": {
+    "ru": "Запрос на роль отправлен"
+  },
+  "shared.time.hours_short": {
+    "ru": "ч"
+  },
+  "shared.time.minutes_short": {
+    "ru": "мин"
+  }
+}
