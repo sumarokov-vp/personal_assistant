@@ -1,6 +1,10 @@
+from logging import getLogger
+
 from bot_framework.entities.bot_message import BotMessage
 from bot_framework.protocols.i_message_service import IMessageService
 from src.chat.actions.send_to_agent_action import SendToAgentAction
+
+logger = getLogger(__name__)
 
 
 class TextMessageHandler:
@@ -26,9 +30,18 @@ class TextMessageHandler:
             text="Думаю...",
         )
 
-        self.send_to_agent_action.execute(
-            chat_id=message.chat_id,
-            user_id=message.from_user.id,
-            text=message.text,
-            thinking_message_id=thinking_msg.message_id,
-        )
+        try:
+            self.send_to_agent_action.execute(
+                chat_id=message.chat_id,
+                user_id=message.from_user.id,
+                text=message.text,
+                thinking_message_id=thinking_msg.message_id,
+            )
+        except Exception as e:
+            logger.exception("Agent error")
+            error_text = f"Ошибка: {e}"
+            self.message_service.replace(
+                chat_id=message.chat_id,
+                message_id=thinking_msg.message_id,
+                text=error_text,
+            )

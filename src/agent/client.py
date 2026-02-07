@@ -1,4 +1,6 @@
-from anyio.from_thread import BlockingPortal, start_blocking_portal
+import asyncio
+import threading
+
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -11,7 +13,9 @@ from claude_agent_sdk import (
 class AgentClient:
     def __init__(self) -> None:
         self._clients: dict[int, ClaudeSDKClient] = {}
-        self._portal: BlockingPortal = start_blocking_portal().__enter__()
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+        self._thread.start()
 
     def _get_or_create_client(self, user_id: int) -> ClaudeSDKClient:
         if user_id not in self._clients:
@@ -23,7 +27,10 @@ class AgentClient:
         return self._clients[user_id]
 
     def send_message(self, user_id: int, text: str) -> str:
-        return self._portal.call(self._send_message_async, user_id, text)
+        future = asyncio.run_coroutine_threadsafe(
+            self._send_message_async(user_id, text), self._loop
+        )
+        return future.result()
 
     async def _send_message_async(self, user_id: int, text: str) -> str:
         client = self._get_or_create_client(user_id)

@@ -17,4 +17,7 @@ COPY data/ ./data/
 
 ENV PYTHONPATH=/app
 
+RUN useradd --create-home --home-dir /home/sumarokov --uid 1000 botuser
+USER botuser
+
 CMD ["python", "-m", "workers.bot"]
