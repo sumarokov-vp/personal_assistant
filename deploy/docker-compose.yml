@@ -9,4 +9,5 @@ services:
       - ../.env
     restart: unless-stopped
     volumes:
-      - /home/sumarokov/.claude:/home/sumarokov/.claude:ro
+      - /home/sumarokov/.claude:/home/sumarokov/.claude
+      - /home/sumarokov/pyinfra_dotfiles/dotfiles/claude:/home/sumarokov/pyinfra_dotfiles/dotfiles/claude:ro

@@ -20,11 +20,9 @@ echo -e "${YELLOW}Stopping old container...${NC}"
 docker compose -f deploy/docker-compose.yml down || true
 
 echo -e "${YELLOW}Building image (no cache)...${NC}"
-docker compose -f deploy/docker-compose.yml build --no-cache
+docker compose -f deploy/docker-compose.yml build
 
 echo -e "${YELLOW}Starting new container...${NC}"
 docker compose -f deploy/docker-compose.yml up -d
 
 echo -e "${GREEN}Deploy completed!${NC}"
-echo -e "${YELLOW}Following logs (Ctrl+C to exit)...${NC}"
-docker compose -f deploy/docker-compose.yml logs -f
