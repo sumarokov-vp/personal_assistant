@@ -1,9 +1,27 @@
 from unittest.mock import MagicMock
 
 from bot_framework.entities.bot_message import BotMessage, BotMessageUser
+from bot_framework.entities.role import Role
+from bot_framework.role_management.repos import RoleRepo
 
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.handlers.text_message_handler import TextMessageHandler
+
+ADMIN_ROLE = Role(id=1, name="admin")
+
+
+def _make_handler(
+    action: MagicMock | SendToAgentAction,
+    message_service: MagicMock,
+) -> TextMessageHandler:
+    role_repo = MagicMock(spec=RoleRepo)
+    role_repo.get_user_roles.return_value = [ADMIN_ROLE]
+
+    return TextMessageHandler(
+        send_to_agent_action=action,
+        message_service=message_service,
+        role_repo=role_repo,
+    )
 
 
 class TestTextMessageHandlerErrorHandling:
@@ -15,10 +33,7 @@ class TestTextMessageHandlerErrorHandling:
         action = MagicMock(spec=SendToAgentAction)
         action.execute.side_effect = RuntimeError("CLI crashed")
 
-        handler = TextMessageHandler(
-            send_to_agent_action=action,
-            message_service=message_service,
-        )
+        handler = _make_handler(action, message_service)
 
         message = BotMessage(
             chat_id=100,
@@ -42,10 +57,7 @@ class TestTextMessageHandlerErrorHandling:
 
         action = MagicMock(spec=SendToAgentAction)
 
-        handler = TextMessageHandler(
-            send_to_agent_action=action,
-            message_service=message_service,
-        )
+        handler = _make_handler(action, message_service)
 
         message = BotMessage(
             chat_id=100,

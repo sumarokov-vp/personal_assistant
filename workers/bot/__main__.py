@@ -53,6 +53,7 @@ def main() -> None:
     text_handler = TextMessageHandler(
         send_to_agent_action=send_to_agent_action,
         message_service=message_service,
+        role_repo=app.role_repo,
     )
 
     app.core.message_handler_registry.register(
