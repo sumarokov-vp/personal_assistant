@@ -17,6 +17,8 @@ class TestSendToAgentActionEmptyResponse:
 
         action.execute(chat_id=100, user_id=1, text="Hi", thinking_message_id=42)
 
+        agent_client.send_message.assert_called_once_with(1, 100, "Hi")
+
         message_service.replace.assert_called_once_with(
             chat_id=100,
             message_id=42,
@@ -35,6 +37,8 @@ class TestSendToAgentActionEmptyResponse:
         )
 
         action.execute(chat_id=100, user_id=1, text="Hi", thinking_message_id=42)
+
+        agent_client.send_message.assert_called_once_with(1, 100, "Hi")
 
         message_service.replace.assert_called_once_with(
             chat_id=100,

@@ -20,7 +20,7 @@ class SendToAgentAction:
         text: str,
         thinking_message_id: int,
     ) -> None:
-        response = self.agent_client.send_message(user_id, text)
+        response = self.agent_client.send_message(user_id, chat_id, text)
         if not response.strip():
             response = "Пустой ответ от агента"
         chunks = _split_message(response)

@@ -1,7 +1,9 @@
 import asyncio
 import threading
 from logging import getLogger
+from typing import Any
 
+import telebot
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -13,12 +15,22 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
+from src.agent.tools.registry import SessionRegistry
+
 logger = getLogger(__name__)
 
 
 class AgentClient:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        session_registry: SessionRegistry,
+        bot: telebot.TeleBot,
+        mcp_server: Any | None = None,
+    ) -> None:
         self._clients: dict[int, ClaudeSDKClient] = {}
+        self._session_registry = session_registry
+        self._bot = bot
+        self._mcp_server = mcp_server
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._thread.start()
@@ -33,17 +45,24 @@ class AgentClient:
                 settings='{"enabledPlugins": {}}',
                 setting_sources=["user", "project", "local"],
             )
+            if self._mcp_server is not None:
+                options.mcp_servers = {"bot-tools": self._mcp_server}
+                options.allowed_tools = ["mcp__bot-tools__*"]
             self._clients[user_id] = ClaudeSDKClient(options)
         return self._clients[user_id]
 
-    def send_message(self, user_id: int, text: str) -> str:
+    def send_message(self, user_id: int, chat_id: int, text: str) -> str:
         future = asyncio.run_coroutine_threadsafe(
-            self._send_message_async(user_id, text), self._loop
+            self._send_message_async(user_id, chat_id, text), self._loop
         )
         return future.result()
 
-    async def _send_message_async(self, user_id: int, text: str) -> str:
+    async def _send_message_async(
+        self, user_id: int, chat_id: int, text: str
+    ) -> str:
         client = self._get_or_create_client(user_id)
+
+        self._session_registry.set_context(user_id, chat_id, self._bot)
 
         if client._transport is None:
             await client.connect()

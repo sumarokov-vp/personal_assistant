@@ -5,7 +5,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from bot_framework.app import BotApplication
+from claude_agent_sdk import create_sdk_mcp_server
 from src.agent.client import AgentClient
+from src.agent.tools.registry import SessionRegistry
+from src.agent.tools.send_file import init_send_file, send_file
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.handlers.text_message_handler import TextMessageHandler
 
@@ -42,7 +45,16 @@ def main() -> None:
         use_class_middlewares=True,
     )
 
-    agent_client = AgentClient()
+    session_registry = SessionRegistry()
+    init_send_file(session_registry)
+    mcp_server = create_sdk_mcp_server(
+        name="bot-tools", version="1.0.0", tools=[send_file]
+    )
+    agent_client = AgentClient(
+        session_registry=session_registry,
+        bot=app.core.bot,
+        mcp_server=mcp_server,
+    )
     message_service = app.message_service
 
     send_to_agent_action = SendToAgentAction(
