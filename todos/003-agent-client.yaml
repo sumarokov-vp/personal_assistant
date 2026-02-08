@@ -16,7 +16,7 @@ recommendation: |
     - Использует ClaudeSDKClient для диалогов с сохранением контекста
     - Хранит dict[int, ClaudeSDKClient] — по одному клиенту на user_id
     - ClaudeAgentOptions:
-      - cwd: "/home/sumarokov" (SDK подхватит ~/.claude)
+      - cwd: "$HOME" (SDK подхватит ~/.claude)
       - permission_mode: "auto"
       - Без system_prompt — загрузит CLAUDE.md из ~/.claude
       - Без API ключа — авторизация через подписку (сессии из ~/.claude/session-env)

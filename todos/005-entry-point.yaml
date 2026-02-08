@@ -16,7 +16,7 @@ recommendation: |
        - roles_json_path: Path("data/roles.json")
        - languages_json_path: Path("data/languages.json")
     4. Создать AgentClient()
-       - cwd="/home/sumarokov" — авторизация через подписку Claude Code
+       - cwd="$HOME" — авторизация через подписку Claude Code
     5. Создать TextMessageHandler с зависимостями
     6. Зарегистрировать handler через message_handler_registry.register(
          handler=text_handler, content_types=["text"]

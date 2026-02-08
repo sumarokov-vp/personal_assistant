@@ -4,11 +4,11 @@ created_at: 08.02.2026
 completed_at: 08.02.2026
 
 description: |
-  В нескольких файлах захардкожен путь /home/sumarokov, что раскрывает имя пользователя
+  В нескольких файлах захардкожен путь $HOME/<USER>, что раскрывает имя пользователя
   на сервере. Репозиторий публичный. Затронутые файлы:
-  - src/agent/client.py:41 — cwd="/home/sumarokov"
+  - src/agent/client.py:41 — cwd="$HOME/<USER>"
   - deploy/docker-compose.yml — volume mounts
-  - deploy/Dockerfile:22 — useradd --home-dir /home/sumarokov
+  - deploy/Dockerfile:22 — useradd --home-dir $HOME/<USER>
   - CLAUDE.md — упоминание пути в документации
 
 recommendation: |

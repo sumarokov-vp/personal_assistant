@@ -10,7 +10,7 @@ description: |
 
 recommendation: |
   Добавить :ro к volume mount .claude в deploy/docker-compose.yml:
-    - /home/sumarokov/.claude:/home/sumarokov/.claude:ro
+    - $HOME/.claude:$HOME/.claude:ro
 
 solution: |
   Добавлен флаг :ro к volume mount .claude в docker-compose.yml.

@@ -9,7 +9,7 @@ description: |
 
 recommendation: |
   - uv init с python 3.13+
-  - uv add bot-framework[all] --path /home/sumarokov/projects/bot_framework
+  - uv add bot-framework[all] --path $HOME/projects/bot_framework
   - uv add claude-agent-sdk python-dotenv
   - uv add --dev ruff mypy pyright import-linter pytest
   - Создать структуру каталогов:

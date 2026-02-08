@@ -5,7 +5,7 @@ completed_at: 08.02.2026
 
 description: |
   В pyproject.toml (строка ~102) указан локальный путь:
-    bot-framework = { path = "/home/sumarokov/projects/bot_framework", editable = true }
+    bot-framework = { path = "$HOME/projects/bot_framework", editable = true }
 
   Это раскрывает структуру файловой системы на машине разработчика.
   Кроме того, uv sync будет падать на любой другой машине, где этого пути нет.

@@ -22,7 +22,7 @@ recommendation: |
     - env_file: .env
     - restart: unless-stopped
     - volumes:
-      - /home/sumarokov/.claude:/home/sumarokov/.claude:ro
+      - $HOME/.claude:$HOME/.claude:ro
         (авторизация подписки из session-env + CLAUDE.md, скиллы, команды)
     - Без отдельного Redis-сервиса (используем локальный Redis, база 4)
   - deploy/deploy.sh:
@@ -40,7 +40,7 @@ solution: |
 
   2. deploy/docker-compose.yml — сервис bot с network_mode: host (доступ к локальным
      PostgreSQL и Redis), env_file: ../.env, restart: unless-stopped,
-     volume mount /home/sumarokov/.claude:ro для авторизации Claude SDK.
+     volume mount $HOME/.claude:ro для авторизации Claude SDK.
 
   3. deploy/deploy.sh — скрипт деплоя: down, build --no-cache, up -d, logs -f.
      Сделан исполняемым (chmod +x).

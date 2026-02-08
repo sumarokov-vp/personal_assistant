@@ -14,6 +14,6 @@ recommendation: |
   ВАЖНО: Эта задача требует подтверждения пользователя перед выполнением (force push).
 
 solution: |
-  Использован git-filter-repo для замены 192.168.0.13 на <DB_HOST> во всей git-истории.
+  Использован git-filter-repo для замены <DB_HOST> на <DB_HOST> во всей git-истории.
   Force push выполнен в origin/main. GitHub dangling objects будут удалены
   автоматически через ~90 дней или по запросу в GitHub Support.
