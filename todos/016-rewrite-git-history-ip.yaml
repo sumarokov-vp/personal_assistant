@@ -1,0 +1,16 @@
+title: Переписать git-историю для удаления IP-адреса
+status: open
+created_at: 08.02.2026
+completed_at: null
+
+description: |
+  В git-истории (коммит 128e06b) остался внутренний IP-адрес сервера БД.
+  Репозиторий публичный. Нужно переписать историю чтобы удалить чувствительные данные.
+
+recommendation: |
+  1. Использовать git-filter-repo для замены IP на плейсхолдер в истории
+  2. Force push в origin/main
+  3. Запросить у GitHub garbage collection через Support
+  ВАЖНО: Эта задача требует подтверждения пользователя перед выполнением (force push).
+
+solution: null
