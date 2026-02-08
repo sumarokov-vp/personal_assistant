@@ -1,0 +1,52 @@
+title: Создание инструмента send_file для отправки файлов в Telegram
+status: done
+created_at: 08.02.2026
+completed_at: 08.02.2026
+
+description: |
+  Нужен кастомный инструмент (tool) для Claude Agent SDK, который позволяет
+  LLM отправлять файлы пользователю в Telegram как документы.
+
+  Сценарий использования:
+  - Пользователь запрашивает ресерч через Telegram-бота
+  - Claude выполняет ресерч (скилл /research)
+  - Результат сохраняется в ~/obsidian_wiki/Research/ как README.md (уже работает)
+  - Claude вызывает send_file tool с путём к созданному файлу
+  - Бот берёт файл по этому пути и отправляет как документ в Telegram
+
+  Параметры инструмента:
+  - file_path: str — абсолютный путь к файлу на диске
+
+  Логика работы:
+  1. Получить chat_id из SessionRegistry по текущей сессии
+  2. Проверить что файл существует по указанному пути
+  3. Отправить файл как document через Telegram Bot API (bot.send_document)
+  4. Вернуть подтверждение об успешной отправке
+
+  Важно:
+  - Файл уже существует на диске (создан LLM через Write tool)
+  - Не нужно передавать содержимое — только путь
+  - LLM имеет доступ к ~/obsidian_wiki/ через volume mount в Docker
+
+  Зависимости:
+  - Задача 009 (инфраструктура tool_use) должна быть выполнена первой
+  - Нужен доступ к Telegram bot instance (через SessionRegistry)
+
+recommendation: |
+  1. Создать src/agent/tools/send_file.py:
+     - Определить функцию с @tool("send_file", ...)
+     - input_schema: {"file_path": str}
+     - Внутри: получить контекст из SessionRegistry,
+       открыть файл по file_path, отправить через bot.send_document(chat_id, file)
+  2. Зарегистрировать инструмент в MCP сервере (src/agent/tools/__init__.py)
+
+solution: |
+  Реализован инструмент send_file для Claude Agent SDK:
+  1. SessionRegistry расширен: добавлен _current_user_id и метод get_current_context()
+     для доступа к контексту без явного user_id (нужен для tool-функций).
+  2. Создан src/agent/tools/send_file.py: модульная переменная _registry,
+     init_send_file() для инициализации, async send_file tool с @tool декоратором.
+     Проверяет существование файла, отправляет через bot.send_document.
+  3. workers/bot/__main__.py обновлён: вызов init_send_file, регистрация send_file в MCP сервере.
+  4. Написаны 3 теста: успешная отправка, файл не найден, не инициализирован.
+     Все 12 тестов проекта проходят.

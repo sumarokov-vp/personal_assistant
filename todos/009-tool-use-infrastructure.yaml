@@ -1,0 +1,55 @@
+title: Реализация инфраструктуры tool_use в AgentClient
+status: done
+created_at: 08.02.2026
+completed_at: 08.02.2026
+
+description: |
+  Сейчас AgentClient использует Claude Agent SDK только для текстового общения.
+  SDK поддерживает кастомные инструменты через декоратор @tool и create_sdk_mcp_server.
+  Нужно добавить инфраструктуру для регистрации и использования кастомных инструментов.
+
+  Текущее состояние:
+  - AgentClient (src/agent/client.py) создаёт ClaudeSDKClient с preset tools (claude_code)
+  - ToolUseBlock и ToolResultBlock уже обрабатываются в receive_response (логирование)
+  - Нет механизма для регистрации кастомных инструментов
+
+  Что нужно:
+  1. Создать модуль src/agent/tools/ для определения инструментов
+  2. Создать реестр сессий (session registry) для передачи контекста (chat_id, bot API)
+     в функции инструментов — инструменты вызываются SDK и не имеют доступа к контексту
+     вызывающего кода напрямую
+  3. Обновить AgentClient._get_or_create_client — добавить mcp_servers и allowed_tools
+     в ClaudeAgentOptions
+  4. Обновить AgentClient.send_message — сохранять chat_id в реестре сессий перед query
+
+  API Claude Agent SDK для инструментов:
+  - @tool(name, description, input_schema) — декоратор для определения инструмента
+  - create_sdk_mcp_server(name, version, tools) — создание in-process MCP сервера
+  - ClaudeAgentOptions(mcp_servers={"name": server}, allowed_tools=["mcp__name__*"])
+
+  Архитектурные решения:
+  - Инструменты определяются как async-функции с декоратором @tool
+  - Контекст сессии (chat_id, bot instance) хранится в dict по user_id
+  - MCP сервер создаётся один раз и переиспользуется для всех клиентов
+  - IAgentClient протокол расширяется: send_message получает chat_id
+
+recommendation: |
+  1. Создать src/agent/tools/__init__.py
+  2. Создать src/agent/tools/registry.py — SessionRegistry для хранения контекста:
+     - set_context(user_id, chat_id, bot) — вызывается перед query
+     - get_context(user_id) -> SessionContext — вызывается из tool-функций
+  3. Обновить IAgentClient протокол — добавить chat_id в send_message
+  4. Обновить AgentClient._get_or_create_client — добавить mcp_servers, allowed_tools
+  5. Обновить AgentClient.send_message — принимать chat_id, сохранять в registry
+  6. Обновить SendToAgentAction — передавать chat_id в agent_client.send_message
+  7. Обновить workers/bot/__main__.py — передавать bot instance в AgentClient
+
+solution: |
+  Создан модуль src/agent/tools/ с SessionRegistry (dataclass SessionContext + dict по user_id).
+  AgentClient принимает session_registry, bot и mcp_server в конструкторе.
+  Перед каждым query устанавливается контекст сессии (chat_id, bot) в registry.
+  ClaudeAgentOptions дополняется mcp_servers и allowed_tools при наличии MCP-сервера.
+  IAgentClient протокол расширен: send_message(user_id, chat_id, text).
+  SendToAgentAction передаёт chat_id в agent_client.send_message.
+  В __main__.py создаётся SessionRegistry, MCP-сервер (пока пустой) и передаётся bot instance.
+  Тесты обновлены под новые сигнатуры, исправлены моки ResultMessage.
