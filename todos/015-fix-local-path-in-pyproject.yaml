@@ -1,0 +1,18 @@
+title: Убрать локальный путь к bot_framework из pyproject.toml
+status: open
+created_at: 08.02.2026
+completed_at: null
+
+description: |
+  В pyproject.toml (строка ~102) указан локальный путь:
+    bot-framework = { path = "/home/sumarokov/projects/bot_framework", editable = true }
+
+  Это раскрывает структуру файловой системы на машине разработчика.
+  Кроме того, uv sync будет падать на любой другой машине, где этого пути нет.
+
+recommendation: |
+  Заменить локальный путь на published package из PyPI или git-зависимость.
+  ВАЖНО: Репозиторий smartist-org/bot-framework на GitHub не существует или приватный.
+  Перед выполнением нужно опубликовать пакет или создать публичный git-репозиторий.
+
+solution: null

@@ -14,6 +14,6 @@ recommendation: |
   - bot_framework сам создаст таблицы: users, roles, user_roles, languages, phrases
 
 solution: |
-  База данных personal_assistant создана на сервере <DB_HOST> под пользователем sumarokov.
+  База данных personal_assistant создана на сервере <DB_HOST> под пользователем <DB_USER>.
   Таблицы (users, roles, user_roles, languages, phrases) будут созданы автоматически
   при первом запуске бота через bot_framework (auto_migrate=True).

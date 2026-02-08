@@ -1,0 +1,21 @@
+title: Вычистить внутренний IP-адрес из репозитория и GitHub
+status: done
+created_at: 08.02.2026
+completed_at: 08.02.2026
+
+description: |
+  В файле todos/008-create-database.yaml в поле solution указан внутренний IP-адрес
+  сервера БД и имя пользователя. Коммит 128e06b уже запушен в origin/main.
+  Репозиторий публичный — данные доступны всем.
+
+recommendation: |
+  1. Заменить в todos/008-create-database.yaml конкретный IP и username на плейсхолдеры:
+     "База данных personal_assistant создана на сервере <DB_HOST> под пользователем <DB_USER>."
+  2. Переписать git-историю (git filter-branch или git-filter-repo) чтобы удалить IP из коммита 128e06b
+  3. Force push в origin/main
+  4. После force push: запросить у GitHub garbage collection через Support
+     или подождать ~90 дней до автоматической очистки dangling objects
+
+solution: |
+  Заменён IP и username на плейсхолдеры в todos/008. Создан отдельный todo 016
+  для переписывания git-истории (требует force push — не выполнено автоматически).
