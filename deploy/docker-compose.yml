@@ -10,4 +10,5 @@ services:
     restart: unless-stopped
     volumes:
       - /home/sumarokov/.claude:/home/sumarokov/.claude
-      - /home/sumarokov/pyinfra_dotfiles/dotfiles/claude:/home/sumarokov/pyinfra_dotfiles/dotfiles/claude:ro
+      - /home/sumarokov/pyinfra_dotfiles/dotfiles/claude:/home/sumarokov/pyinfra_dotfiles/dotfiles/claude
+      - /home/sumarokov/obsidian_wiki:/home/sumarokov/obsidian_wiki
