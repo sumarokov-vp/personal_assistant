@@ -1,6 +1,7 @@
 FROM python:3.13-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl jq git openssh-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends curl jq git openssh-client xz-utils && rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-musl.tar.xz | tar -xJ --strip-components=1 -C /usr/local/bin
 
 WORKDIR /app
 
