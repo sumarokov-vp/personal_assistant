@@ -1,5 +1,6 @@
 import asyncio
 import threading
+from dataclasses import dataclass
 from logging import getLogger
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
+    SystemMessage,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
@@ -21,6 +23,39 @@ from src.agent.tools.registry import SessionRegistry
 logger = getLogger(__name__)
 
 
+@dataclass
+class SessionStats:
+    model: str = ""
+    session_id: str = ""
+    total_cost_usd: float = 0.0
+    total_turns: int = 0
+    total_messages: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def update_from_result(self, result: ResultMessage) -> None:
+        self.total_cost_usd += result.total_cost_usd or 0.0
+        self.total_turns += result.num_turns
+        self.total_messages += 1
+        if result.usage:
+            self.input_tokens += result.usage.get("input_tokens", 0)
+            self.output_tokens += result.usage.get("output_tokens", 0)
+
+    def update_from_init(self, data: dict[str, Any]) -> None:
+        self.model = data.get("model", "")
+        self.session_id = data.get("session_id", "")
+
+    def format(self) -> str:
+        lines = [
+            f"Model: {self.model}",
+            f"Messages: {self.total_messages}",
+            f"Turns: {self.total_turns}",
+            f"Tokens: {self.input_tokens} in / {self.output_tokens} out",
+            f"Cost: ${self.total_cost_usd:.4f}",
+        ]
+        return "\n".join(lines)
+
+
 class AgentClient:
     def __init__(
         self,
@@ -29,6 +64,7 @@ class AgentClient:
         mcp_server: Any | None = None,
     ) -> None:
         self._clients: dict[int, ClaudeSDKClient] = {}
+        self._stats: dict[int, SessionStats] = {}
         self._session_registry = session_registry
         self._bot = bot
         self._mcp_server = mcp_server
@@ -53,6 +89,12 @@ class AgentClient:
                 options.allowed_tools = ["mcp__bot-tools__*"]
             self._clients[user_id] = ClaudeSDKClient(options)
         return self._clients[user_id]
+
+    def get_context(self, user_id: int) -> str:
+        stats = self._stats.get(user_id)
+        if not stats:
+            return "Нет активной сессии"
+        return stats.format()
 
     def reset_client(self, user_id: int) -> None:
         future = asyncio.run_coroutine_threadsafe(
@@ -85,6 +127,7 @@ class AgentClient:
 
         await client.query(text)
 
+        stats = self._stats.setdefault(user_id, SessionStats())
         response_parts: list[str] = []
         result_text: str | None = None
         async for message in client.receive_response():
@@ -100,6 +143,9 @@ class AgentClient:
                     elif isinstance(block, ToolResultBlock):
                         status = "error" if block.is_error else "ok"
                         logger.info("Tool result: %s", status)
+            elif isinstance(message, SystemMessage):
+                if message.subtype == "init":
+                    stats.update_from_init(message.data)
             elif isinstance(message, ResultMessage):
                 logger.info(
                     "Result: turns=%s, cost=$%.4f, duration=%dms",
@@ -107,6 +153,7 @@ class AgentClient:
                     message.total_cost_usd,
                     message.duration_ms,
                 )
+                stats.update_from_result(message)
                 if message.is_error:
                     await self._reset_client(user_id)
                     raise RuntimeError(f"Claude SDK error: {message.result}")
@@ -118,5 +165,9 @@ class AgentClient:
 
     async def _reset_client(self, user_id: int) -> None:
         if user_id in self._clients:
-            await self._clients[user_id].disconnect()
+            try:
+                await self._clients[user_id].disconnect()
+            except Exception:
+                logger.debug("Disconnect error (cross-task cancel scope)", exc_info=True)
             del self._clients[user_id]
+        self._stats.pop(user_id, None)
