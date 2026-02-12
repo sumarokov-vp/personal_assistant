@@ -1,5 +1,7 @@
+import asyncio
+import threading
 from collections.abc import AsyncIterator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
@@ -7,10 +9,20 @@ from src.agent.client import AgentClient
 from src.agent.tools.registry import SessionRegistry
 
 
-def _create_agent() -> AgentClient:
-    registry = SessionRegistry()
-    bot = MagicMock()
-    return AgentClient(session_registry=registry, bot=bot)
+def _create_loop() -> asyncio.AbstractEventLoop:
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    return loop
+
+
+def _create_agent() -> tuple[AgentClient, MagicMock]:
+    pool = MagicMock()
+    pool.loop = _create_loop()
+    agent = AgentClient(
+        pool=pool, session_registry=SessionRegistry(), bot=MagicMock()
+    )
+    return agent, pool
 
 
 def _make_result_message(
@@ -38,9 +50,9 @@ class TestAgentClientSendMessage:
         mock_client.query = AsyncMock()
         mock_client.receive_response = fake_receive
 
-        with patch("src.agent.client.ClaudeSDKClient", return_value=mock_client):
-            agent = _create_agent()
-            result = agent.send_message(user_id=1, chat_id=100, text="Hi")
+        agent, pool = _create_agent()
+        pool.get_or_create.return_value = mock_client
+        result = agent.send_message(user_id=1, chat_id=100, text="Hi")
 
         assert result == "Hello!"
         mock_client.query.assert_awaited_once_with("Hi")
@@ -56,9 +68,9 @@ class TestAgentClientSendMessage:
         mock_client.query = AsyncMock()
         mock_client.receive_response = fake_receive
 
-        with patch("src.agent.client.ClaudeSDKClient", return_value=mock_client):
-            agent = _create_agent()
-            result = agent.send_message(user_id=1, chat_id=100, text="Hi")
+        agent, pool = _create_agent()
+        pool.get_or_create.return_value = mock_client
+        result = agent.send_message(user_id=1, chat_id=100, text="Hi")
 
         assert result == "Final answer"
 
@@ -73,9 +85,9 @@ class TestAgentClientSendMessage:
         mock_client.query = AsyncMock()
         mock_client.receive_response = fake_receive
 
-        with patch("src.agent.client.ClaudeSDKClient", return_value=mock_client):
-            agent = _create_agent()
-            result = agent.send_message(user_id=1, chat_id=100, text="Hi")
+        agent, pool = _create_agent()
+        pool.get_or_create.return_value = mock_client
+        result = agent.send_message(user_id=1, chat_id=100, text="Hi")
 
         assert result == ""
 
@@ -94,9 +106,9 @@ class TestAgentClientSendMessage:
         mock_client.query = AsyncMock()
         mock_client.receive_response = fake_receive
 
-        with patch("src.agent.client.ClaudeSDKClient", return_value=mock_client):
-            agent = _create_agent()
-            result = agent.send_message(user_id=1, chat_id=100, text="Hi")
+        agent, pool = _create_agent()
+        pool.get_or_create.return_value = mock_client
+        result = agent.send_message(user_id=1, chat_id=100, text="Hi")
 
         assert result == "Hello!"
 
@@ -114,13 +126,13 @@ class TestAgentClientSendMessage:
         mock_client.receive_response = fake_receive
         mock_client.disconnect = AsyncMock()
 
-        with patch("src.agent.client.ClaudeSDKClient", return_value=mock_client):
-            agent = _create_agent()
-            try:
-                agent.send_message(user_id=1, chat_id=100, text="Hi")
-                raised = False
-            except RuntimeError as e:
-                raised = True
-                assert "Something went wrong" in str(e)
+        agent, pool = _create_agent()
+        pool.get_or_create.return_value = mock_client
+        try:
+            agent.send_message(user_id=1, chat_id=100, text="Hi")
+            raised = False
+        except RuntimeError as e:
+            raised = True
+            assert "Something went wrong" in str(e)
 
         assert raised

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from bot_framework.app import BotApplication
 from claude_agent_sdk import create_sdk_mcp_server
 from src.agent.client import AgentClient
+from src.agent.sdk_client_pool import SDKClientPool
 from src.agent.tools.registry import SessionRegistry
 from src.agent.tools.send_file import init_send_file, send_file
 from src.chat.actions.send_to_agent_action import SendToAgentAction
@@ -52,10 +53,11 @@ def main() -> None:
     mcp_server = create_sdk_mcp_server(
         name="bot-tools", version="1.0.0", tools=[send_file]
     )
+    pool = SDKClientPool(mcp_server=mcp_server)
     agent_client = AgentClient(
+        pool=pool,
         session_registry=session_registry,
         bot=app.core.bot,
-        mcp_server=mcp_server,
     )
     message_service = app.message_service
 
