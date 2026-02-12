@@ -20,7 +20,7 @@ Telegram User <-> bot-framework <-> Claude Agent SDK <-> Claude API
 ```bash
 # Клонировать репозиторий
 git clone <repo-url>
-cd personal_assistent
+cd personal_assistant
 
 # Установить зависимости
 uv sync

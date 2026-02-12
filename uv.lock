@@ -588,7 +588,7 @@ wheels = [
 ]
 
 [[package]]
-name = "personal-assistent"
+name = "personal-assistant"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

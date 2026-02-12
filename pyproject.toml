@@ -1,5 +1,5 @@
 [project]
-name = "personal-assistent"
+name = "personal-assistant"
 version = "0.1.0"
 description = "Telegram bot - personal assistant powered by Claude Agent SDK"
 readme = "README.md"
