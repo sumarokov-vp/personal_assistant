@@ -1,4 +1,6 @@
 import asyncio
+import os
+import signal
 import threading
 from dataclasses import dataclass
 from logging import getLogger
@@ -97,10 +99,11 @@ class AgentClient:
         return stats.format()
 
     def reset_client(self, user_id: int) -> None:
-        future = asyncio.run_coroutine_threadsafe(
-            self._reset_client(user_id), self._loop
-        )
-        future.result()
+        if user_id not in self._clients:
+            return
+        client = self._clients.pop(user_id)
+        self._stats.pop(user_id, None)
+        self._kill_subprocess(client)
 
     def send_message(self, user_id: int, chat_id: int, text: str) -> str:
         future = asyncio.run_coroutine_threadsafe(
@@ -165,9 +168,18 @@ class AgentClient:
 
     async def _reset_client(self, user_id: int) -> None:
         if user_id in self._clients:
-            try:
-                await self._clients[user_id].disconnect()
-            except Exception:
-                logger.debug("Disconnect error (cross-task cancel scope)", exc_info=True)
-            del self._clients[user_id]
+            client = self._clients.pop(user_id)
+            self._kill_subprocess(client)
         self._stats.pop(user_id, None)
+
+    @staticmethod
+    def _kill_subprocess(client: ClaudeSDKClient) -> None:
+        transport = getattr(client, "_transport", None)
+        if not transport:
+            return
+        process = getattr(transport, "_process", None)
+        if not process or process.returncode is not None:
+            return
+        pid = process.pid
+        logger.info("Killing CLI subprocess pid=%s", pid)
+        os.kill(pid, signal.SIGKILL)
