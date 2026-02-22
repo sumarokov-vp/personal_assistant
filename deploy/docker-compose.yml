@@ -12,7 +12,9 @@ services:
     restart: unless-stopped
     volumes:
       - ${HOME}/.claude:${APP_HOME:-/home/sumarokov}/.claude
+      - ./data/CLAUDE.md:${APP_HOME:-/home/sumarokov}/.claude/CLAUDE.md:ro
       - ${HOME}/pyinfra_dotfiles/dotfiles/claude:${APP_HOME:-/home/sumarokov}/pyinfra_dotfiles/dotfiles/claude
       - ${HOME}/obsidian_wiki:${APP_HOME:-/home/sumarokov}/obsidian_wiki
       - ${HOME}/.ssh/personal_assistant:${APP_HOME:-/home/sumarokov}/.ssh/personal_assistant:ro
       - ${HOME}/.ssh/personal_assistant.pub:${APP_HOME:-/home/sumarokov}/.ssh/personal_assistant.pub:ro
+      - ${HOME}/projects:${APP_HOME:-/home/sumarokov}/projects:ro

@@ -7,6 +7,8 @@ requires-python = ">=3.13"
 dependencies = [
     "bot-framework[all]==0.3.0",
     "claude-agent-sdk==0.1.32",
+    "openai-whisper>=20250625",
+    "pyannote-audio>=4.0.4",
     "python-dotenv==1.2.1",
 ]
 

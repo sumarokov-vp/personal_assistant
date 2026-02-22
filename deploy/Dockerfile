@@ -1,6 +1,6 @@
 FROM python:3.13-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl jq git openssh-client xz-utils && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y --no-install-recommends curl jq git openssh-client xz-utils ffmpeg libsndfile1 && rm -rf /var/lib/apt/lists/* && \
     curl -fsSL https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-musl.tar.xz | tar -xJ --strip-components=1 -C /usr/local/bin
 
 WORKDIR /app
@@ -23,6 +23,8 @@ ENV PYTHONPATH=/app
 ARG APP_USER=sumarokov
 RUN useradd --create-home --home-dir /home/${APP_USER} --uid 1000 ${APP_USER}
 USER ${APP_USER}
+
+COPY data/CLAUDE.md /home/${APP_USER}/CLAUDE.md
 
 RUN mkdir -p /home/${APP_USER}/.ssh && chmod 700 /home/${APP_USER}/.ssh && \
     printf "Host github-obsidian\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/personal_assistant\n  StrictHostKeyChecking accept-new\n" > /home/${APP_USER}/.ssh/config && \

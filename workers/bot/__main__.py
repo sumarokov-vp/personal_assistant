@@ -14,6 +14,9 @@ from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.handlers.clear_command_handler import ClearCommandHandler
 from src.chat.handlers.context_command_handler import ContextCommandHandler
 from src.chat.handlers.text_message_handler import TextMessageHandler
+from src.chat.handlers.voice_file_storage import VoiceFileStorage
+from src.chat.handlers.voice_message_handler import VoiceMessageHandler
+from src.chat.handlers.voice_transcribe_callback_handler import VoiceTranscribeCallbackHandler
 
 logger = getLogger(__name__)
 
@@ -78,11 +81,35 @@ def main() -> None:
         role_repo=app.role_repo,
     )
 
+    voice_file_storage = VoiceFileStorage()
+
+    voice_message_handler = VoiceMessageHandler(
+        bot=app.core.bot,
+        message_sender=app.message_sender,
+        role_repo=app.role_repo,
+        voice_file_storage=voice_file_storage,
+    )
+
+    voice_transcribe_callback_handler = VoiceTranscribeCallbackHandler(
+        callback_answerer=app.callback_answerer,
+        message_sender=app.message_sender,
+        message_replacer=app.message_replacer,
+        role_repo=app.role_repo,
+        voice_file_storage=voice_file_storage,
+    )
+
     text_handler = TextMessageHandler(
         send_to_agent_action=send_to_agent_action,
         message_service=message_service,
         role_repo=app.role_repo,
     )
+
+    app.core.message_handler_registry.register(
+        handler=voice_message_handler,
+        content_types=["voice", "audio"],
+    )
+
+    app.core.callback_handler_registry.register(voice_transcribe_callback_handler)
 
     app.core.message_handler_registry.register(
         handler=clear_handler,
