@@ -1,13 +1,24 @@
 ---
 name: deploy
-description: Деплой бота. Запускает линтеры, тесты, собирает Docker-образ и перезапускает контейнер.
+description: Деплой проекта. Требует агента devops для выполнения.
 allowed-tools: Bash(.claude/skills/deploy/scripts/*)
 ---
 
-Запусти скрипт деплоя:
+Делегируй выполнение деплоя агенту **devops**.
 
-```bash
-.claude/skills/deploy/scripts/deploy.sh
+Деплой локальный — бот работает на этой машине. Docker Compose запускается локально.
+
+Агент devops должен выполнить:
+
+```
+python .claude/skills/deploy/scripts/deploy.py
 ```
 
-Дождись завершения и сообщи результат пользователю.
+Скрипт выполняет три шага:
+1. `docker compose build` — сборка образа
+2. `docker compose down` — остановка текущих контейнеров
+3. `docker compose up -d` — запуск новых контейнеров
+
+Compose-файл: `deploy/docker-compose.yml`
+
+После завершения — сообщи пользователю результат (успех или ошибку с кодом выхода).

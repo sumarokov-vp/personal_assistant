@@ -34,8 +34,7 @@ data/
 └── languages.json           # Языки
 deploy/
 ├── Dockerfile               # Multi-stage build, python:3.13-slim
-├── docker-compose.yml       # Bot + зависимости
-└── deploy.sh                # Скрипт деплоя на сервер
+└── docker-compose.yml       # Bot + зависимости
 ```
 
 ## Claude Agent SDK
@@ -69,8 +68,9 @@ REDIS_URL=redis://localhost:6379/4
 
 ## Deploy
 
-- Один сервер, без разделения на dev/prod
-- Docker: `deploy/deploy.sh`
+- Локальный деплой — бот работает на этой машине, SSH не используется
+- Docker Compose: `deploy/docker-compose.yml`
+- Деплой через скилл `/deploy` (делегирует агенту devops)
 - Redis база: 4
 
 ## Tool Use (кастомные инструменты)
