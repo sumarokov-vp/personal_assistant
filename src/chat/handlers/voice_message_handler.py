@@ -1,9 +1,8 @@
 import tempfile
 from pathlib import Path
 
-from bot_framework import BotMessage, Button, IMessageSender, Keyboard, check_message_roles
+from bot_framework import BotMessage, Button, IDocumentDownloader, IMessageSender, Keyboard, check_message_roles
 from bot_framework.domain.role_management.repos import RoleRepo
-from telebot import TeleBot
 
 from src.chat.handlers.voice_file_storage import VoiceFileStorage
 
@@ -13,12 +12,12 @@ class VoiceMessageHandler:
 
     def __init__(
         self,
-        bot: TeleBot,
+        document_downloader: IDocumentDownloader,
         message_sender: IMessageSender,
         role_repo: RoleRepo,
         voice_file_storage: VoiceFileStorage,
     ) -> None:
-        self.bot = bot
+        self.document_downloader = document_downloader
         self.message_sender = message_sender
         self.role_repo = role_repo
         self.voice_file_storage = voice_file_storage
@@ -34,12 +33,9 @@ class VoiceMessageHandler:
         else:
             return
 
-        file_info = self.bot.get_file(file_id)
-        if not file_info.file_path:
-            return
-        file_bytes = self.bot.download_file(file_info.file_path)
+        file_bytes = self.document_downloader.download_document(file_id)
 
-        suffix = Path(file_info.file_path).suffix or ".ogg"
+        suffix = ".ogg"
         tmp_file = tempfile.NamedTemporaryFile(
             delete=False,
             suffix=suffix,

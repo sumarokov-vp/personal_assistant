@@ -1,7 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from logging import getLogger
 
-from bot_framework import BotCallback, ICallbackAnswerer, IMessageReplacer, IMessageSender, check_roles
+from bot_framework import BotCallback, ICallbackAnswerer, IDocumentSender, IMessageReplacer, check_roles
 from bot_framework.domain.role_management.repos import RoleRepo
 
 from src.chat.handlers.voice_file_storage import VoiceFileStorage
@@ -19,13 +19,13 @@ class VoiceTranscribeCallbackHandler:
     def __init__(
         self,
         callback_answerer: ICallbackAnswerer,
-        message_sender: IMessageSender,
+        document_sender: IDocumentSender,
         message_replacer: IMessageReplacer,
         role_repo: RoleRepo,
         voice_file_storage: VoiceFileStorage,
     ) -> None:
         self.callback_answerer = callback_answerer
-        self.message_sender = message_sender
+        self.document_sender = document_sender
         self.message_replacer = message_replacer
         self.role_repo = role_repo
         self.voice_file_storage = voice_file_storage
@@ -63,7 +63,7 @@ class VoiceTranscribeCallbackHandler:
             try:
                 output_path = transcribe(audio_path)
                 document = output_path.read_bytes()
-                self.message_sender.send_document(
+                self.document_sender.send_document(
                     chat_id=chat_id,
                     document=document,
                     filename=output_path.name,

@@ -20,7 +20,7 @@ def _create_agent() -> tuple[AgentClient, MagicMock]:
     pool = MagicMock()
     pool.loop = _create_loop()
     agent = AgentClient(
-        pool=pool, session_registry=SessionRegistry(), bot=MagicMock()
+        pool=pool, session_registry=SessionRegistry(), document_sender=MagicMock()
     )
     return agent, pool
 

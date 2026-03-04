@@ -1,7 +1,7 @@
 import asyncio
 from logging import getLogger
 
-import telebot
+from bot_framework import IDocumentSender
 from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
@@ -24,12 +24,12 @@ class AgentClient:
         self,
         pool: ISDKClientPool,
         session_registry: SessionRegistry,
-        bot: telebot.TeleBot,
+        document_sender: IDocumentSender,
     ) -> None:
         self._pool = pool
         self._stats: dict[int, SessionStats] = {}
         self._session_registry = session_registry
-        self._bot = bot
+        self._document_sender = document_sender
 
     def get_context(self, user_id: int) -> str:
         stats = self._stats.get(user_id)
@@ -52,7 +52,7 @@ class AgentClient:
     ) -> str:
         client = self._pool.get_or_create(user_id)
 
-        self._session_registry.set_context(user_id, chat_id, self._bot)
+        self._session_registry.set_context(user_id, chat_id, self._document_sender)
 
         if client._transport is None:
             logger.info("Connecting SDK client for user=%s...", user_id)

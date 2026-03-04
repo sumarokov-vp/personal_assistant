@@ -2,9 +2,8 @@ import tempfile
 from logging import getLogger
 from pathlib import Path
 
-from bot_framework import BotMessage, IMessageReplacer, IMessageSender, check_message_roles
+from bot_framework import BotMessage, IDocumentDownloader, IMessageReplacer, IMessageSender, check_message_roles
 from bot_framework.domain.role_management.repos import RoleRepo
-from telebot import TeleBot
 
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 
@@ -16,13 +15,13 @@ class PhotoMessageHandler:
 
     def __init__(
         self,
-        bot: TeleBot,
+        document_downloader: IDocumentDownloader,
         send_to_agent_action: SendToAgentAction,
         message_sender: IMessageSender,
         message_replacer: IMessageReplacer,
         role_repo: RoleRepo,
     ) -> None:
-        self.bot = bot
+        self.document_downloader = document_downloader
         self.send_to_agent_action = send_to_agent_action
         self.message_sender = message_sender
         self.message_replacer = message_replacer
@@ -38,12 +37,9 @@ class PhotoMessageHandler:
             return
 
         file_id = original.photo[-1].file_id
-        file_info = self.bot.get_file(file_id)
-        if not file_info.file_path:
-            return
-        file_bytes = self.bot.download_file(file_info.file_path)
+        file_bytes = self.document_downloader.download_document(file_id)
 
-        suffix = Path(file_info.file_path).suffix or ".jpg"
+        suffix = ".jpg"
         tmp_file = tempfile.NamedTemporaryFile(
             delete=False,
             suffix=suffix,

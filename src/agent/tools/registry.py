@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 
-import telebot
+from bot_framework import IDocumentSender
 
 
 @dataclass
 class SessionContext:
     chat_id: int
-    bot: telebot.TeleBot
+    document_sender: IDocumentSender
 
 
 class SessionRegistry:
@@ -14,8 +14,8 @@ class SessionRegistry:
         self._sessions: dict[int, SessionContext] = {}
         self._current_user_id: int | None = None
 
-    def set_context(self, user_id: int, chat_id: int, bot: telebot.TeleBot) -> None:
-        self._sessions[user_id] = SessionContext(chat_id=chat_id, bot=bot)
+    def set_context(self, user_id: int, chat_id: int, document_sender: IDocumentSender) -> None:
+        self._sessions[user_id] = SessionContext(chat_id=chat_id, document_sender=document_sender)
         self._current_user_id = user_id
 
     def get_context(self, user_id: int) -> SessionContext:

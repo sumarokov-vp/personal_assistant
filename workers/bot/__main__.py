@@ -61,7 +61,7 @@ def main() -> None:
     agent_client = AgentClient(
         pool=pool,
         session_registry=session_registry,
-        bot=app.core.bot,
+        document_sender=app.document_sender,
     )
     message_sender = app.message_sender
     message_replacer = app.message_replacer
@@ -87,7 +87,7 @@ def main() -> None:
     voice_file_storage = VoiceFileStorage()
 
     voice_message_handler = VoiceMessageHandler(
-        bot=app.core.bot,
+        document_downloader=app.core.document_downloader,
         message_sender=app.message_sender,
         role_repo=app.role_repo,
         voice_file_storage=voice_file_storage,
@@ -95,7 +95,7 @@ def main() -> None:
 
     voice_transcribe_callback_handler = VoiceTranscribeCallbackHandler(
         callback_answerer=app.callback_answerer,
-        message_sender=app.message_sender,
+        document_sender=app.document_sender,
         message_replacer=app.message_replacer,
         role_repo=app.role_repo,
         voice_file_storage=voice_file_storage,
@@ -109,7 +109,7 @@ def main() -> None:
     )
 
     photo_handler = PhotoMessageHandler(
-        bot=app.core.bot,
+        document_downloader=app.core.document_downloader,
         send_to_agent_action=send_to_agent_action,
         message_sender=message_sender,
         message_replacer=message_replacer,

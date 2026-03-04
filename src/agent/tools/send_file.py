@@ -26,8 +26,12 @@ async def send_file(args: dict[str, Any]) -> dict[str, Any]:
         }
 
     context = _registry.get_current_context()
-    with open(file_path, "rb") as f:
-        context.bot.send_document(context.chat_id, f)
+    file_bytes = file_path.read_bytes()
+    context.document_sender.send_document(
+        chat_id=context.chat_id,
+        document=file_bytes,
+        filename=file_path.name,
+    )
 
     return {
         "content": [

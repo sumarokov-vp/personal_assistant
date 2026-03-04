@@ -16,23 +16,23 @@ def _run(coro: object) -> dict[str, Any]:
 
 def _setup_registry(tmp_path: Path) -> tuple[SessionRegistry, MagicMock]:
     registry = SessionRegistry()
-    bot = MagicMock()
-    registry.set_context(user_id=1, chat_id=100, bot=bot)
+    document_sender = MagicMock()
+    registry.set_context(user_id=1, chat_id=100, document_sender=document_sender)
     init_send_file(registry)
-    return registry, bot
+    return registry, document_sender
 
 
 class TestSendFileSuccess:
     def test_sends_existing_file(self, tmp_path: Path) -> None:
-        _registry, bot = _setup_registry(tmp_path)
+        _registry, document_sender = _setup_registry(tmp_path)
         test_file = tmp_path / "report.md"
         test_file.write_text("# Report content")
 
         result = _run(_handler({"file_path": str(test_file)}))
 
-        bot.send_document.assert_called_once()
-        call_args = bot.send_document.call_args
-        assert call_args[0][0] == 100
+        document_sender.send_document.assert_called_once()
+        call_args = document_sender.send_document.call_args
+        assert call_args.kwargs["chat_id"] == 100
         assert result == {
             "content": [{"type": "text", "text": "File sent successfully: report.md"}]
         }
