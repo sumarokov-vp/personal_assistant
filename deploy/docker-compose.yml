@@ -18,3 +18,4 @@ services:
       - ${HOME}/.ssh/personal_assistant:${APP_HOME:-/home/sumarokov}/.ssh/personal_assistant:ro
       - ${HOME}/.ssh/personal_assistant.pub:${APP_HOME:-/home/sumarokov}/.ssh/personal_assistant.pub:ro
       - ${HOME}/projects:${APP_HOME:-/home/sumarokov}/projects:ro
+      - ${HOME}/.cache/whisper:${APP_HOME:-/home/sumarokov}/.cache/whisper

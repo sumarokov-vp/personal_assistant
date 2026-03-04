@@ -1,12 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from logging import getLogger
 
-from bot_framework.decorators import check_roles
-from bot_framework.entities.bot_callback import BotCallback
-from bot_framework.protocols.i_callback_answerer import ICallbackAnswerer
-from bot_framework.protocols.i_message_sender import IMessageSender
-from bot_framework.protocols.i_message_replacer import IMessageReplacer
-from bot_framework.role_management.repos import RoleRepo
+from bot_framework import BotCallback, ICallbackAnswerer, IMessageReplacer, IMessageSender, check_roles
+from bot_framework.domain.role_management.repos import RoleRepo
 
 from src.chat.handlers.voice_file_storage import VoiceFileStorage
 from src.voice_recognition.transcriber import transcribe
@@ -64,19 +60,28 @@ class VoiceTranscribeCallbackHandler:
         self.voice_file_storage.remove(chat_id=chat_id, message_id=prompt_message_id)
 
         def run_transcription() -> None:
-            output_path = transcribe(audio_path)
-            document = output_path.read_bytes()
-            self.message_sender.send_document(
-                chat_id=chat_id,
-                document=document,
-                filename=output_path.name,
-            )
-            self.message_replacer.replace(
-                chat_id=chat_id,
-                message_id=prompt_message_id,
-                text="Распознавание завершено.",
-            )
-            audio_path.unlink(missing_ok=True)
-            output_path.unlink(missing_ok=True)
+            try:
+                output_path = transcribe(audio_path)
+                document = output_path.read_bytes()
+                self.message_sender.send_document(
+                    chat_id=chat_id,
+                    document=document,
+                    filename=output_path.name,
+                )
+                self.message_replacer.replace(
+                    chat_id=chat_id,
+                    message_id=prompt_message_id,
+                    text="Распознавание завершено.",
+                )
+                output_path.unlink(missing_ok=True)
+            except Exception:
+                logger.exception("Transcription failed")
+                self.message_replacer.replace(
+                    chat_id=chat_id,
+                    message_id=prompt_message_id,
+                    text="Ошибка при распознавании речи.",
+                )
+            finally:
+                audio_path.unlink(missing_ok=True)
 
         _executor.submit(run_transcription)
