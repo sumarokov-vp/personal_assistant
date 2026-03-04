@@ -8,10 +8,14 @@ WORKDIR /app
 # Copy only pyproject.toml (not uv.lock - it may contain local editable paths)
 COPY pyproject.toml ./
 
-# Extract dependencies from pyproject.toml and install via pip
+# Copy pre-downloaded pip packages to avoid downloading ~3GB on every build
+COPY deploy/pip-cache/ /tmp/pip-cache/
+
+# Extract dependencies from pyproject.toml and install from local cache
 # This ignores [tool.uv.sources] and uses PyPI directly
 RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))" > requirements.txt && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir --find-links /tmp/pip-cache -r requirements.txt && \
+    rm -rf /tmp/pip-cache
 
 # Copy application code
 COPY src/ ./src/
