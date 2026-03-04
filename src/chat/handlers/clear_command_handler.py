@@ -1,7 +1,6 @@
-from bot_framework.decorators import check_message_roles
-from bot_framework.entities.bot_message import BotMessage
-from bot_framework.protocols.i_message_service import IMessageService
-from bot_framework.role_management.repos import RoleRepo
+from bot_framework import BotMessage, IMessageSender, check_message_roles
+from bot_framework.domain.role_management.repos import RoleRepo
+
 from src.agent.protocols.i_agent_client import IAgentClient
 
 
@@ -11,11 +10,11 @@ class ClearCommandHandler:
     def __init__(
         self,
         agent_client: IAgentClient,
-        message_service: IMessageService,
+        message_sender: IMessageSender,
         role_repo: RoleRepo,
     ) -> None:
         self.agent_client = agent_client
-        self.message_service = message_service
+        self.message_sender = message_sender
         self.role_repo = role_repo
 
     @check_message_roles
@@ -24,7 +23,7 @@ class ClearCommandHandler:
             raise ValueError("message.from_user is required but was None")
 
         self.agent_client.reset_client(message.from_user.id)
-        self.message_service.send(
+        self.message_sender.send(
             chat_id=message.chat_id,
             text="Контекст очищен",
         )

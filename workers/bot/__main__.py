@@ -13,6 +13,7 @@ from src.agent.tools.send_file import init_send_file, send_file
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.handlers.clear_command_handler import ClearCommandHandler
 from src.chat.handlers.context_command_handler import ContextCommandHandler
+from src.chat.handlers.photo_message_handler import PhotoMessageHandler
 from src.chat.handlers.text_message_handler import TextMessageHandler
 from src.chat.handlers.voice_file_storage import VoiceFileStorage
 from src.chat.handlers.voice_message_handler import VoiceMessageHandler
@@ -62,22 +63,24 @@ def main() -> None:
         session_registry=session_registry,
         bot=app.core.bot,
     )
-    message_service = app.message_service
+    message_sender = app.message_sender
+    message_replacer = app.message_replacer
 
     send_to_agent_action = SendToAgentAction(
         agent_client=agent_client,
-        message_service=message_service,
+        message_sender=message_sender,
+        message_replacer=message_replacer,
     )
 
     clear_handler = ClearCommandHandler(
         agent_client=agent_client,
-        message_service=message_service,
+        message_sender=message_sender,
         role_repo=app.role_repo,
     )
 
     context_handler = ContextCommandHandler(
         agent_client=agent_client,
-        message_service=message_service,
+        message_sender=message_sender,
         role_repo=app.role_repo,
     )
 
@@ -100,7 +103,16 @@ def main() -> None:
 
     text_handler = TextMessageHandler(
         send_to_agent_action=send_to_agent_action,
-        message_service=message_service,
+        message_sender=message_sender,
+        message_replacer=message_replacer,
+        role_repo=app.role_repo,
+    )
+
+    photo_handler = PhotoMessageHandler(
+        bot=app.core.bot,
+        send_to_agent_action=send_to_agent_action,
+        message_sender=message_sender,
+        message_replacer=message_replacer,
         role_repo=app.role_repo,
     )
 
@@ -121,6 +133,11 @@ def main() -> None:
         handler=context_handler,
         commands=["context"],
         content_types=["text"],
+    )
+
+    app.core.message_handler_registry.register(
+        handler=photo_handler,
+        content_types=["photo"],
     )
 
     app.core.message_handler_registry.register(

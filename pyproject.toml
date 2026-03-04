@@ -5,10 +5,9 @@ description = "Telegram bot - personal assistant powered by Claude Agent SDK"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "bot-framework[all]==0.3.0",
+    "bot-framework[all]==0.8.2",
     "claude-agent-sdk==0.1.32",
     "openai-whisper>=20250625",
-    "pyannote-audio>=4.0.4",
     "python-dotenv==1.2.1",
 ]
 

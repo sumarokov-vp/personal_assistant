@@ -1,5 +1,5 @@
+from bot_framework import IMessageReplacer, IMessageSender
 from src.agent.protocols.i_agent_client import IAgentClient
-from bot_framework.protocols.i_message_service import IMessageService
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 
@@ -8,10 +8,12 @@ class SendToAgentAction:
     def __init__(
         self,
         agent_client: IAgentClient,
-        message_service: IMessageService,
+        message_sender: IMessageSender,
+        message_replacer: IMessageReplacer,
     ) -> None:
         self.agent_client = agent_client
-        self.message_service = message_service
+        self.message_sender = message_sender
+        self.message_replacer = message_replacer
 
     def execute(
         self,
@@ -25,14 +27,14 @@ class SendToAgentAction:
             response = "Пустой ответ от агента"
         chunks = _split_message(response)
 
-        self.message_service.replace(
+        self.message_replacer.replace(
             chat_id=chat_id,
             message_id=thinking_message_id,
             text=chunks[0],
         )
 
         for chunk in chunks[1:]:
-            self.message_service.send(chat_id=chat_id, text=chunk)
+            self.message_sender.send(chat_id=chat_id, text=chunk)
 
 
 def _split_message(text: str) -> list[str]:

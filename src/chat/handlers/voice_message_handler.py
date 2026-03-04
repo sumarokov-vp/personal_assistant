@@ -1,12 +1,8 @@
 import tempfile
 from pathlib import Path
 
-from bot_framework.decorators import check_message_roles
-from bot_framework.entities.bot_message import BotMessage
-from bot_framework.entities.button import Button
-from bot_framework.entities.keyboard import Keyboard
-from bot_framework.protocols.i_message_sender import IMessageSender
-from bot_framework.role_management.repos import RoleRepo
+from bot_framework import BotMessage, Button, IMessageSender, Keyboard, check_message_roles
+from bot_framework.domain.role_management.repos import RoleRepo
 from telebot import TeleBot
 
 from src.chat.handlers.voice_file_storage import VoiceFileStorage
