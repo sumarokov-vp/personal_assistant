@@ -51,6 +51,7 @@ deploy/
 BOT_TOKEN=токен-бота
 BOT_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable
 REDIS_URL=redis://localhost:6379/4
+VOICE_RECOGNITION_URL=http://192.168.0.13:8000  # необязательная (есть дефолт); HTTP-сервис распознавания речи (faster-whisper, GPU)
 ```
 
 ## Технологический стек

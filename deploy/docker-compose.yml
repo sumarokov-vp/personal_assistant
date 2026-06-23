@@ -17,5 +17,8 @@ services:
       - ${HOME}/obsidian_wiki:${APP_HOME:-/home/sumarokov}/obsidian_wiki
       - ${HOME}/.ssh/personal_assistant:${APP_HOME:-/home/sumarokov}/.ssh/personal_assistant:ro
       - ${HOME}/.ssh/personal_assistant.pub:${APP_HOME:-/home/sumarokov}/.ssh/personal_assistant.pub:ro
-      - ${HOME}/projects:${APP_HOME:-/home/sumarokov}/projects:ro
+      - ${HOME}/.ssh/id_ed25519:${APP_HOME:-/home/sumarokov}/.ssh/id_ed25519:ro
+      - ${HOME}/.ssh/id_ed25519.pub:${APP_HOME:-/home/sumarokov}/.ssh/id_ed25519.pub:ro
+      - ${HOME}/.gitconfig:${APP_HOME:-/home/sumarokov}/.gitconfig:ro
+      - ${HOME}/projects:${APP_HOME:-/home/sumarokov}/projects
       - ${HOME}/.cache/whisper:${APP_HOME:-/home/sumarokov}/.cache/whisper
