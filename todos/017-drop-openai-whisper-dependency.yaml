@@ -1,0 +1,26 @@
+title: Выпилить openai-whisper из зависимостей после перехода на HTTP-транскрайбер
+status: pending
+created_at: 23.06.2026
+
+description: |
+  Бот переключён на HTTP-сервис распознавания речи (faster-whisper, GPU) через
+  src/voice_recognition/http_transcriber.py. Нативная реализация на openai-whisper
+  (src/voice_recognition/transcriber.py) больше не используется в DI, но оставлена
+  на месте как резервный путь.
+
+  СДЕЛАНО (23.06.2026): openai-whisper перенесён из [project].dependencies в
+  [dependency-groups].dev. deploy/Dockerfile генерирует requirements.txt только из
+  [project].dependencies, поэтому openai-whisper (и torch + CUDA, ~3.9GB) больше
+  НЕ попадает в Docker-образ. В локальном/dev-окружении пакет остаётся установлен
+  (uv sync синкает dev-группу по умолчанию): нативный транскрайбер работает локально,
+  а mypy/pyright/import-linter/pytest по-прежнему зелёные.
+
+  ОСТАЛОСЬ (отдельный шаг): полное удаление нативной реализации и зависимости —
+  после того как HTTP-сервис подтвердит стабильность в проде.
+
+recommendation: |
+  Полное удаление (отдельный шаг, когда HTTP-сервис подтвердит стабильность):
+  1. Удалить src/voice_recognition/transcriber.py.
+  2. Убрать "openai-whisper" из [dependency-groups].dev в pyproject.toml, uv sync.
+  3. Проверить, что в дереве зависимостей больше ничего не тянет torch.
+  4. Прогнать тесты и линтеры.

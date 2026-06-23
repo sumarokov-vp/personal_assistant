@@ -1,0 +1,34 @@
+title: deploy.py должен использовать явное имя compose-проекта (-p personal_assistant)
+status: pending
+created_at: 23.06.2026
+
+description: |
+  Скрипт деплоя .claude/skills/deploy/scripts/deploy.py запускает docker compose
+  без явного имени проекта:
+
+      compose = ["docker", "compose", "-f", str(COMPOSE_FILE)]
+
+  Из-за этого имя compose-проекта берётся по умолчанию из имени директории
+  compose-файла — `deploy`. Но на этой машине несколько проектов держат свой
+  compose в папке `deploy/` (как минимум `supplements`: /home/sumarokov/projects/supplements/deploy/).
+  Все они резолвятся в один и тот же compose-проект `deploy` → КОЛЛИЗИЯ.
+
+  Практические последствия:
+  - `docker compose down` в deploy.py может остановить/удалить чужие контейнеры
+    (supplements_bot, supplements_cron), а не наши.
+  - `docker compose ps/logs` показывают чужие контейнеры — путаница при диагностике
+    (реально привело к тому, что при разборе "бот не отвечает" сначала смотрели
+    и перезапускали supplements_bot вместо personal_assistant_bot).
+  - Образ собирается с префиксом `deploy-bot` вместо `personal_assistant-bot`.
+
+recommendation: |
+  Добавить явное имя проекта во все вызовы docker compose в deploy.py:
+
+      compose = ["docker", "compose", "-p", "personal_assistant", "-f", str(COMPOSE_FILE)]
+
+  Имя проекта можно вынести в константу PROJECT_NAME = "personal_assistant".
+  Проверить, что после правки build/down/up/logs работают и не задевают чужие проекты.
+
+  Дополнительно стоит рассмотреть:
+  - Почему контейнер personal_assistant_bot вообще исчез (вероятно docker system prune
+    или ручной down с дефолтным проектом). Явное имя проекта снижает риск повторения.
