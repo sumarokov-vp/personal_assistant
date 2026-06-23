@@ -5,19 +5,22 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from bot_framework.app import BotApplication
+from bot_framework.features.flows.request_role_flow.handlers import RequestRoleCommandHandler
 from claude_agent_sdk import create_sdk_mcp_server
 from src.agent.client import AgentClient
 from src.agent.sdk_client_pool import SDKClientPool
 from src.agent.tools.registry import SessionRegistry
 from src.agent.tools.send_file import init_send_file, send_file
 from src.chat.actions.send_to_agent_action import SendToAgentAction
+from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
 from src.chat.handlers.clear_command_handler import ClearCommandHandler
 from src.chat.handlers.context_command_handler import ContextCommandHandler
+from src.chat.handlers.document_message_handler import DocumentMessageHandler
 from src.chat.handlers.photo_message_handler import PhotoMessageHandler
 from src.chat.handlers.text_message_handler import TextMessageHandler
-from src.chat.handlers.voice_file_storage import VoiceFileStorage
 from src.chat.handlers.voice_message_handler import VoiceMessageHandler
-from src.chat.handlers.voice_transcribe_callback_handler import VoiceTranscribeCallbackHandler
+from src.voice_recognition.http_transcriber import HttpTranscriber
+from src.voice_recognition.transcript_cleaner import TranscriptCleaner
 
 logger = getLogger(__name__)
 
@@ -39,6 +42,8 @@ def main() -> None:
     redis_url = getenv("REDIS_URL")
     if not redis_url:
         raise ValueError("REDIS_URL environment variable is required")
+
+    voice_recognition_url = getenv("VOICE_RECOGNITION_URL", "http://192.168.0.13:8000")
 
     data_dir = project_root / "data"
 
@@ -84,21 +89,23 @@ def main() -> None:
         role_repo=app.role_repo,
     )
 
-    voice_file_storage = VoiceFileStorage()
+    request_role_handler = RequestRoleCommandHandler(
+        request_role_flow_router=app.request_role_flow_router,
+        user_repo=app.user_repo,
+    )
+
+    transcribe_voice_action = TranscribeVoiceAction(
+        transcriber=HttpTranscriber(base_url=voice_recognition_url),
+        transcript_cleaner=TranscriptCleaner(),
+        document_sender=app.document_sender,
+        message_replacer=app.message_replacer,
+    )
 
     voice_message_handler = VoiceMessageHandler(
         document_downloader=app.core.document_downloader,
+        transcribe_voice_action=transcribe_voice_action,
         message_sender=app.message_sender,
         role_repo=app.role_repo,
-        voice_file_storage=voice_file_storage,
-    )
-
-    voice_transcribe_callback_handler = VoiceTranscribeCallbackHandler(
-        callback_answerer=app.callback_answerer,
-        document_sender=app.document_sender,
-        message_replacer=app.message_replacer,
-        role_repo=app.role_repo,
-        voice_file_storage=voice_file_storage,
     )
 
     text_handler = TextMessageHandler(
@@ -116,12 +123,18 @@ def main() -> None:
         role_repo=app.role_repo,
     )
 
+    document_handler = DocumentMessageHandler(
+        document_downloader=app.core.document_downloader,
+        send_to_agent_action=send_to_agent_action,
+        message_sender=message_sender,
+        message_replacer=message_replacer,
+        role_repo=app.role_repo,
+    )
+
     app.core.message_handler_registry.register(
         handler=voice_message_handler,
         content_types=["voice", "audio"],
     )
-
-    app.core.callback_handler_registry.register(voice_transcribe_callback_handler)
 
     app.core.message_handler_registry.register(
         handler=clear_handler,
@@ -136,8 +149,19 @@ def main() -> None:
     )
 
     app.core.message_handler_registry.register(
+        handler=request_role_handler,
+        commands=["request_role"],
+        content_types=["text"],
+    )
+
+    app.core.message_handler_registry.register(
         handler=photo_handler,
         content_types=["photo"],
+    )
+
+    app.core.message_handler_registry.register(
+        handler=document_handler,
+        content_types=["document"],
     )
 
     app.core.message_handler_registry.register(

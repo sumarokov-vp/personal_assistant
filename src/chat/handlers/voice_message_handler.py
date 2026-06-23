@@ -1,26 +1,26 @@
 import tempfile
 from pathlib import Path
 
-from bot_framework import BotMessage, Button, IDocumentDownloader, IMessageSender, Keyboard, check_message_roles
+from bot_framework import BotMessage, IDocumentDownloader, IMessageSender, check_message_roles
 from bot_framework.domain.role_management.repos import RoleRepo
 
-from src.chat.handlers.voice_file_storage import VoiceFileStorage
+from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
 
 
 class VoiceMessageHandler:
-    allowed_roles: set[str] | None = {"admin"}
+    allowed_roles: set[str] | None = {"admin", "voice_recognition"}
 
     def __init__(
         self,
         document_downloader: IDocumentDownloader,
+        transcribe_voice_action: TranscribeVoiceAction,
         message_sender: IMessageSender,
         role_repo: RoleRepo,
-        voice_file_storage: VoiceFileStorage,
     ) -> None:
         self.document_downloader = document_downloader
+        self.transcribe_voice_action = transcribe_voice_action
         self.message_sender = message_sender
         self.role_repo = role_repo
-        self.voice_file_storage = voice_file_storage
 
     @check_message_roles
     def handle(self, message: BotMessage) -> None:
@@ -35,10 +35,9 @@ class VoiceMessageHandler:
 
         file_bytes = self.document_downloader.download_document(file_id)
 
-        suffix = ".ogg"
         tmp_file = tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=suffix,
+            suffix=".ogg",
             prefix="voice_",
         )
         tmp_file.write(file_bytes)
@@ -46,25 +45,13 @@ class VoiceMessageHandler:
 
         audio_path = Path(tmp_file.name)
 
-        keyboard = Keyboard(
-            rows=[
-                [
-                    Button(
-                        text="Распознать",
-                        callback_data=f"voice_transcribe:{message.message_id}",
-                    )
-                ]
-            ]
+        status_message = self.message_sender.send(
+            chat_id=message.chat_id,
+            text="Распознаю речь... Это займёт минуту.",
         )
 
-        prompt_message = self.message_sender.send(
+        self.transcribe_voice_action.execute(
             chat_id=message.chat_id,
-            text="Голосовое сообщение получено. Распознать речь?",
-            keyboard=keyboard,
-        )
-
-        self.voice_file_storage.save(
-            chat_id=message.chat_id,
-            message_id=prompt_message.message_id,
-            file_path=audio_path,
+            audio_path=audio_path,
+            status_message_id=status_message.message_id,
         )
