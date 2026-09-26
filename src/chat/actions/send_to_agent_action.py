@@ -1,3 +1,4 @@
+from ai_framework import Attachment
 from bot_framework import IMessageDeleter, IMessageReplacer, IMessageSender
 
 from src.chat.actions.protocols.i_conversation_ai import IConversationAI
@@ -28,12 +29,14 @@ class SendToAgentAction:
         user_id: int,
         text: str,
         thinking_message_id: int,
+        attachments: list[Attachment] | None = None,
     ) -> None:
         self.ai.update_system_prompt(self.system_prompt_builder.build())
         response = self.ai.process_message(
             thread_id=str(user_id),
             user_message=text,
             tool_context={"chat_id": chat_id, "user_id": user_id},
+            attachments=attachments,
         )
         if response.suppress_response:
             self.message_deleter.delete(chat_id=chat_id, message_id=thinking_message_id)

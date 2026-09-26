@@ -1,6 +1,8 @@
 from logging import getLogger
 from pathlib import Path
 
+from ai_framework import Attachment
+from ai_framework.entities.attachment import AttachmentMediaType
 from bot_framework import (
     BotMessage,
     IDocumentDownloader,
@@ -11,22 +13,33 @@ from bot_framework import (
 from bot_framework.domain.role_management.repos import RoleRepo
 
 from src.chat.actions.send_to_agent_action import SendToAgentAction
+from src.chat.handlers.attachment_limits import (
+    IMAGE_TOO_LARGE_TEXT,
+    image_exceeds_limit,
+)
 
 logger = getLogger(__name__)
 
 TEXT_EXTENSIONS = {".txt", ".md", ".csv"}
 TEXT_MIME_TYPES = {"text/plain", "text/markdown", "text/x-markdown", "text/csv"}
-BINARY_ATTACHMENT_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
-BINARY_ATTACHMENT_MIME_TYPES = {
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "application/pdf",
+ATTACHMENT_MIME_TYPES: dict[str, AttachmentMediaType] = {
+    "image/jpeg": "image/jpeg",
+    "image/png": "image/png",
+    "image/gif": "image/gif",
+    "image/webp": "image/webp",
+    "application/pdf": "application/pdf",
+}
+ATTACHMENT_EXTENSIONS: dict[str, AttachmentMediaType] = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".pdf": "application/pdf",
 }
 
 UNSUPPORTED_FORMAT_TEXT = "Такой формат пока не читаю."
 FILE_TOO_LARGE_TEXT = "Файл больше 10 МБ — такой не читаю."
-BINARY_ATTACHMENTS_NOT_READY_TEXT = "Фото и PDF пока не читаю — скоро научусь."
 
 
 class DocumentMessageHandler:
@@ -40,6 +53,7 @@ class DocumentMessageHandler:
         message_replacer: IMessageReplacer,
         role_repo: RoleRepo,
         max_file_bytes: int,
+        max_image_bytes: int,
     ) -> None:
         self.document_downloader = document_downloader
         self.send_to_agent_action = send_to_agent_action
@@ -47,6 +61,7 @@ class DocumentMessageHandler:
         self.message_replacer = message_replacer
         self.role_repo = role_repo
         self.max_file_bytes = max_file_bytes
+        self.max_image_bytes = max_image_bytes
 
     @check_message_roles
     def handle(self, message: BotMessage) -> None:
@@ -60,58 +75,89 @@ class DocumentMessageHandler:
 
         file_name = document.file_name or "document"
         caption = original.caption or ""
-
-        if (document.file_size or 0) > self.max_file_bytes:
-            self.message_sender.send(chat_id=message.chat_id, text=FILE_TOO_LARGE_TEXT)
-            return
-
         extension = Path(file_name).suffix.lower()
         mime_type = (document.mime_type or "").lower()
 
         if extension in TEXT_EXTENSIONS or mime_type in TEXT_MIME_TYPES:
-            self._send_text_file(
-                message, message.from_user.id, document.file_id, file_name, caption
+            if self._refuse_oversized(message, document.file_size or 0, None):
+                return
+            self._send_text_file(message, document.file_id, file_name, caption)
+            return
+
+        media_type = ATTACHMENT_MIME_TYPES.get(mime_type) or ATTACHMENT_EXTENSIONS.get(
+            extension
+        )
+        if media_type is None:
+            self.message_sender.send(
+                chat_id=message.chat_id, text=UNSUPPORTED_FORMAT_TEXT
             )
             return
 
-        if (
-            extension in BINARY_ATTACHMENT_EXTENSIONS
-            or mime_type in BINARY_ATTACHMENT_MIME_TYPES
-        ):
-            self._send_binary_attachment(message)
+        if self._refuse_oversized(message, document.file_size or 0, media_type):
             return
-
-        self.message_sender.send(chat_id=message.chat_id, text=UNSUPPORTED_FORMAT_TEXT)
+        self._send_attachment(message, document.file_id, file_name, caption, media_type)
 
     def _send_text_file(
-        self,
-        message: BotMessage,
-        user_id: int,
-        file_id: str,
-        file_name: str,
-        caption: str,
+        self, message: BotMessage, file_id: str, file_name: str, caption: str
     ) -> None:
         file_bytes = self.document_downloader.download_document(file_id)
-        if len(file_bytes) > self.max_file_bytes:
-            self.message_sender.send(chat_id=message.chat_id, text=FILE_TOO_LARGE_TEXT)
+        if self._refuse_oversized(message, len(file_bytes), None):
             return
 
         content = file_bytes.decode("utf-8-sig", errors="replace")
         agent_text = f"Файл {file_name}:\n\n{content}"
         if caption:
             agent_text = f"{caption}\n\n{agent_text}"
+        self._ask_agent(message, agent_text, None)
+
+    def _send_attachment(
+        self,
+        message: BotMessage,
+        file_id: str,
+        file_name: str,
+        caption: str,
+        media_type: AttachmentMediaType,
+    ) -> None:
+        file_bytes = self.document_downloader.download_document(file_id)
+        if self._refuse_oversized(message, len(file_bytes), media_type):
+            return
+
+        agent_text = f"Файл {file_name}"
+        if caption:
+            agent_text = f"{caption}\n\n{agent_text}"
+        attachment = Attachment(
+            media_type=media_type, filename=file_name, data=file_bytes
+        )
+        self._ask_agent(message, agent_text, [attachment])
+
+    def _refuse_oversized(
+        self, message: BotMessage, size: int, media_type: AttachmentMediaType | None
+    ) -> bool:
+        if size > self.max_file_bytes:
+            self.message_sender.send(chat_id=message.chat_id, text=FILE_TOO_LARGE_TEXT)
+            return True
+        is_image = media_type is not None and media_type.startswith("image/")
+        if is_image and image_exceeds_limit(size, self.max_image_bytes):
+            self.message_sender.send(chat_id=message.chat_id, text=IMAGE_TOO_LARGE_TEXT)
+            return True
+        return False
+
+    def _ask_agent(
+        self, message: BotMessage, text: str, attachments: list[Attachment] | None
+    ) -> None:
+        if not message.from_user:
+            raise ValueError("message.from_user is required but was None")
 
         thinking_msg = self.message_sender.send(
-            chat_id=message.chat_id,
-            text="Думаю...",
+            chat_id=message.chat_id, text="Думаю..."
         )
-
         try:
             self.send_to_agent_action.execute(
                 chat_id=message.chat_id,
-                user_id=user_id,
-                text=agent_text,
+                user_id=message.from_user.id,
+                text=text,
                 thinking_message_id=thinking_msg.message_id,
+                attachments=attachments,
             )
         except Exception as e:
             logger.exception("Agent error on document")
@@ -120,9 +166,3 @@ class DocumentMessageHandler:
                 message_id=thinking_msg.message_id,
                 text=f"Ошибка: {e}",
             )
-
-    def _send_binary_attachment(self, message: BotMessage) -> None:
-        self.message_sender.send(
-            chat_id=message.chat_id,
-            text=BINARY_ATTACHMENTS_NOT_READY_TEXT,
-        )
