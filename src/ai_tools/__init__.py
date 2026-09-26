@@ -1,6 +1,8 @@
 from src.ai_tools.draft_mail import DraftAttachments, DraftMailTool
 from src.ai_tools.file_read import FileReadTool
+from src.ai_tools.file_send import FileSendTool
 from src.ai_tools.file_take import FileTakeTool
+from src.ai_tools.file_view import FileViewTool
 from src.ai_tools.memory_close_commitment import MemoryCloseCommitmentTool
 from src.ai_tools.memory_show import MemoryShowTool
 from src.ai_tools.memory_upsert_commitment import MemoryUpsertCommitmentTool
@@ -15,7 +17,9 @@ __all__ = [
     "DraftAttachments",
     "DraftMailTool",
     "FileReadTool",
+    "FileSendTool",
     "FileTakeTool",
+    "FileViewTool",
     "MemoryCloseCommitmentTool",
     "MemoryShowTool",
     "MemoryUpsertCommitmentTool",
