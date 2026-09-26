@@ -24,7 +24,10 @@ from workers.checkup.checkup_env import CheckupEnv
 from workers.checkup.checkup_pass import CheckupPass
 from workers.checkup.checkup_report import CheckupReport
 from workers.checkup.memory_fill_step import MemoryFillStep
-from workers.memory_fill.composition import build_wiki_storage
+from workers.memory_fill.composition import (
+    SUBSCRIPTION_HAS_NO_API_KEY,
+    build_wiki_storage,
+)
 
 CHECKUP_PROMPT_PATH = (
     Path(__file__).parent.parent.parent / "data" / "checkup_prompt.txt"
@@ -76,8 +79,8 @@ def run_checkup(
         storage, tasks, owner_today(fill_env.owner_timezone)
     )
     ai = AIApplication(
-        api_key=fill_env.anthropic_api_key,
-        provider=Provider.ANTHROPIC,
+        api_key=SUBSCRIPTION_HAS_NO_API_KEY,
+        provider=Provider.CLAUDE_SDK,
         model=fill_env.ai_model,
         system_prompt=build_checkup_system_prompt(
             checkup_prompt_template, fill_env.owner_timezone

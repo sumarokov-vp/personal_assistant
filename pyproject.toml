@@ -1,11 +1,11 @@
 [project]
 name = "personal-assistant"
 version = "0.1.0"
-description = "Telegram bot - personal assistant on ai_framework (Claude API with explicit tools)"
+description = "Telegram bot - personal assistant on ai_framework (Claude Agent SDK by subscription, explicit tools only)"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "ai-bot-framework",
+    "ai-bot-framework[claude-sdk]",
     "bot-framework[all]==0.8.2",
     "httpx>=0.28.1",
     "pydantic>=2.12.5",
