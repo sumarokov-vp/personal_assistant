@@ -55,6 +55,16 @@ class WikiWriter:
             )
             return self._commit_and_publish(file, summary)
 
+    def write_page(
+        self, relative_path: str, content: str, summary: str
+    ) -> WikiWriteResult:
+        with self._lock:
+            self._publisher.refresh()
+            file = self._path_policy.resolve_for_write(relative_path)
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(_with_trailing_newline(content), encoding="utf-8")
+            return self._commit_and_publish(file, summary)
+
     def _commit_and_publish(self, file: Path, summary: str) -> WikiWriteResult:
         relative_name = self._path_policy.relative_name(file)
         self._git.run_checked("add", "--", relative_name)

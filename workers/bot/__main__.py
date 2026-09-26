@@ -10,6 +10,13 @@ from bot_framework.app import BotApplication
 from bot_framework.features.flows.request_role_flow.handlers import (
     RequestRoleCommandHandler,
 )
+from src.ai_tools import (
+    MemoryCloseCommitmentTool,
+    MemoryShowTool,
+    MemoryUpsertCommitmentTool,
+    MemoryUpsertDeadlineTool,
+    MemoryUpsertTripTool,
+)
 from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
 from src.ai_tools.dropbox_read import DropboxReadTool
 from src.ai_tools.dropbox_search import DropboxSearchTool
@@ -46,6 +53,13 @@ from src.flows.dropbox_moves import (
     MovePlanCardText,
     RollbackMovePlanHandler,
 )
+from src.memory.repos import (
+    CommitmentRepository,
+    DeadlineRepository,
+    WhereaboutsRepository,
+    WikiPageStorage,
+)
+from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from workers.bot.transcriber_factory import build_transcriber
 
 logger = getLogger(__name__)
@@ -135,6 +149,35 @@ def build_dropbox_move_tools(
     ]
 
 
+def build_wiki_factory() -> WikiFactory:
+    ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
+    return WikiFactory(
+        WikiSettings(
+            wiki_dir=Path(require_env("WIKI_DIR")),
+            remote_url=require_env("WIKI_REMOTE_URL"),
+            ssh_key_path=Path(ssh_key_path) if ssh_key_path else None,
+        )
+    )
+
+
+def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[BaseTool]:
+    storage = WikiPageStorage(
+        reader=wiki_factory.create_reader(),
+        writer=wiki_factory.create_writer(),
+        page_not_found_error=WikiPageNotFoundError,
+    )
+    deadlines = DeadlineRepository(storage)
+    whereabouts = WhereaboutsRepository(storage)
+    commitments = CommitmentRepository(storage)
+    return [
+        MemoryShowTool(deadlines=deadlines, whereabouts=whereabouts, commitments=commitments),
+        MemoryUpsertDeadlineTool(deadlines=deadlines, timezone=timezone),
+        MemoryUpsertTripTool(whereabouts=whereabouts),
+        MemoryUpsertCommitmentTool(commitments=commitments),
+        MemoryCloseCommitmentTool(commitments=commitments),
+    ]
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent.parent
     load_dotenv(dotenv_path=project_root / ".env")
@@ -170,6 +213,9 @@ def main() -> None:
     if dropbox_root:
         tools.extend(build_dropbox_tools(Path(dropbox_root)))
         tools.extend(build_dropbox_move_tools(Path(dropbox_root), db_url, app))
+
+    wiki_factory = build_wiki_factory()
+    tools.extend(build_memory_tools(wiki_factory, owner_timezone))
 
     system_prompt_builder = SystemPromptBuilder(
         template=(data_dir / "system_prompt.txt").read_text(encoding="utf-8"),
