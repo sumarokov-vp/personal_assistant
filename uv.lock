@@ -12,8 +12,8 @@ resolution-markers = [
 
 [[package]]
 name = "ai-bot-framework"
-version = "0.9.3"
-source = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git?rev=v0.9.3#8c3d110279feaabbd8c693b65361d4681cab0ab3" }
+version = "0.9.4"
+source = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git?rev=v0.9.4#a2a129ecaefefbba580c3582ab4c1945ff7a8b0c" }
 dependencies = [
     { name = "anthropic" },
     { name = "psycopg" },
@@ -1235,7 +1235,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ai-bot-framework", extras = ["claude-sdk", "s3"], git = "https://github.com/sumarokov-vp/ai_bot_framework.git?rev=v0.9.3" },
+    { name = "ai-bot-framework", extras = ["claude-sdk", "s3"], git = "https://github.com/sumarokov-vp/ai_bot_framework.git?rev=v0.9.4" },
     { name = "bot-framework", extras = ["all"], specifier = "==0.8.2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "openai-whisper", marker = "extra == 'whisper'", specifier = ">=20250625" },
