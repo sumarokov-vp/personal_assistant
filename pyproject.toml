@@ -8,6 +8,8 @@ dependencies = [
     "ai-bot-framework",
     "bot-framework[all]==0.8.2",
     "httpx>=0.28.1",
+    "pydantic>=2.12.5",
+    "pypdf>=6.19.0",
     "python-dotenv==1.2.1",
 ]
 

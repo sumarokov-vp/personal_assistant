@@ -17,6 +17,12 @@ from src.ai_tools import (
     MemoryUpsertDeadlineTool,
     MemoryUpsertTripTool,
 )
+from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
+from src.ai_tools.dropbox_read import DropboxReadTool
+from src.ai_tools.dropbox_search import DropboxSearchTool
+from src.ai_tools.dropbox_tree import DropboxTreeTool
+from src.ai_tools.dropbox_undo_moves import DropboxUndoMovesTool
+from src.app_migrations import apply_migrations
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
@@ -25,6 +31,28 @@ from src.chat.handlers.document_message_handler import DocumentMessageHandler
 from src.chat.handlers.photo_message_handler import PhotoMessageHandler
 from src.chat.handlers.text_message_handler import TextMessageHandler
 from src.chat.handlers.voice_message_handler import VoiceMessageHandler
+from src.dropbox.repos.postgres_dropbox_journal_repository import (
+    PostgresDropboxJournalRepository,
+)
+from src.dropbox.repos.postgres_move_plan_repository import PostgresMovePlanRepository
+from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
+from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
+from src.dropbox.services.move_canceller.move_plan_canceller import MovePlanCanceller
+from src.dropbox.services.move_executor.move_plan_executor import MovePlanExecutor
+from src.dropbox.services.move_planner.move_planner import MovePlanner
+from src.dropbox.services.move_rollback.move_plan_rollback import MovePlanRollback
+from src.dropbox.services.move_validator.move_plan_validator import MovePlanValidator
+from src.dropbox.services.reader.dropbox_reader import DropboxReader
+from src.dropbox.services.search.dropbox_search import DropboxSearch
+from src.dropbox.services.tree.dropbox_tree import DropboxTree
+from src.flows.dropbox_moves import (
+    CancelMovePlanHandler,
+    ExecuteMovePlanHandler,
+    MovePlanCallbackGuard,
+    MovePlanCardPresenter,
+    MovePlanCardText,
+    RollbackMovePlanHandler,
+)
 from src.memory.repos import (
     CommitmentRepository,
     DeadlineRepository,
@@ -40,6 +68,7 @@ TOKEN_LEAKING_LOGGERS = ["TeleBot", "urllib3", "requests", "httpx", "anthropic"]
 
 HISTORY_TURNS_LIMIT = 10
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+CARD_LANGUAGE = "ru"
 
 
 def configure_logging(level: str) -> None:
@@ -53,6 +82,71 @@ def require_env(name: str) -> str:
     if not value:
         raise ValueError(f"{name} environment variable is required")
     return value
+
+
+def build_dropbox_tools(root: Path) -> list[BaseTool]:
+    if not root.is_dir():
+        raise ValueError(f"DROPBOX_ROOT={root} is not a directory")
+    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
+    return [
+        DropboxTreeTool(tree_builder=DropboxTree(boundary=boundary)),
+        DropboxSearchTool(finder=DropboxSearch(boundary=boundary)),
+        DropboxReadTool(reader=DropboxReader(boundary=boundary)),
+    ]
+
+
+def build_dropbox_move_tools(
+    root: Path, database_url: str, app: BotApplication
+) -> list[BaseTool]:
+    apply_migrations(database_url)
+    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
+    plans = PostgresMovePlanRepository(database_url=database_url)
+    journal = PostgresDropboxJournalRepository(database_url=database_url)
+    validator = MovePlanValidator(boundary=boundary)
+    card = MovePlanCardPresenter(
+        message_sender=app.message_sender,
+        message_replacer=app.message_replacer,
+        card_text=MovePlanCardText(
+            phrase_repo=app.phrase_repo, language_code=CARD_LANGUAGE
+        ),
+        phrase_repo=app.phrase_repo,
+        language_code=CARD_LANGUAGE,
+    )
+    guard = MovePlanCallbackGuard(
+        callback_answerer=app.callback_answerer,
+        plans=plans,
+        phrase_repo=app.phrase_repo,
+        language_code=CARD_LANGUAGE,
+    )
+    for handler in (
+        ExecuteMovePlanHandler(
+            callback_answerer=app.callback_answerer,
+            guard=guard,
+            executor=MovePlanExecutor(
+                plans=plans, validator=validator, boundary=boundary, journal=journal
+            ),
+            card=card,
+        ),
+        CancelMovePlanHandler(
+            callback_answerer=app.callback_answerer,
+            guard=guard,
+            canceller=MovePlanCanceller(plans=plans),
+            card=card,
+        ),
+        RollbackMovePlanHandler(
+            callback_answerer=app.callback_answerer,
+            guard=guard,
+            rollback=MovePlanRollback(plans=plans, boundary=boundary, journal=journal),
+            card=card,
+        ),
+    ):
+        app.callback_handler_registry.register(handler)
+    return [
+        DropboxProposeMovesTool(
+            proposer=MovePlanner(validator=validator, plans=plans), card_sender=card
+        ),
+        DropboxUndoMovesTool(plans=plans, offer_sender=card),
+    ]
 
 
 def build_wiki_factory() -> WikiFactory:
@@ -114,11 +208,14 @@ def main() -> None:
         use_class_middlewares=True,
     )
 
-    wiki_factory = build_wiki_factory()
+    tools: list[BaseTool] = []
+    dropbox_root = getenv("DROPBOX_ROOT")
+    if dropbox_root:
+        tools.extend(build_dropbox_tools(Path(dropbox_root)))
+        tools.extend(build_dropbox_move_tools(Path(dropbox_root), db_url, app))
 
-    tools: list[BaseTool] = [
-        *build_memory_tools(wiki_factory, owner_timezone),
-    ]
+    wiki_factory = build_wiki_factory()
+    tools.extend(build_memory_tools(wiki_factory, owner_timezone))
 
     system_prompt_builder = SystemPromptBuilder(
         template=(data_dir / "system_prompt.txt").read_text(encoding="utf-8"),
