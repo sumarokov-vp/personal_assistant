@@ -1,0 +1,2 @@
+class MovePlanStatusError(Exception):
+    pass

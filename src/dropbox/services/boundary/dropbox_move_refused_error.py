@@ -1,0 +1,2 @@
+class DropboxMoveRefusedError(Exception):
+    pass

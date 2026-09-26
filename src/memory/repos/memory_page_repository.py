@@ -20,6 +20,10 @@ class MemoryPageRepository[T]:
         self._parser = MarkdownPageParser()
         self._renderer = MarkdownPageRenderer()
 
+    @property
+    def path(self) -> str:
+        return self._format.path
+
     def read(self) -> MemoryPageRead[T]:
         page = self._load()
         return MemoryPageRead(entries=list(page.entries), remarks=list(page.remarks))

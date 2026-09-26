@@ -12,14 +12,21 @@ class CommitmentRepository:
         self._format = CommitmentPageFormat()
         self._pages = MemoryPageRepository(storage, self._format)
 
+    @property
+    def path(self) -> str:
+        return self._pages.path
+
     def read(self) -> MemoryPageRead[Commitment]:
         return self._pages.read()
+
+    def find(self, what: str, parties: str) -> Commitment | None:
+        return self._pages.find(self._format.key_of(what, parties))
 
     def upsert(self, commitment: Commitment) -> UpsertOutcome:
         return self._pages.upsert(commitment)
 
     def close(self, what: str, parties: str) -> Commitment | None:
-        found = self._pages.find(self._format.key_of(what, parties))
+        found = self.find(what, parties)
         if found is None:
             return None
         closed = found.model_copy(update={"status": CommitmentStatus.DONE})
