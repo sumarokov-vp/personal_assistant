@@ -3,15 +3,12 @@ from typing import Protocol
 from src.todoist.services.todoist_task_service.task_card import TaskCard
 
 
-class IAssistantTaskCreator(Protocol):
-    def create_assistant_task(
+class ITaskUpdater(Protocol):
+    def update_task(
         self,
-        content: str,
+        task_id: str,
         due: str | None = None,
-        description: str | None = None,
         deadline: str | None = None,
-        parent_id: str | None = None,
-        project: str | None = None,
+        clear_deadline: bool = False,
         labels: list[str] | None = None,
-        create_project: bool = False,
     ) -> TaskCard: ...
