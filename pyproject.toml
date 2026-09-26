@@ -1,12 +1,12 @@
 [project]
 name = "personal-assistant"
 version = "0.1.0"
-description = "Telegram bot - personal assistant powered by Claude Agent SDK"
+description = "Telegram bot - personal assistant on ai_framework (Claude API with explicit tools)"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "ai-bot-framework",
     "bot-framework[all]==0.8.2",
-    "claude-agent-sdk==0.2.158",
     "httpx>=0.28.1",
     "python-dotenv==1.2.1",
 ]
@@ -98,10 +98,11 @@ name = "Global layers"
 type = "layers"
 layers = ["workers", "src"]
 
-# src layers
+# Контексты src не импортируют друг друга: связывает их только composition root
 [[tool.importlinter.contracts]]
-name = "src layers"
-type = "layers"
-layers = ["src.chat", "src.agent"]
+name = "src contexts independence"
+type = "independence"
+modules = ["src.chat", "src.ai_tools", "src.voice_recognition"]
 
 [tool.uv.sources]
+ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.1" }

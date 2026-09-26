@@ -1,108 +1,69 @@
 # Personal Assistant Bot
 
-Telegram-бот — персональный ассистент. Транслирует сообщения пользователя в Claude Agent SDK и возвращает ответы.
+Telegram-бот — персональный ассистент владельца. Текст владельца уходит в `ai_framework` (Claude API по
+`ANTHROPIC_API_KEY`), ответ модели возвращается в чат. У модели нет Bash и доступа к файловой системе:
+она действует только через инструменты, объявленные в коде бота.
 
 ## Архитектура
 
 ```
-Telegram User <-> bot_framework (pyTelegramBotAPI) <-> Claude Agent SDK <-> Claude API
+Telegram <-> bot_framework <-> SendToAgentAction <-> ai_framework.AIApplication <-> Claude API
+                                                          |
+                                                          +-- память диалога: Postgres, схема ai
 ```
 
 ### Структура проекта
 
 ```
 workers/bot/
-├── __main__.py              # Composition root: пути, политика доступа агента, сборка хендлеров
+├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 └── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
 src/
-├── agent/
-│   ├── client.py                  # AgentClient — диалог с ClaudeSDKClient
-│   ├── sdk_client_pool.py         # Пул ClaudeSDKClient по user_id
-│   ├── agent_options_factory.py   # ClaudeAgentOptions: workspace, песочница, allow/deny-правила
-│   ├── tool_permission_gate.py    # can_use_tool: пускает сеть песочницы, остальное отклоняет
-│   ├── protocols/
-│   └── tools/
-│       ├── registry.py                # SessionRegistry — контекст сессии для tools
-│       ├── send_file.py               # Tool: отправка файлов в Telegram
-│       └── workspace_file_reader.py   # Чтение файла только изнутри workspace/
+├── ai_tools/                # Инструменты модели: пакет на инструмент, класс — наследник BaseTool
 ├── chat/
-│   ├── handlers/
-│   │   └── text_message_handler.py   # Обработчик текстовых сообщений
-│   └── actions/
-│       └── send_to_agent_action.py   # Отправка в Claude SDK и возврат ответа
-workspace/                   # Рабочая папка агента (cwd). В git только CLAUDE.md
-├── CLAUDE.md                # Инструкция персонального ассистента
-└── inbox/                   # Входящие фото и документы из Telegram
+│   ├── actions/
+│   │   ├── send_to_agent_action.py   # Текст → AIApplication.process_message → ответ в чат
+│   │   ├── system_prompt_builder.py  # data/system_prompt.txt + сегодняшняя дата на каждый запрос
+│   │   ├── transcribe_voice_action.py
+│   │   └── protocols/                # IConversationAI, ISystemPromptBuilder, ITranscriber, ...
+│   └── handlers/
+│       ├── text_message_handler.py
+│       ├── clear_command_handler.py  # /clear — AIApplication.clear_context(thread_id)
+│       ├── voice_message_handler.py, photo_message_handler.py, document_message_handler.py
+│       └── protocols/                # IConversationClearer
+└── voice_recognition/       # HttpTranscriber, NativeTranscriber, TranscriptCleaner
 data/
-├── phrases.json             # i18n фразы
-├── roles.json               # Роли
-└── languages.json           # Языки
-deploy/
-├── Dockerfile               # Образ linux/arm64: python:3.13-slim + uv sync --frozen по uv.lock
-├── compose.yaml             # Контейнер в colima, сеть infra
-└── up.sh                    # Секреты из pass → docker compose up -d --build
+├── system_prompt.txt        # Системный промпт ассистента; {today}, {now}, {timezone} подставляются на каждый запрос
+├── phrases.json, roles.json, languages.json
+deploy/                      # Образ и выкат в colima
 ```
 
-## Claude Agent SDK
+## Движок: ai_framework
 
-- `claude-agent-sdk==0.2.158` (бандлит Claude Code CLI 2.1.280). Ниже 0.2 не опускаться: в бандле старого SDK
-  нет `sandbox.failIfUnavailable`, и при сбое песочницы Bash молча шёл бы без неё
-- Авторизация — долгоживущий токен подписки `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`), лежит в pass:
-  `work/projects/sumarokov/pa/personal_assistant/claude-oauth-token`. `~/.claude/.credentials.json` не используется,
-  `ANTHROPIC_API_KEY` не нужен
-- Сессии CLI в контейнере — `~/docker/personal_assistant/claude-home` на хосте (хостовый `~/.claude` не монтируется)
+- Зависимость `ai-bot-framework` из git по тегу (`[tool.uv.sources]`), **без extra `claude-sdk`**:
+  `claude_agent_sdk` в окружении и в образе быть не должно (`grep -r claude_agent_sdk src workers uv.lock` пуст)
+- Провайдер — `Provider.ANTHROPIC`, модель — `AI_MODEL`, ключ — `ANTHROPIC_API_KEY`
+- Память диалога — `AI_DB_URL`: та же БД `personal_assistant`, схема `ai` (`options=-csearch_path%3Dai`).
+  Миграции ai_framework применяются при входе в `with ai:`, но саму схему не создают: `CREATE SCHEMA IF NOT EXISTS ai` — один раз руками
+- Тред диалога — `str(user_id)`, в истории последние `HISTORY_TURNS_LIMIT = 10` ходов
+- Перед каждым запросом `SendToAgentAction` обновляет системный промпт (`update_system_prompt`) — в нём сегодняшняя дата
+  в поясе `OWNER_TIMEZONE`
+- `/clear` чистит тред владельца. `/context` нет: статистика была у сессии Claude Code
+- Все хендлеры — только роль `admin`
 
-### Модель доступа агента
+## Инструменты (tools)
 
-Вся политика собирается в `AgentOptionsFactory`, пути и список секретов задаёт composition root
-(`workers/bot/__main__.py`). Два режима:
+Точка регистрации одна — список `tools` в `workers/bot/__main__.py`, он передаётся в `AIApplication`.
 
-- **Контейнер (прод, colima)**: граница — сам контейнер. В нём смонтированы только `workspace/` и `claude-home`,
-  секретов хоста нет. Песочница Claude Code выключена (`AGENT_SANDBOX=false`): bubblewrap в контейнере colima
-  не запускается, нет непривилегированных user namespaces. Bash разрешён правилом `Bash`. Deny-правила,
-  gate, ограничения `send_file` и запрет записи в настройки агента действуют как обычно
-- **Нативно на macOS** (разработка, `uv run python -m workers.bot`): песочница seatbelt включена по умолчанию,
-  подробности ниже
+Добавить инструмент:
 
-Детали:
-
-- **cwd = `workspace/`** в корне проекта. Инструкция ассистента — `workspace/CLAUDE.md`
-- **`setting_sources=["project"]`** — грузится только `workspace/CLAUDE.md` и `workspace/.claude/`.
-  Пользовательские `~/.claude/CLAUDE.md`, скиллы, хуки и плагины агенту не видны
-- **Песочница Bash (seatbelt, только при `AGENT_SANDBOX` ≠ `false`)**: `enabled`, `failIfUnavailable` (без песочницы CLI не стартует),
-  `allowUnsandboxedCommands=false` (флаг `dangerouslyDisableSandbox` игнорируется), `excludedCommands=[]`.
-  Запись только в `workspace/`, сеть открыта
-- **Закрытые пути** (чтение и запись, и в Bash, и во встроенных Read/Edit/Write/Glob/Grep; список — `agent_protected_paths()`):
-  `~/.password-store`, `~/.local/share/password-store`, `~/.gnupg`, `~/.ssh`, `~/Vault`, `/Volumes/Vault`,
-  `~/.claude/.credentials.json`, `~/.claude/projects`, `~/.claude/history.jsonl`, `~/.config`, `~/.aws`, `~/.docker`,
-  `~/.netrc`, `~/.kube`, `~/.colima`, `~/.lima`, `~/Library/Keychains`, `.env` бота.
-  Ограничения действуют на инструменты агента, а не на процесс CLI: сам CLI читает `~/.claude` как обычно
-- **Настройки агента в workspace** (`.claude/`, `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`) агенту на запись закрыты:
-  через них он мог бы ослабить себе права или завести хук, который выполняется вне песочницы
-- **Переменные окружения бота** (`BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `VOICE_RECOGNITION_API_KEY` и все ключи `.env`)
-  передаются CLI пустыми — из Bash их не прочитать
-- **`CLAUDE_CODE_OAUTH_TOKEN`** нужен самому CLI, поэтому пустым не передаётся. Из окружения Bash и других
-  подпроцессов его вычищает CLI (`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`)
-- **Процесс бота на Linux недампабельный** (`PR_SET_DUMPABLE=0`): без песочницы Bash агента работает под тем же uid
-  и иначе прочитал бы секреты из `/proc/<pid бота>/environ`
-- **Режим разрешений `default`** с явными правилами в `--settings`:
-  - allow: `Read`, `Glob`, `Grep`, `WebFetch`, `WebSearch`, `TodoWrite`, `Task`, `Agent`, `Edit/Write/NotebookEdit` только в `workspace/**`, `mcp__bot-tools`,
-    плюс MCP-серверы из `AGENT_ALLOWED_MCP_SERVERS` (`workers/bot/__main__.py`) — единственное место, где открываются коннекторы
-  - **Временно** открыты коннекторы claude.ai Gmail и Google Calendar (`mcp__claude_ai_Gmail`, `mcp__claude_ai_Google_Calendar`,
-    все их инструменты). Остальные коннекторы (Drive, Slack, Docs и пр.) закрыты: решение по ним не принято
-  - Bash разрешается автоматически, потому что работает в песочнице (`autoAllowBashIfSandboxed`)
-  - всё, что упирается в запрос разрешения, приходит в `ToolPermissionGate` (`can_use_tool`). Он пропускает
-    `SandboxNetworkAccess` (сетевые запросы из песочницы) и отклоняет остальное с объяснением. Интерактива нет,
-    бот на запросах не зависает
-  - `bypassPermissions` отключён (`disableBypassPermissionsMode`). В нём `Write` мог писать куда угодно, кроме
-    явно закрытых путей, например в `~/.zshrc` или `~/Library/LaunchAgents`. В `dontAsk` CLI молча отклоняет
-    сетевые запросы песочницы
-- **`send_file`** выполняется в процессе бота, вне песочницы, поэтому сам проверяет путь (`WorkspaceFileReader`).
-  Путь резолвится, `..` и симлинки наружу отклоняются, а реальный путь уже открытого дескриптора сверяется
-  с `workspace/` (защита от подмены симлинка между проверкой и чтением)
-- Входящие фото и документы сохраняются в `workspace/inbox/`. Голосовые — во временную папку системы:
-  их читает только транскрайбер в процессе бота, после распознавания файл удаляется
-- `TranscriptCleaner` запускает отдельный `query` с `cwd=workspace/`, без инструментов и без настроек
+1. Пакет `src/ai_tools/<name>/` с `tool.py`: класс-наследник `ai_framework.BaseTool` с `name`, `description`,
+   `Input` (Pydantic-модель аргументов) и `execute(input, context) -> str`. Зависимости — через конструктор,
+   Protocol-ы зависимостей — в `src/ai_tools/<name>/protocols/`
+2. Экспорт из `src/ai_tools/__init__.py`
+3. Экземпляр — в список `tools` в `__main__.py`
+4. В `context` (`ToolContext`) приходят `chat_id` и `user_id` из `SendToAgentAction`
+5. Инструмент, который сам ответил в чат, возвращает `suppress_response` — тогда «Думаю...» удаляется, а текст модели не шлётся
 
 ## Переменные окружения (.env)
 
@@ -110,12 +71,15 @@ deploy/
 BOT_TOKEN=токен-бота
 BOT_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable
 REDIS_URL=redis://localhost:6379/4
+AI_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable&options=-csearch_path%3Dai
+ANTHROPIC_API_KEY=ключ Claude API
+AI_MODEL=claude-sonnet-4-5
+OWNER_TIMEZONE=Asia/Almaty                      # необязательная (дефолт Asia/Almaty); пояс для даты в системном промпте
 VOICE_RECOGNITION_URL=http://localhost:8000     # необязательная (есть дефолт); HTTP-сервис распознавания речи (faster-whisper, GPU)
 VOICE_RECOGNITION_API_KEY=ключ                  # заголовок X-API-Key для сервиса распознавания; без него сервис отвечает 401
 VOICE_RECOGNITION_MODE=http                     # необязательная (дефолт http); http | native
 WHISPER_MODEL=small                             # необязательная (дефолт small); модель для native-режима
-AGENT_SANDBOX=true                              # необязательная (дефолт true); false — без песочницы Claude Code (в контейнере)
-LOG_LEVEL=INFO                                  # необязательная (дефолт INFO); логгеры TeleBot/urllib3/requests всегда не ниже WARNING — на DEBUG они пишут URL Telegram API с токеном бота
+LOG_LEVEL=INFO                                  # необязательная (дефолт INFO); логгеры TeleBot/urllib3/requests/httpx/anthropic всегда не ниже WARNING
 ```
 
 ## Распознавание речи
@@ -135,16 +99,19 @@ LOG_LEVEL=INFO                                  # необязательная (
 
 - Python 3.13+
 - bot-framework[all]==0.8.2 — фреймворк для Telegram-ботов
-- claude-agent-sdk==0.2.158 — Claude Agent SDK
+- ai-bot-framework (git-тег, без extra claude-sdk) — AIApplication, память, tool loop
 - uv — управление зависимостями
 
 ## Команды
 
 - Установка зависимостей: `uv sync`
-- Добавить пакет: `uv add <lib>`
 - Запуск бота: `uv run python -m workers.bot`
+- Проверки: `uv run ruff check .`, `uv run mypy src workers tests`, `uv run lint-imports`, `uv run pytest`
 
 ## Deploy
+
+> Раздел описывает прежний выкат с Claude Code (`claude-oauth-token`, `workspace/`, `claude-home`) и будет
+> переписан таском выката 01a0dc64-2b1d: добавятся `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_DB_URL`.
 
 - Бот работает контейнером в colima на Mac mini (linux/arm64). Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
 - `up.sh` берёт секреты из pass (`work/projects/sumarokov/pa/personal_assistant/{bot-token,db,claude-oauth-token}`,
@@ -158,37 +125,3 @@ LOG_LEVEL=INFO                                  # необязательная (
   `BOT_TOKEN=x BOT_DB_URL=x VOICE_RECOGNITION_API_KEY=x CLAUDE_CODE_OAUTH_TOKEN=x docker compose -f deploy/compose.yaml build`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
-
-## Tool Use (кастомные инструменты)
-
-Claude Agent SDK поддерживает кастомные инструменты через MCP-сервер. Инструменты позволяют LLM выполнять действия в контексте Telegram-бота.
-
-### Архитектура
-
-- `SessionRegistry` хранит контекст сессии (chat_id, bot instance) по user_id
-- Перед каждым query контекст устанавливается через `set_context()`
-- Tool-функции получают контекст через `get_current_context()`
-- MCP-сервер создаётся один раз в `__main__.py` и передаётся в `AgentOptionsFactory`
-
-### Доступные инструменты
-
-- **send_file** — отправляет файл пользователю в Telegram как документ. Принимает `file_path`: абсолютный путь или путь
-  относительно `workspace/`. Файлы вне `workspace/` отклоняются (`PermissionError` → ошибка инструмента агенту).
-
-### Добавление нового инструмента
-
-1. Создать файл `src/agent/tools/my_tool.py`
-2. Определить async-функцию с декоратором `@tool(name, description, input_schema)`
-3. Добавить `init_*()` для инициализации (передача registry)
-4. Зарегистрировать в MCP-сервере в `workers/bot/__main__.py`
-5. Инструмент выполняется в процессе бота вне песочницы. Всё, что он читает или пишет на диске, ограничивать `workspace/` самому
-6. Ошибку инструмент выбрасывает исключением: SDK вернёт её агенту как `is_error`-результат
-
-## MVP Scope
-
-- Приём текстовых сообщений от пользователя в Telegram
-- Трансляция текста в Claude Agent SDK
-- Возврат ответа Claude обратно в Telegram
-- Авторизация через bot_framework (роли)
-- /start меню через bot_framework
-- Отправка файлов пользователю через send_file tool

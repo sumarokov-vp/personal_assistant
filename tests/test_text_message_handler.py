@@ -33,7 +33,7 @@ class TestTextMessageHandlerErrorHandling:
         message_sender.send.return_value = thinking_msg
 
         action = MagicMock(spec=SendToAgentAction)
-        action.execute.side_effect = RuntimeError("CLI crashed")
+        action.execute.side_effect = RuntimeError("API error")
 
         handler = _make_handler(action, message_sender, message_replacer)
 
@@ -49,7 +49,7 @@ class TestTextMessageHandlerErrorHandling:
         message_replacer.replace.assert_called_once_with(
             chat_id=100,
             message_id=42,
-            text="Ошибка: CLI crashed",
+            text="Ошибка: API error",
         )
 
     def test_no_error_on_success(self) -> None:

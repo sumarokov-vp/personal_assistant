@@ -1,7 +1,5 @@
-import asyncio
-from pathlib import Path
-
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
+from ai_framework import Message
+from ai_framework.protocols.i_ai_provider import IAIProvider
 
 CLEANUP_PROMPT = (
     "Вот сырая транскрипция устной речи, полученная распознавателем Whisper.\n"
@@ -14,32 +12,11 @@ CLEANUP_PROMPT = (
 
 
 class TranscriptCleaner:
-    def __init__(self, workspace_dir: Path) -> None:
-        self._workspace_dir = workspace_dir
+    def __init__(self, ai_provider: IAIProvider) -> None:
+        self._ai_provider = ai_provider
 
     def clean(self, raw_text: str) -> str:
-        return asyncio.run(self._clean_async(raw_text))
-
-    async def _clean_async(self, raw_text: str) -> str:
-        options = ClaudeAgentOptions(
-            cwd=str(self._workspace_dir),
-            system_prompt={"type": "preset", "preset": "claude_code"},
-            tools=[],
-            setting_sources=[],
-            model="claude-haiku-4-5-20251001",
+        response = self._ai_provider.send_message(
+            [Message(role="user", content=CLEANUP_PROMPT + raw_text)],
         )
-
-        parts: list[str] = []
-        result_text: str | None = None
-
-        async for message in query(prompt=CLEANUP_PROMPT + raw_text, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        parts.append(block.text)
-            elif isinstance(message, ResultMessage):
-                result_text = message.result
-
-        if parts:
-            return "\n".join(parts).strip()
-        return (result_text or "").strip()
+        return (response.content or "").strip()
