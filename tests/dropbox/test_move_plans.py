@@ -63,7 +63,7 @@ def test_plan_with_occupied_target_is_rejected_whole(kit: MoveKit, dropbox_root:
         ("Apps/HealthFit/ride.fit", "03_home/ride.fit", "Apps/"),
         ("scan.pdf", "Apps/scan.pdf", "Apps/"),
         ("scan.pdf", "Vault/scan.pdf", "закрытая"),
-        ("scan.pdf", "01_work/scan.pdf", "закрытая"),
+        ("scan.pdf", "03_home/07_ecp/egov.kz/scan.pdf", "закрытая"),
         ("03_home/07_ecp/backup_AUTH.P12", "03_home/key.p12", "ключевой"),
         ("03_home/07_ecp", "07_ecp", "закрытое или ключевое"),
         ("03_home", "home", "закрытое или ключевое"),

@@ -16,7 +16,7 @@
 #  * Dropbox: ~/Dropbox хоста (синхронизирует Maestral) — том /dropbox, запись разрешена
 #    (colima отдаёт $HOME через virtiofs, файл ложится на хост под владельцем). Закрытые папки
 #    перекрыты пустым каталогом ~/docker/personal_assistant/empty только на чтение — их
-#    содержимое в контейнер не попадает вовсе: Vault, 01_work, 03_home/07_ecp/egov.kz (ключи
+#    содержимое в контейнер не попадает вовсе: Vault, 03_home/07_ecp/egov.kz (ключи
 #    ЭЦП и пароль). Новая чувствительная папка в корне Dropbox видна боту, пока её не добавят
 #    сюда; vault_selftest_* меняют имена — их отсекает код инструментов Dropbox.
 #  * Todoist и Gmail: TODOIST_TOKEN и GMAIL_* из pass. GMAIL_CLIENT_ID/SECRET up.sh достаёт из
@@ -64,7 +64,6 @@ services:
       - ${DROPBOX_DIR:?}:/dropbox
       # Пустые заглушки поверх закрытых папок; docker монтирует родителя раньше вложенных
       - ${PA_DATA_DIR:?}/empty:/dropbox/Vault:ro
-      - ${PA_DATA_DIR:?}/empty:/dropbox/01_work:ro
       - ${PA_DATA_DIR:?}/empty:/dropbox/03_home/07_ecp/egov.kz:ro
 
 networks:

@@ -55,7 +55,7 @@ deploy/                      # Образ и выкат в colima
 - Провайдер — `Provider.CLAUDE_SDK` в боте, чекапе и наполнении памяти; модель — `AI_MODEL`. Ключа API нет:
   CLI берёт `CLAUDE_CODE_OAUTH_TOKEN` из окружения, а нативно без него — локальный логин Claude Code.
   Ключ Claude API в окружении процесса держать нельзя: CLI предпочтёт его подписке, и счёт пойдёт по API
-- `ClaudeSdkProvider` (v0.9.3) держит сессию CLI на тред; `clear_context` её сбрасывает. Сессии CLI — в `$HOME/.claude`
+- `ClaudeSdkProvider` (с v0.9.3) держит сессию CLI на тред; `clear_context` её сбрасывает. Сессии CLI — в `$HOME/.claude`
 - Память диалога — `AI_DB_URL`: та же БД `personal_assistant`, схема `ai` (`options=-csearch_path%3Dai`).
   Миграции ai_framework применяются при входе в `with ai:`, но саму схему не создают: `CREATE SCHEMA IF NOT EXISTS ai` — один раз руками
 - Тред диалога — `str(user_id)`, в истории последние `HISTORY_TURNS_LIMIT = 10` ходов
@@ -63,17 +63,19 @@ deploy/                      # Образ и выкат в colima
   в поясе `OWNER_TIMEZONE`
 - `/clear` — `AIApplication.clear_context(thread_id)`: чистит историю треда владельца и (с v0.9.3) сбрасывает
   сессию SDK этого треда. `/context` нет: статистика была у сессии Claude Code
-- Зависимость — `ai-bot-framework[claude-sdk,s3]` тега `v0.9.3` (v0.9.2 не брать)
+- Зависимость — `ai-bot-framework[claude-sdk,s3]` тега `v0.9.4` (v0.9.2 не брать)
 - Все хендлеры — только роль `admin` (второй слой после фильтра владельца, см. «Безопасность»)
 
 ## Инструменты (tools)
 
 Точка регистрации одна — список `tools` в `workers/bot/__main__.py`, он передаётся в `AIApplication`.
 `ClaudeSdkProvider` отдаёт их CLI как SDK MCP-сервер `ai-framework-tools`: модель видит `mcp__ai-framework-tools__<name>`.
-Но ai_framework дописывает в системный промпт список инструментов голыми именами, и `data/system_prompt.txt` тоже
-называет их коротко — модель порой вызывает голое `wiki_create_page`, CLI отвечает «No such tool available», и бот
-говорит владельцу, что инструменты недоступны. Поэтому в начале раздела «Возможности» промпта — указание вызывать
-по полному имени `mcp__ai-framework-tools__<имя>`; при правке промпта его не терять. `claude_sdk_live_check` идёт с
+До v0.9.4 ai_framework дописывал в системный промпт список инструментов голыми именами — модель порой вызывала
+голое `wiki_create_page`, CLI отвечал «No such tool available», и бот говорил владельцу, что инструменты недоступны.
+С v0.9.4 блок «Available tools» при `ClaudeSdkProvider` идёт с полными именами. `data/checkup_prompt.txt` и
+`data/memory_fill_prompt.txt` называют инструменты полными именами; `data/system_prompt.txt` — короткими, а в начале
+раздела «Возможности» указание вызывать по полному имени `mcp__ai-framework-tools__<имя>`: оно остаётся до
+подтверждения на проде, при правке промпта его не терять. `claude_sdk_live_check` идёт с
 коротким промптом-заглушкой, а не с `data/system_prompt.txt`, — поведение настоящего промпта он не проверяет.
 
 ### Встроенные инструменты CLI выключены
@@ -228,7 +230,7 @@ GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_
 
 - Python 3.13+
 - bot-framework[all]==0.8.2 — фреймворк для Telegram-ботов
-- ai-bot-framework[claude-sdk,s3] (git-тег v0.9.3) — AIApplication, память, ClaudeSdkProvider, вложения в S3
+- ai-bot-framework[claude-sdk,s3] (git-тег v0.9.4) — AIApplication, память, ClaudeSdkProvider, вложения в S3
 - uv — управление зависимостями
 
 ## Команды
@@ -262,7 +264,7 @@ GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_
   colima отдаёт `$HOME` через virtiofs (`~/.colima/default/colima.yaml`: `mounts: []`), файл из контейнера ложится
   на хост под владельцем, и Maestral его подхватывает как обычную правку. Закрытые папки перекрыты пустым каталогом
   `~/docker/personal_assistant/empty` только на чтение — их содержимого в контейнере нет физически: `Vault`,
-  `01_work`, `03_home/07_ecp/egov.kz` (ключи ЭЦП и пароль). Заглушку создаёт `up.sh` и падает, если она не пуста.
+  `03_home/07_ecp/egov.kz` (ключи ЭЦП и пароль). `01_work` открыт (решение владельца 26.09.2026). Заглушку создаёт `up.sh` и падает, если она не пуста.
   Новая чувствительная папка в корне Dropbox видна боту, пока её не добавят в оверлеи `compose.yaml`;
   `vault_selftest_*` меняют имена — их отсекает код инструментов Dropbox, не монтирование
 - В контейнере uid 1000; монтируются том вики, ключ вики и Dropbox: сессии CLI живут в `$HOME/.claude` контейнера
