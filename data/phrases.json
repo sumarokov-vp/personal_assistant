@@ -67,5 +67,68 @@
   },
   "shared.time.minutes_short": {
     "ru": "мин"
+  },
+  "dropbox_moves.card.proposal_title": {
+    "ru": "План переносов Dropbox: {count}"
+  },
+  "dropbox_moves.card.proposal_hint": {
+    "ru": "Пока ничего не перенесено. «Выполнить» — перенести, «Отмена» — оставить как есть."
+  },
+  "dropbox_moves.card.execution_refused_title": {
+    "ru": "План не выполнен, ничего не перенесено"
+  },
+  "dropbox_moves.card.executed_title": {
+    "ru": "Перенесено: {count}"
+  },
+  "dropbox_moves.card.executed_hint": {
+    "ru": "«Откатить» вернёт файлы на прежние места."
+  },
+  "dropbox_moves.card.rolled_back_title": {
+    "ru": "Откат: возвращено {count}"
+  },
+  "dropbox_moves.card.rollback_skipped_title": {
+    "ru": "Пропущено при откате"
+  },
+  "dropbox_moves.card.cancelled_title": {
+    "ru": "План переносов отменён, файлы на месте: {count}"
+  },
+  "dropbox_moves.card.rollback_offer_title": {
+    "ru": "Выполненный план переносов: {count}"
+  },
+  "dropbox_moves.card.rollback_offer_hint": {
+    "ru": "«Откатить» вернёт файлы на прежние места."
+  },
+  "dropbox_moves.card.more": {
+    "ru": "…и ещё {count}"
+  },
+  "dropbox_moves.button.execute": {
+    "ru": "Выполнить"
+  },
+  "dropbox_moves.button.cancel": {
+    "ru": "Отмена"
+  },
+  "dropbox_moves.button.rollback": {
+    "ru": "Откатить"
+  },
+  "dropbox_moves.alert.stale": {
+    "ru": "Кнопка устарела."
+  },
+  "dropbox_moves.alert.not_found": {
+    "ru": "Такого плана переносов нет."
+  },
+  "dropbox_moves.alert.not_owner": {
+    "ru": "Этот план принадлежит другому пользователю."
+  },
+  "dropbox_moves.alert.already_proposed": {
+    "ru": "План ещё не выполнен."
+  },
+  "dropbox_moves.alert.already_executed": {
+    "ru": "План уже выполнен."
+  },
+  "dropbox_moves.alert.already_rolled_back": {
+    "ru": "План уже откачен."
+  },
+  "dropbox_moves.alert.already_cancelled": {
+    "ru": "План отменён."
   }
 }
