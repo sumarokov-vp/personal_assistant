@@ -15,6 +15,12 @@ from bot_framework.platform.telegram import TelegramMessageCore
 from dotenv import load_dotenv
 
 from src.access.services.owner_gate import OwnerUpdateGate
+from src.agent_notifications.repos import PostgresAgentNotificationRepository
+from src.agent_notifications.services.delivery import AgentNotificationDelivery
+from src.agent_notifications.services.rabbitmq_consumer import (
+    RabbitMqNotificationConsumer,
+)
+from src.agent_notifications.services.text_splitter import TelegramTextSplitter
 from src.access.services.update_gate_installer import UpdateGateInstaller
 from src.ai_tools import (
     MemoryCloseCommitmentTool,
@@ -101,6 +107,7 @@ SUBSCRIPTION_HAS_NO_API_KEY = ""
 GMAIL_HTTP_TIMEOUT_SECONDS = 30.0
 DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
 SWEEP_INTERVAL_SECONDS = 60 * 60
+AGENT_NOTIFICATIONS_RECONNECT_SECONDS = 15
 
 
 def configure_logging(level: str) -> None:
@@ -150,7 +157,6 @@ def build_dropbox_tools(
 def build_dropbox_move_tools(
     boundary: DropboxBoundary, database_url: str, app: BotApplication
 ) -> list[BaseTool]:
-    apply_migrations(database_url)
     plans = PostgresMovePlanRepository(database_url=database_url)
     journal = PostgresDropboxJournalRepository(database_url=database_url)
     validator = MovePlanValidator(boundary=boundary)
@@ -239,6 +245,45 @@ def start_sweeper(work_dir: Path, dropbox_root: str | None) -> None:
     Thread(
         target=sweep_forever, args=(Sweeper(roots),), name="files-sweeper", daemon=True
     ).start()
+
+
+def consume_agent_notifications_forever(
+    consumer: RabbitMqNotificationConsumer,
+) -> None:
+    while True:
+        try:
+            consumer.consume()
+        except Exception:
+            logger.exception("Agent notifications consumer failed, reconnecting")
+        sleep(AGENT_NOTIFICATIONS_RECONNECT_SECONDS)
+
+
+def start_agent_notifications(
+    rabbitmq_url: str | None,
+    database_url: str,
+    app: BotApplication,
+    owner_telegram_id: int,
+) -> Thread | None:
+    if not rabbitmq_url:
+        logger.info("RABBITMQ_URL is not set, agent notifications consumer not started")
+        return None
+    consumer = RabbitMqNotificationConsumer(
+        rabbitmq_url=rabbitmq_url,
+        delivery=AgentNotificationDelivery(
+            journal=PostgresAgentNotificationRepository(database_url=database_url),
+            message_sender=app.message_sender,
+            splitter=TelegramTextSplitter(),
+            owner_chat_id=owner_telegram_id,
+        ),
+    )
+    thread = Thread(
+        target=consume_agent_notifications_forever,
+        args=(consumer,),
+        name="agent-notifications",
+        daemon=True,
+    )
+    thread.start()
+    return thread
 
 
 def build_wiki_factory() -> WikiFactory:
@@ -489,6 +534,14 @@ def main() -> None:
     app.core.message_handler_registry.register(
         handler=text_handler,
         content_types=["text"],
+    )
+
+    apply_migrations(db_url)
+    start_agent_notifications(
+        rabbitmq_url=getenv("RABBITMQ_URL"),
+        database_url=db_url,
+        app=app,
+        owner_telegram_id=owner_telegram_id,
     )
 
     with ai:
