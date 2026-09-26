@@ -2,8 +2,16 @@ import base64
 from typing import Any
 
 
+PDF_BYTES = b"%PDF-1.7\n" + bytes(range(256)) * 4
+JPEG_BYTES = b"\xff\xd8\xff\xe0" + bytes(range(200))
+
+
 def encode(text: str, charset: str = "utf-8") -> str:
-    return base64.urlsafe_b64encode(text.encode(charset)).decode().rstrip("=")
+    return encode_bytes(text.encode(charset))
+
+
+def encode_bytes(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
 def headers(**values: str) -> list[dict[str, str]]:
@@ -26,9 +34,11 @@ def multipart_message() -> dict[str, Any]:
                 Subject="Выписка",
                 Date="Sat, 26 Sep 2026 10:00:00 +0500",
             ),
+            "partId": "",
             "body": {"size": 0},
             "parts": [
                 {
+                    "partId": "0",
                     "mimeType": "multipart/alternative",
                     "headers": [],
                     "body": {"size": 0},
@@ -50,10 +60,21 @@ def multipart_message() -> dict[str, Any]:
                     ],
                 },
                 {
+                    "partId": "1",
                     "mimeType": "application/pdf",
                     "filename": "statement.pdf",
                     "headers": headers(Content_Type="application/pdf"),
-                    "body": {"attachmentId": "att1", "size": 1024},
+                    "body": {"attachmentId": "ANGjdJ-pdf", "size": len(PDF_BYTES)},
+                },
+                {
+                    "partId": "2",
+                    "mimeType": "image/jpeg",
+                    "filename": "receipt.jpg",
+                    "headers": headers(Content_Type="image/jpeg"),
+                    "body": {
+                        "data": encode_bytes(JPEG_BYTES),
+                        "size": len(JPEG_BYTES),
+                    },
                 },
             ],
         },

@@ -1,9 +1,9 @@
 from ai_framework import Attachment
 
-from src.ai_tools.dropbox_save.chat_attachments.protocols.i_attachment_bytes import (
+from src.files.sources.chat_attachments.protocols.i_attachment_bytes import (
     IAttachmentBytes,
 )
-from src.ai_tools.dropbox_save.chat_attachments.protocols.i_chat_history import (
+from src.files.sources.chat_attachments.protocols.i_chat_history import (
     IChatHistory,
 )
 
