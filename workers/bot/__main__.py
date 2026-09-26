@@ -211,10 +211,10 @@ def build_chat_attachments(
 
 
 def build_dropbox_save_tool(
-    boundary: DropboxBoundary, database_url: str, chat_attachments: ChatAttachments
+    boundary: DropboxBoundary, database_url: str, work_folder: WorkFolder
 ) -> BaseTool:
     return DropboxSaveTool(
-        attachments=chat_attachments,
+        work_files=work_folder,
         saver=DropboxFileSaver(
             boundary=boundary,
             journal=PostgresDropboxJournalRepository(database_url=database_url),
@@ -357,7 +357,7 @@ def main() -> None:
         tools.extend(build_dropbox_tools(dropbox_boundary, text_reader))
         tools.extend(build_dropbox_move_tools(dropbox_boundary, db_url, app))
         tools.append(
-            build_dropbox_save_tool(dropbox_boundary, db_url, chat_attachments)
+            build_dropbox_save_tool(dropbox_boundary, db_url, WorkFolder(work_dir))
         )
 
     wiki_factory = build_wiki_factory()
