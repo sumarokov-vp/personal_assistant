@@ -69,6 +69,11 @@ deploy/                      # Образ и выкат в colima
 
 Точка регистрации одна — список `tools` в `workers/bot/__main__.py`, он передаётся в `AIApplication`.
 `ClaudeSdkProvider` отдаёт их CLI как SDK MCP-сервер `ai-framework-tools`: модель видит `mcp__ai-framework-tools__<name>`.
+Но ai_framework дописывает в системный промпт список инструментов голыми именами, и `data/system_prompt.txt` тоже
+называет их коротко — модель порой вызывает голое `wiki_create_page`, CLI отвечает «No such tool available», и бот
+говорит владельцу, что инструменты недоступны. Поэтому в начале раздела «Возможности» промпта — указание вызывать
+по полному имени `mcp__ai-framework-tools__<имя>`; при правке промпта его не терять. `claude_sdk_live_check` идёт с
+коротким промптом-заглушкой, а не с `data/system_prompt.txt`, — поведение настоящего промпта он не проверяет.
 
 ### Встроенные инструменты CLI выключены
 
