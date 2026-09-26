@@ -53,7 +53,6 @@ def test_save_never_overwrites_and_adds_copy_suffix(
     ("folder", "name"),
     [
         ("Vault", "x.txt"),
-        ("01_work/client", "x.txt"),
         ("03_home/07_ecp/egov.kz", "x.txt"),
         ("link_to_vault", "x.txt"),
         ("", "vault_selftest_1"),
@@ -67,3 +66,10 @@ def test_save_into_closed_place_is_denied(
     with pytest.raises(DropboxAccessDeniedError):
         saver.save(folder, name, b"x")
     assert journal.entries == []
+
+
+def test_save_into_work_folder_is_allowed(saver: DropboxFileSaver, dropbox_root: Path):
+    path = saver.save("01_work/client", "act.pdf", b"act")
+
+    assert path == "01_work/client/act.pdf"
+    assert (dropbox_root / path).read_bytes() == b"act"

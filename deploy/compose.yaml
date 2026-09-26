@@ -16,11 +16,13 @@
 #  * Dropbox: ~/Dropbox хоста (синхронизирует Maestral) — том /dropbox, запись разрешена
 #    (colima отдаёт $HOME через virtiofs, файл ложится на хост под владельцем). Закрытые папки
 #    перекрыты пустым каталогом ~/docker/personal_assistant/empty только на чтение — их
-#    содержимое в контейнер не попадает вовсе: Vault, 01_work, 03_home/07_ecp/egov.kz (ключи
+#    содержимое в контейнер не попадает вовсе: Vault, 03_home/07_ecp/egov.kz (ключи
 #    ЭЦП и пароль). Новая чувствительная папка в корне Dropbox видна боту, пока её не добавят
 #    сюда; vault_selftest_* меняют имена — их отсекает код инструментов Dropbox.
 #  * Todoist и Gmail: TODOIST_TOKEN и GMAIL_* из pass. GMAIL_CLIENT_ID/SECRET up.sh достаёт из
 #    JSON OAuth-клиента (installed.client_id/client_secret), refresh token — отдельная запись.
+#  * OWNER_TELEGRAM_ID — из pass owner-telegram-id: бот слышит только владельца в личном чате,
+#    остальные апдейты отбрасывает до базы и обработчиков.
 name: personal_assistant
 
 services:
@@ -33,6 +35,7 @@ services:
     restart: unless-stopped
     environment:
       BOT_TOKEN: ${BOT_TOKEN:?}
+      OWNER_TELEGRAM_ID: ${OWNER_TELEGRAM_ID:?}
       BOT_DB_URL: ${BOT_DB_URL:?}
       AI_DB_URL: ${AI_DB_URL:?}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?}
@@ -61,7 +64,6 @@ services:
       - ${DROPBOX_DIR:?}:/dropbox
       # Пустые заглушки поверх закрытых папок; docker монтирует родителя раньше вложенных
       - ${PA_DATA_DIR:?}/empty:/dropbox/Vault:ro
-      - ${PA_DATA_DIR:?}/empty:/dropbox/01_work:ro
       - ${PA_DATA_DIR:?}/empty:/dropbox/03_home/07_ecp/egov.kz:ro
 
 networks:

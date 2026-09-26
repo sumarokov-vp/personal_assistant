@@ -38,6 +38,9 @@ require_value() {
 }
 
 BOT_TOKEN="$(pass_first_line "$PASS_ROOT/bot-token")"
+# Бот слышит только владельца: без его Telegram ID выкат останавливается здесь
+OWNER_TELEGRAM_ID="$(pass_first_line "$PASS_ROOT/owner-telegram-id")"
+require_value "$PASS_ROOT/owner-telegram-id" "$OWNER_TELEGRAM_ID"
 BOT_DB_URL="$(pass_first_line "$PASS_ROOT/db")"
 AI_DB_URL="${BOT_DB_URL}&options=-csearch_path%3Dai"
 CLAUDE_CODE_OAUTH_TOKEN="$(pass_first_line "$PASS_ROOT/claude-oauth-token")"
@@ -91,7 +94,7 @@ if [ -n "$(ls -A "$EMPTY_DIR")" ]; then
     exit 1
 fi
 
-export BOT_TOKEN BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
+export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
     ATTACHMENTS_S3_ENDPOINT ATTACHMENTS_S3_BUCKET ATTACHMENTS_S3_REGION \
     ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \

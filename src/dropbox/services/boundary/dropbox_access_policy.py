@@ -1,7 +1,7 @@
 import unicodedata
 from collections.abc import Sequence
 
-HIDDEN_TOP_LEVEL = ("vault", "01_work")
+HIDDEN_TOP_LEVEL = ("vault",)
 HIDDEN_TOP_LEVEL_PREFIXES = ("vault_selftest_",)
 HIDDEN_SUBTREES = (("03_home", "07_ecp", "egov.kz"),)
 KEY_FILE_SUFFIXES = (".p12", ".pfx", ".key", ".pem", ".jks", ".gpg")

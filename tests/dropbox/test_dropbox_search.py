@@ -22,8 +22,14 @@ def test_search_matches_all_words_across_path(boundary: DropboxBoundary):
 def test_search_never_returns_closed_entries(boundary: DropboxBoundary):
     search = DropboxSearch(boundary)
 
-    for query in ("secret", "egov", "contract", "probe", "copy", "vault"):
+    for query in ("secret", "egov", "probe", "copy", "vault"):
         assert search.find(query).total == 0, query
+
+
+def test_search_finds_work_folder_files(boundary: DropboxBoundary):
+    assert [hit.path for hit in DropboxSearch(boundary).find("contract").hits] == [
+        "01_work/client/contract.txt"
+    ]
 
 
 def test_search_shows_key_file_by_name(boundary: DropboxBoundary):
