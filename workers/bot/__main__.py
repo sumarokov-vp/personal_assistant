@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from ai_framework import AIApplication, BaseTool, Provider
 from ai_framework.attachments.s3_attachment_store import S3AttachmentStore
+from ai_framework.memory.postgres_memory_store import PostgresMemoryStore
 from dotenv import load_dotenv
 
 from bot_framework.app import BotApplication
@@ -20,6 +21,7 @@ from src.ai_tools import (
 )
 from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
 from src.ai_tools.dropbox_read import DropboxReadTool
+from src.ai_tools.dropbox_save import ChatAttachments, DropboxSaveTool
 from src.ai_tools.dropbox_search import DropboxSearchTool
 from src.ai_tools.dropbox_tree import DropboxTreeTool
 from src.ai_tools.dropbox_undo_moves import DropboxUndoMovesTool
@@ -44,6 +46,7 @@ from src.dropbox.services.move_planner.move_planner import MovePlanner
 from src.dropbox.services.move_rollback.move_plan_rollback import MovePlanRollback
 from src.dropbox.services.move_validator.move_plan_validator import MovePlanValidator
 from src.dropbox.services.reader.dropbox_reader import DropboxReader
+from src.dropbox.services.saver.dropbox_file_saver import DropboxFileSaver
 from src.dropbox.services.search.dropbox_search import DropboxSearch
 from src.dropbox.services.tree.dropbox_tree import DropboxTree
 from src.flows.dropbox_moves import (
@@ -153,6 +156,26 @@ def build_dropbox_move_tools(
     ]
 
 
+def build_dropbox_save_tool(
+    root: Path,
+    database_url: str,
+    ai_database_url: str,
+    attachment_store: S3AttachmentStore,
+) -> BaseTool:
+    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
+    return DropboxSaveTool(
+        attachments=ChatAttachments(
+            history=PostgresMemoryStore(ai_database_url),
+            store=attachment_store,
+            turns_limit=HISTORY_TURNS_LIMIT,
+        ),
+        saver=DropboxFileSaver(
+            boundary=boundary,
+            journal=PostgresDropboxJournalRepository(database_url=database_url),
+        ),
+    )
+
+
 def build_wiki_factory() -> WikiFactory:
     ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
     return WikiFactory(
@@ -185,7 +208,9 @@ def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[Ba
     whereabouts = WhereaboutsRepository(storage)
     commitments = CommitmentRepository(storage)
     return [
-        MemoryShowTool(deadlines=deadlines, whereabouts=whereabouts, commitments=commitments),
+        MemoryShowTool(
+            deadlines=deadlines, whereabouts=whereabouts, commitments=commitments
+        ),
         MemoryUpsertDeadlineTool(deadlines=deadlines, timezone=timezone),
         MemoryUpsertTripTool(whereabouts=whereabouts),
         MemoryUpsertCommitmentTool(commitments=commitments),
@@ -222,11 +247,18 @@ def main() -> None:
         use_class_middlewares=True,
     )
 
+    attachment_store = build_attachment_store()
+
     tools: list[BaseTool] = []
     dropbox_root = getenv("DROPBOX_ROOT")
     if dropbox_root:
         tools.extend(build_dropbox_tools(Path(dropbox_root)))
         tools.extend(build_dropbox_move_tools(Path(dropbox_root), db_url, app))
+        tools.append(
+            build_dropbox_save_tool(
+                Path(dropbox_root), db_url, ai_db_url, attachment_store
+            )
+        )
 
     wiki_factory = build_wiki_factory()
     tools.extend(build_memory_tools(wiki_factory, owner_timezone))
@@ -243,7 +275,7 @@ def main() -> None:
         database_url=ai_db_url,
         tools=tools,
         history_turns_limit=HISTORY_TURNS_LIMIT,
-        attachment_store=build_attachment_store(),
+        attachment_store=attachment_store,
     )
 
     message_sender = app.message_sender
