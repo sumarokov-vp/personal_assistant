@@ -13,6 +13,7 @@ from bot_framework import (
 from bot_framework.domain.role_management.repos import RoleRepo
 
 from src.chat.actions.send_to_agent_action import SendToAgentAction
+from src.chat.handlers.attachment_labels import text_with_attachment_labels
 from src.chat.handlers.attachment_limits import (
     IMAGE_TOO_LARGE_TEXT,
     image_exceeds_limit,
@@ -122,9 +123,7 @@ class DocumentMessageHandler:
         if self._refuse_oversized(message, len(file_bytes), media_type):
             return
 
-        agent_text = f"Файл {file_name}"
-        if caption:
-            agent_text = f"{caption}\n\n{agent_text}"
+        agent_text = text_with_attachment_labels([file_name], caption)
         attachment = Attachment(
             media_type=media_type, filename=file_name, data=file_bytes
         )

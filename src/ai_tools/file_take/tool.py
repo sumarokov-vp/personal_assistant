@@ -44,8 +44,9 @@ class FileTakeInput(BaseModel):
     attachment_filename: str | None = Field(
         default=None,
         description=(
-            "source=chat: исходное имя вложения из строки «Файл …» сообщения; "
-            "не указано — последнее присланное"
+            "source=chat: имя вложения из метки «[вложение: …]» в сообщении "
+            "владельца (photo_xxxxxxxx.jpg или исходное имя документа) или ключ "
+            "S3; не указано — последнее присланное"
         ),
     )
 
@@ -57,8 +58,8 @@ class FileTakeTool(BaseTool):
         "остальные файловые инструменты (file_read — прочитать текст). Источники: "
         "mail — вложение письма (message_id и attachment_id из read_mail); dropbox — "
         "файл по path относительно корня Dropbox; chat — вложение, которое владелец "
-        "прислал в чат в этом или недавних сообщениях (attachment_filename, не указано — "
-        "последнее). Отвечает {file_id, name, media_type, size}. Файл живёт в рабочей "
+        "прислал в чат за всю историю треда: attachment_filename — имя из метки "
+        "«[вложение: …]» его сообщения или ключ S3, не указано — последнее. Отвечает {file_id, name, media_type, size}. Файл живёт в рабочей "
         "папке сутки. Больше 50 МБ, ключевые файлы и закрытые части Dropbox — error."
     )
 
