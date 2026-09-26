@@ -1,0 +1,35 @@
+{
+  "vhosts": [
+    {"name": "assistant"}
+  ],
+  "exchanges": [
+    {
+      "name": "agent-notify",
+      "vhost": "assistant",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "pa.notifications",
+      "vhost": "assistant",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {"x-queue-type": "classic"}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "agent-notify",
+      "vhost": "assistant",
+      "destination": "pa.notifications",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    }
+  ]
+}

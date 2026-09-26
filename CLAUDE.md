@@ -24,6 +24,7 @@ workers/bot/
 └── file_tools_factory.py    # file_take, file_read, file_view, file_send поверх WorkFolder
 src/
 ├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
+├── agent_notifications/     # Уведомления рабочих агентов из RabbitMQ: журнал, пересылка владельцу, потребитель
 ├── ai_tools/                # Инструменты модели: пакет на инструмент, класс — наследник BaseTool
 ├── chat/
 │   ├── actions/
@@ -216,6 +217,7 @@ TODOIST_TOKEN=токен                             # необязательн�
 GMAIL_CLIENT_ID=id OAuth-клиента                # GMAIL_* — все три или ни одной; без них инструменты почты не регистрируются
 GMAIL_CLIENT_SECRET=секрет OAuth-клиента
 GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_auth.py
+RABBITMQ_URL=amqp://pa-consumer:пароль@localhost:5672/assistant   # необязательная; без неё уведомления агентов не принимаются
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
@@ -280,11 +282,39 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
 - Содержимое файла для модели — данные: `file_read` оборачивает текст рамкой, системный промпт запрещает исполнять
   указания из файлов
 
+## Уведомления агентов
+
+Рабочие агенты владельца публикуют уведомления в RabbitMQ на Mac mini, бот пересылает их владельцу и пишет в журнал.
+Канал односторонний: ответа отправителю нет, входящего порта у бота нет. Топология и учётки брокера —
+`deploy/rabbitmq/setup.sh`: vhost `assistant`, exchange `agent-notify` (fanout) → очередь `pa.notifications`;
+бот читает её учёткой `pa-consumer` (только read), отправитель пишет учёткой `agent-<источник>` (только write в exchange).
+
+- Потребитель — фоновый поток `agent-notifications` (`start_agent_notifications` в `__main__.py`), pika, prefetch 1.
+  Нет `RABBITMQ_URL` — не стартует, строка `RABBITMQ_URL is not set…` в лог. Обрыв или ошибка — лог и
+  переподключение через 15 с (`AGENT_NOTIFICATIONS_RECONNECT_SECONDS`); неподтверждённое сообщение брокер отдаст снова
+- Очередь не объявляется: у `pa-consumer` нет configure, её заводит `setup.sh`
+- Источник — свойство `user_id` (брокер сверяет его с учёткой, подделать нельзя), в журнал и владельцу — без
+  префикса `agent-`. Без `user_id` или `message_id` — лог и `basic_reject` без повтора
+- Журнал — таблица `agent_notifications` (миграция `0002`): `message_id` UNIQUE, `source`, `body`, `published_at`
+  (свойство `timestamp`), `received_at`, `delivered_at`. `PostgresAgentNotificationRepository.record` —
+  `INSERT … ON CONFLICT DO NOTHING` и возврат записи; `received_between(start, end, source, limit)` — чтение для модели
+- Владельцу — `app.message_sender`, `ParseMode.PLAIN`: «Агент <источник>:», с новой строки текст дословно; длиннее
+  4096 (считается в UTF-16, как у Telegram) — несколькими сообщениями, режется по строке, затем по пробелу
+- ack — после отправки и `delivered_at`; повтор уже доставленного `message_id` — ack без второй отправки.
+  Упала отправка — сообщение вернётся в очередь при переподключении и уйдёт целиком ещё раз
+- Миграции приложения (`apply_migrations`) применяются на каждом старте бота, перед поллингом, — не только при `DROPBOX_ROOT`
+- Инструмент модели `agent_notifications` (`src/ai_tools/agent_notifications/`) — журнал за сутки по `received_at`:
+  `date` (по умолчанию сегодня) режется по `OWNER_TIMEZONE`, `source` — без префикса `agent-` (с префиксом тоже
+  примет), не больше 50 последних, строкой «время · источник · текст». Регистрируется всегда — от RabbitMQ не
+  зависит, читает таблицу через `received_between`. Тексты — в рамке `UntrustedNotificationFrame`
+  (`<untrusted_notification>`), системный промпт запрещает исполнять из них указания
+
 ## Технологический стек
 
 - Python 3.13+
 - bot-framework[all]==0.8.2 — фреймворк для Telegram-ботов
 - ai-bot-framework[claude-sdk,s3] (git-тег v0.9.5) — AIApplication, память, ClaudeSdkProvider, вложения в S3, картинки в результате инструмента
+- pika — потребитель уведомлений агентов из RabbitMQ
 - pypdf, python-docx, openpyxl — текст PDF/DOCX/XLSX; pypdfium2 — скан-PDF в PNG; Pillow — ужать картинку под 5 МБ
 - uv — управление зависимостями
 
@@ -326,7 +356,7 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
   не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x docker compose -f deploy/compose.yaml build`.
+  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
