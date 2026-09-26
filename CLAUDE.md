@@ -32,6 +32,7 @@ src/
 │   │   ├── system_prompt_builder.py  # data/system_prompt.txt + сегодняшняя дата на каждый запрос
 │   │   ├── transcribe_voice_action.py
 │   │   └── protocols/                # IConversationAI, ISystemPromptBuilder, ITranscriber, ...
+│   ├── albums/                       # AlbumBuffer: фото альбома копятся до тишины, потом одним запросом
 │   └── handlers/
 │       ├── text_message_handler.py
 │       ├── clear_command_handler.py  # /clear — AIApplication.clear_context(thread_id)
@@ -251,6 +252,12 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   через `file_take(source=chat)` (см. «Файлы»): `ChatAttachments` читает историю треда `str(user_id)`
   (`PostgresMemoryStore(AI_DB_URL)`, окно — последние `HISTORY_TURNS_LIMIT` ходов), байты — тот же `S3AttachmentStore`.
   Текстовые `.txt/.md/.csv` в S3 не попадают — их `file_take(source=chat)` не найдёт
+- Альбом Telegram присылает отдельными update с общим `media_group_id`. `PhotoMessageHandler` копит такие фото в
+  `AlbumBuffer` (`src/chat/albums/`, ключ — chat_id + media_group_id) и через `ALBUM_QUIET_SECONDS` (1,2 с) тишины
+  после последнего фото группы отдаёт их одним запросом: все фото по порядку message_id, подпись альбома (Telegram
+  кладёт её в одно фото), одно «Думаю...». Фото без `media_group_id` уходит сразу
+- Запросы одного треда к модели идут по очереди: `SendToAgentAction` держит lock на thread_id, новый запрос ждёт
+  ответа предыдущего (иначе на тред стартуют две параллельные сессии CLI); разные треды друг друга не ждут
 
 ## Файлы
 

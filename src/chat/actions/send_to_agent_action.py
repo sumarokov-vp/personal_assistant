@@ -1,3 +1,5 @@
+from threading import Lock
+
 from ai_framework import Attachment
 from bot_framework import IMessageDeleter, IMessageReplacer, IMessageSender
 
@@ -22,6 +24,8 @@ class SendToAgentAction:
         self.message_sender = message_sender
         self.message_replacer = message_replacer
         self.message_deleter = message_deleter
+        self._thread_locks: dict[str, Lock] = {}
+        self._thread_locks_guard = Lock()
 
     def execute(
         self,
@@ -31,9 +35,26 @@ class SendToAgentAction:
         thinking_message_id: int,
         attachments: list[Attachment] | None = None,
     ) -> None:
+        thread_id = str(user_id)
+        with self._thread_lock(thread_id):
+            self._ask_and_reply(chat_id, user_id, thread_id, text, thinking_message_id, attachments)
+
+    def _thread_lock(self, thread_id: str) -> Lock:
+        with self._thread_locks_guard:
+            return self._thread_locks.setdefault(thread_id, Lock())
+
+    def _ask_and_reply(
+        self,
+        chat_id: int,
+        user_id: int,
+        thread_id: str,
+        text: str,
+        thinking_message_id: int,
+        attachments: list[Attachment] | None,
+    ) -> None:
         self.ai.update_system_prompt(self.system_prompt_builder.build())
         response = self.ai.process_message(
-            thread_id=str(user_id),
+            thread_id=thread_id,
             user_message=text,
             tool_context={"chat_id": chat_id, "user_id": user_id},
             attachments=attachments,
