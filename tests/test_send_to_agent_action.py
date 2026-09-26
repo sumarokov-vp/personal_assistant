@@ -26,6 +26,7 @@ class ScriptedProvider:
         system: str | None = None,
         tools: list[BaseTool] | None = None,
         tool_context: dict[str, Any] | None = None,
+        thread_id: str | None = None,
     ) -> AIResponse:
         self.calls.append((list(messages), system))
         return self.replies.pop(0)
@@ -48,7 +49,7 @@ def _ai_application(monkeypatch: pytest.MonkeyPatch, provider: ScriptedProvider)
     )
     return AIApplication(
         api_key="test",
-        provider=Provider.ANTHROPIC,
+        provider=Provider.CLAUDE_SDK,
         system_prompt="initial",
         database_url="postgres://unused",
         tools=[],

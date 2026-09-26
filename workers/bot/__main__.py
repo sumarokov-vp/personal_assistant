@@ -4,12 +4,26 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from ai_framework import AIApplication, BaseTool, Provider
+from ai_framework.attachments.s3_attachment_store import S3AttachmentStore
 from dotenv import load_dotenv
 
 from bot_framework.app import BotApplication
 from bot_framework.features.flows.request_role_flow.handlers import (
     RequestRoleCommandHandler,
 )
+from src.ai_tools import (
+    MemoryCloseCommitmentTool,
+    MemoryShowTool,
+    MemoryUpsertCommitmentTool,
+    MemoryUpsertDeadlineTool,
+    MemoryUpsertTripTool,
+)
+from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
+from src.ai_tools.dropbox_read import DropboxReadTool
+from src.ai_tools.dropbox_search import DropboxSearchTool
+from src.ai_tools.dropbox_tree import DropboxTreeTool
+from src.ai_tools.dropbox_undo_moves import DropboxUndoMovesTool
+from src.app_migrations import apply_migrations
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
@@ -18,6 +32,35 @@ from src.chat.handlers.document_message_handler import DocumentMessageHandler
 from src.chat.handlers.photo_message_handler import PhotoMessageHandler
 from src.chat.handlers.text_message_handler import TextMessageHandler
 from src.chat.handlers.voice_message_handler import VoiceMessageHandler
+from src.dropbox.repos.postgres_dropbox_journal_repository import (
+    PostgresDropboxJournalRepository,
+)
+from src.dropbox.repos.postgres_move_plan_repository import PostgresMovePlanRepository
+from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
+from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
+from src.dropbox.services.move_canceller.move_plan_canceller import MovePlanCanceller
+from src.dropbox.services.move_executor.move_plan_executor import MovePlanExecutor
+from src.dropbox.services.move_planner.move_planner import MovePlanner
+from src.dropbox.services.move_rollback.move_plan_rollback import MovePlanRollback
+from src.dropbox.services.move_validator.move_plan_validator import MovePlanValidator
+from src.dropbox.services.reader.dropbox_reader import DropboxReader
+from src.dropbox.services.search.dropbox_search import DropboxSearch
+from src.dropbox.services.tree.dropbox_tree import DropboxTree
+from src.flows.dropbox_moves import (
+    CancelMovePlanHandler,
+    ExecuteMovePlanHandler,
+    MovePlanCallbackGuard,
+    MovePlanCardPresenter,
+    MovePlanCardText,
+    RollbackMovePlanHandler,
+)
+from src.memory.repos import (
+    CommitmentRepository,
+    DeadlineRepository,
+    WhereaboutsRepository,
+    WikiPageStorage,
+)
+from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from workers.bot.transcriber_factory import build_transcriber
 
 logger = getLogger(__name__)
@@ -26,6 +69,10 @@ TOKEN_LEAKING_LOGGERS = ["TeleBot", "urllib3", "requests", "httpx", "anthropic"]
 
 HISTORY_TURNS_LIMIT = 10
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+# Лимит Claude на одну картинку (в base64): больше — отказ без вызова модели
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+CARD_LANGUAGE = "ru"
+SUBSCRIPTION_HAS_NO_API_KEY = ""
 
 
 def configure_logging(level: str) -> None:
@@ -41,6 +88,111 @@ def require_env(name: str) -> str:
     return value
 
 
+def build_dropbox_tools(root: Path) -> list[BaseTool]:
+    if not root.is_dir():
+        raise ValueError(f"DROPBOX_ROOT={root} is not a directory")
+    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
+    return [
+        DropboxTreeTool(tree_builder=DropboxTree(boundary=boundary)),
+        DropboxSearchTool(finder=DropboxSearch(boundary=boundary)),
+        DropboxReadTool(reader=DropboxReader(boundary=boundary)),
+    ]
+
+
+def build_dropbox_move_tools(
+    root: Path, database_url: str, app: BotApplication
+) -> list[BaseTool]:
+    apply_migrations(database_url)
+    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
+    plans = PostgresMovePlanRepository(database_url=database_url)
+    journal = PostgresDropboxJournalRepository(database_url=database_url)
+    validator = MovePlanValidator(boundary=boundary)
+    card = MovePlanCardPresenter(
+        message_sender=app.message_sender,
+        message_replacer=app.message_replacer,
+        card_text=MovePlanCardText(
+            phrase_repo=app.phrase_repo, language_code=CARD_LANGUAGE
+        ),
+        phrase_repo=app.phrase_repo,
+        language_code=CARD_LANGUAGE,
+    )
+    guard = MovePlanCallbackGuard(
+        callback_answerer=app.callback_answerer,
+        plans=plans,
+        phrase_repo=app.phrase_repo,
+        language_code=CARD_LANGUAGE,
+    )
+    for handler in (
+        ExecuteMovePlanHandler(
+            callback_answerer=app.callback_answerer,
+            guard=guard,
+            executor=MovePlanExecutor(
+                plans=plans, validator=validator, boundary=boundary, journal=journal
+            ),
+            card=card,
+        ),
+        CancelMovePlanHandler(
+            callback_answerer=app.callback_answerer,
+            guard=guard,
+            canceller=MovePlanCanceller(plans=plans),
+            card=card,
+        ),
+        RollbackMovePlanHandler(
+            callback_answerer=app.callback_answerer,
+            guard=guard,
+            rollback=MovePlanRollback(plans=plans, boundary=boundary, journal=journal),
+            card=card,
+        ),
+    ):
+        app.callback_handler_registry.register(handler)
+    return [
+        DropboxProposeMovesTool(
+            proposer=MovePlanner(validator=validator, plans=plans), card_sender=card
+        ),
+        DropboxUndoMovesTool(plans=plans, offer_sender=card),
+    ]
+
+
+def build_wiki_factory() -> WikiFactory:
+    ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
+    return WikiFactory(
+        WikiSettings(
+            wiki_dir=Path(require_env("WIKI_DIR")),
+            remote_url=require_env("WIKI_REMOTE_URL"),
+            ssh_key_path=Path(ssh_key_path) if ssh_key_path else None,
+        )
+    )
+
+
+def build_attachment_store() -> S3AttachmentStore:
+    # AIApplication сам оборачивает хранилище в CachedAttachmentStore (LRU в памяти процесса)
+    return S3AttachmentStore(
+        endpoint_url=require_env("ATTACHMENTS_S3_ENDPOINT"),
+        bucket=require_env("ATTACHMENTS_S3_BUCKET"),
+        access_key=require_env("ATTACHMENTS_S3_ACCESS_KEY"),
+        secret_key=require_env("ATTACHMENTS_S3_SECRET_KEY"),
+        region=require_env("ATTACHMENTS_S3_REGION"),
+    )
+
+
+def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[BaseTool]:
+    storage = WikiPageStorage(
+        reader=wiki_factory.create_reader(),
+        writer=wiki_factory.create_writer(),
+        page_not_found_error=WikiPageNotFoundError,
+    )
+    deadlines = DeadlineRepository(storage)
+    whereabouts = WhereaboutsRepository(storage)
+    commitments = CommitmentRepository(storage)
+    return [
+        MemoryShowTool(deadlines=deadlines, whereabouts=whereabouts, commitments=commitments),
+        MemoryUpsertDeadlineTool(deadlines=deadlines, timezone=timezone),
+        MemoryUpsertTripTool(whereabouts=whereabouts),
+        MemoryUpsertCommitmentTool(commitments=commitments),
+        MemoryCloseCommitmentTool(commitments=commitments),
+    ]
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent.parent
     load_dotenv(dotenv_path=project_root / ".env")
@@ -50,7 +202,6 @@ def main() -> None:
     db_url = require_env("BOT_DB_URL")
     redis_url = require_env("REDIS_URL")
     ai_db_url = require_env("AI_DB_URL")
-    anthropic_api_key = require_env("ANTHROPIC_API_KEY")
     ai_model = require_env("AI_MODEL")
     owner_timezone = ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty"))
 
@@ -72,19 +223,27 @@ def main() -> None:
     )
 
     tools: list[BaseTool] = []
+    dropbox_root = getenv("DROPBOX_ROOT")
+    if dropbox_root:
+        tools.extend(build_dropbox_tools(Path(dropbox_root)))
+        tools.extend(build_dropbox_move_tools(Path(dropbox_root), db_url, app))
+
+    wiki_factory = build_wiki_factory()
+    tools.extend(build_memory_tools(wiki_factory, owner_timezone))
 
     system_prompt_builder = SystemPromptBuilder(
         template=(data_dir / "system_prompt.txt").read_text(encoding="utf-8"),
         timezone=owner_timezone,
     )
     ai = AIApplication(
-        api_key=anthropic_api_key,
-        provider=Provider.ANTHROPIC,
+        api_key=SUBSCRIPTION_HAS_NO_API_KEY,
+        provider=Provider.CLAUDE_SDK,
         model=ai_model,
         system_prompt=system_prompt_builder.build(),
         database_url=ai_db_url,
         tools=tools,
         history_turns_limit=HISTORY_TURNS_LIMIT,
+        attachment_store=build_attachment_store(),
     )
 
     message_sender = app.message_sender
@@ -136,9 +295,13 @@ def main() -> None:
     )
 
     photo_handler = PhotoMessageHandler(
+        document_downloader=app.core.document_downloader,
+        send_to_agent_action=send_to_agent_action,
         message_sender=message_sender,
+        message_replacer=message_replacer,
         role_repo=app.role_repo,
         max_file_bytes=MAX_ATTACHMENT_BYTES,
+        max_image_bytes=MAX_IMAGE_BYTES,
     )
 
     document_handler = DocumentMessageHandler(
@@ -148,6 +311,7 @@ def main() -> None:
         message_replacer=message_replacer,
         role_repo=app.role_repo,
         max_file_bytes=MAX_ATTACHMENT_BYTES,
+        max_image_bytes=MAX_IMAGE_BYTES,
     )
 
     app.core.message_handler_registry.register(

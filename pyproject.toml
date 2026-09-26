@@ -1,13 +1,15 @@
 [project]
 name = "personal-assistant"
 version = "0.1.0"
-description = "Telegram bot - personal assistant on ai_framework (Claude API with explicit tools)"
+description = "Telegram bot - personal assistant on ai_framework (Claude Agent SDK by subscription, explicit tools only)"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "ai-bot-framework",
+    "ai-bot-framework[claude-sdk,s3]",
     "bot-framework[all]==0.8.2",
     "httpx>=0.28.1",
+    "pydantic>=2.12.5",
+    "pypdf>=6.19.0",
     "python-dotenv==1.2.1",
 ]
 
@@ -105,4 +107,4 @@ type = "independence"
 modules = ["src.chat", "src.ai_tools", "src.voice_recognition", "src.gmail"]
 
 [tool.uv.sources]
-ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.1" }
+ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.3" }
