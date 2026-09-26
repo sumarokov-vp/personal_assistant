@@ -9,6 +9,8 @@ export GNUPGHOME="$HOME/docker/personal_assistant/gnupg"
 PASS_ROOT="assistant/personal_assistant"
 PA_DATA_DIR="$HOME/docker/personal_assistant"
 SECRETS_DIR="$PA_DATA_DIR/secrets"
+DROPBOX_DIR="$HOME/Dropbox"
+EMPTY_DIR="$PA_DATA_DIR/empty"
 WIKI_DEPLOY_KEY_FILE="$SECRETS_DIR/wiki_deploy_key"
 
 cd "$(dirname "$0")/.."
@@ -77,8 +79,20 @@ chmod 700 "$SECRETS_DIR"
 chmod 600 "$WIKI_DEPLOY_KEY_FILE.tmp"
 mv -f "$WIKI_DEPLOY_KEY_FILE.tmp" "$WIKI_DEPLOY_KEY_FILE"
 
+# Dropbox: том ~/Dropbox, закрытые папки перекрываются пустым каталогом только на чтение
+# (compose.yaml). Заглушка обязана быть пустой — иначе её содержимое окажется на месте Vault.
+if [ ! -d "$DROPBOX_DIR" ]; then
+    echo "up.sh: нет $DROPBOX_DIR — Dropbox (Maestral) на этой машине не настроен" >&2
+    exit 1
+fi
+mkdir -p "$EMPTY_DIR"
+if [ -n "$(ls -A "$EMPTY_DIR")" ]; then
+    echo "up.sh: заглушка $EMPTY_DIR не пуста — разберись, что туда попало" >&2
+    exit 1
+fi
+
 export BOT_TOKEN BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
-    WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE \
+    WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
     ATTACHMENTS_S3_ENDPOINT ATTACHMENTS_S3_BUCKET ATTACHMENTS_S3_REGION \
     ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \
     TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN
