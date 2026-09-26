@@ -20,6 +20,7 @@ from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
 from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
 from src.dropbox.services.reader.dropbox_reader import DropboxReader
+from src.files.readers.file_text_reader import FileTextReader
 from src.dropbox.services.search.dropbox_search import DropboxSearch
 from src.dropbox.services.tree.dropbox_tree import DropboxTree
 from src.gmail.repos.gmail_client import GmailClient
@@ -101,7 +102,11 @@ def build_memory_fill_tools(
             [
                 DropboxTreeTool(tree_builder=DropboxTree(boundary=boundary)),
                 DropboxSearchTool(finder=DropboxSearch(boundary=boundary)),
-                DropboxReadTool(reader=DropboxReader(boundary=boundary)),
+                DropboxReadTool(
+                    reader=DropboxReader(
+                        boundary=boundary, text_reader=FileTextReader()
+                    )
+                ),
             ]
         )
     if mail is not None:

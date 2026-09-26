@@ -84,7 +84,7 @@ class FakeMailbox:
             subject="Your itinerary ALA-CNX",
             date="Sat, 26 Sep 2026 10:00:00 +0500",
             body="Almaty → Chiang Mai 12 Nov 2026, Chiang Mai → Almaty 12 Feb 2027",
-            attachment_names=["itinerary.pdf"],
+            attachments=[],
         )
 
 

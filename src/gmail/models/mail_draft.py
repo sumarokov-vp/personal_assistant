@@ -8,3 +8,5 @@ class MailDraft(BaseModel):
     recipient: str
     subject: str
     url: str
+    attached: list[str] = []
+    left_out: list[str] = []

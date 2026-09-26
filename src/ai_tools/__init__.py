@@ -1,5 +1,10 @@
 from src.ai_tools.add_task_link import AddTaskLinkTool
 from src.ai_tools.create_task import CreateTaskTool
+from src.ai_tools.draft_mail import DraftAttachments, DraftMailTool
+from src.ai_tools.file_read import FileReadTool
+from src.ai_tools.file_send import FileSendTool
+from src.ai_tools.file_take import FileTakeTool
+from src.ai_tools.file_view import FileViewTool
 from src.ai_tools.find_tasks import FindTasksTool
 from src.ai_tools.memory_close_commitment import MemoryCloseCommitmentTool
 from src.ai_tools.memory_show import MemoryShowTool
@@ -16,6 +21,12 @@ from src.ai_tools.wiki_search import WikiSearchTool
 __all__ = [
     "AddTaskLinkTool",
     "CreateTaskTool",
+    "DraftAttachments",
+    "DraftMailTool",
+    "FileReadTool",
+    "FileSendTool",
+    "FileTakeTool",
+    "FileViewTool",
     "FindTasksTool",
     "MemoryCloseCommitmentTool",
     "MemoryShowTool",

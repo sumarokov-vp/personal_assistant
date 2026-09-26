@@ -1,0 +1,2 @@
+class SourceFileNotFoundError(LookupError):
+    pass

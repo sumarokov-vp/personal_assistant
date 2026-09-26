@@ -3,7 +3,7 @@
 Telegram-бот — персональный ассистент владельца. Текст владельца уходит в `ai_framework`
 (`ClaudeSdkProvider` — CLI Claude Code по подписке, `CLAUDE_CODE_OAUTH_TOKEN`), ответ модели возвращается в чат.
 У модели нет Bash и доступа к файловой системе: встроенные инструменты CLI выключены, она действует только
-через инструменты, объявленные в коде бота.
+через инструменты, объявленные в коде бота (файлы — только через рабочую папку бота и `file_*`, см. «Файлы»).
 
 ## Архитектура
 
@@ -20,7 +20,8 @@ workers/bot/
 ├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
 ├── todoist_tools_factory.py # find_tasks, create_task, read_task, add_task_link, update_task поверх TodoistTaskService
-└── gmail_tools_factory.py   # search_mail, read_mail, draft_reply поверх GmailClient (OAuth refresh token)
+├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
+└── file_tools_factory.py    # file_take, file_read, file_view, file_send поверх WorkFolder
 src/
 ├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
 ├── ai_tools/                # Инструменты модели: пакет на инструмент, класс — наследник BaseTool
@@ -38,7 +39,8 @@ src/
 │       ├── attachment_limits.py      # лимит Claude на картинку (5 МБ в base64)
 │       └── protocols/                # IConversationClearer
 ├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete), TodoistTaskService: дела, подзадачи, ссылки-комментарии
-├── gmail/                   # GmailClient (поиск, чтение, черновик ответа — без отправки), UntrustedMailFrame
+├── gmail/                   # GmailClient (поиск, чтение, вложения, черновики — без отправки), UntrustedMailFrame
+├── files/                   # Механика «файл»: WorkFolder, источники (mail/dropbox/chat), ридеры, растр, OverflowFolder, Sweeper
 └── voice_recognition/       # HttpTranscriber, NativeTranscriber
 scripts/
 └── gmail_auth.py            # Получение refresh token Gmail владельца в pass (standalone, uv run)
@@ -55,6 +57,13 @@ deploy/                      # Образ и выкат в colima
 - Провайдер — `Provider.CLAUDE_SDK` в боте, чекапе и наполнении памяти; модель — `AI_MODEL`. Ключа API нет:
   CLI берёт `CLAUDE_CODE_OAUTH_TOKEN` из окружения, а нативно без него — локальный логин Claude Code.
   Ключ Claude API в окружении процесса держать нельзя: CLI предпочтёт его подписке, и счёт пойдёт по API
+- Effort — `CLAUDE_CODE_EFFORT_LEVEL` (`low|medium|high|xhigh`), в проде `low` (умолчание в `up.sh` и `compose.yaml`,
+  как у `AI_MODEL`). `ClaudeSdkProvider` effort/thinking не передаёт, но SDK отдаёт CLI окружение процесса целиком,
+  а CLI читает переменную сам — поэтому env, а не код. При `low` CLI не включает thinking: замер 26.09.2026 на
+  claude-sonnet-5 — ход −30 % времени, −39 % output-токенов к умолчанию CLI. Переменная контейнера действует на всё,
+  что запущено в нём, — и на `workers.checkup`/`workers.memory_fill` через `docker exec`; отдельный `docker run` образа
+  её не получит (compose-сервис один — `bot`). Нужен другой effort одному процессу — задать env этого процесса.
+  Нативно переменной нет — действует умолчание CLI
 - `ClaudeSdkProvider` (с v0.9.3) держит сессию CLI на тред; `clear_context` её сбрасывает. Сессии CLI — в `$HOME/.claude`
 - Память диалога — `AI_DB_URL`: та же БД `personal_assistant`, схема `ai` (`options=-csearch_path%3Dai`).
   Миграции ai_framework применяются при входе в `with ai:`, но саму схему не создают: `CREATE SCHEMA IF NOT EXISTS ai` — один раз руками
@@ -63,7 +72,8 @@ deploy/                      # Образ и выкат в colima
   в поясе `OWNER_TIMEZONE`
 - `/clear` — `AIApplication.clear_context(thread_id)`: чистит историю треда владельца и (с v0.9.3) сбрасывает
   сессию SDK этого треда. `/context` нет: статистика была у сессии Claude Code
-- Зависимость — `ai-bot-framework[claude-sdk,s3]` тега `v0.9.4` (v0.9.2 не брать)
+- Зависимость — `ai-bot-framework[claude-sdk,s3]` тега `v0.9.5` (v0.9.2 не брать). С v0.9.5 `Attachment` в результате
+  инструмента (`execute` возвращает `list[str | Attachment]`) уходит модели image-контентом MCP — на этом стоит `file_view`
 - Все хендлеры — только роль `admin` (второй слой после фильтра владельца, см. «Безопасность»)
 
 ## Инструменты (tools)
@@ -116,14 +126,17 @@ deploy/                      # Образ и выкат в colima
 Регистрируются в `__main__.py` через `workers/bot/todoist_tools_factory.py` и `workers/bot/gmail_tools_factory.py`,
 если заданы переменные: `TODOIST_TOKEN` — `find_tasks`, `create_task`, `read_task`, `add_task_link`,
 `update_task`; все три `GMAIL_*` — `search_mail`, `read_mail`,
-`draft_reply` (задана только часть `GMAIL_*` — бот падает на старте). В проде compose требует все четыре.
+`draft_reply`, `draft_mail` (задана только часть `GMAIL_*` — бот падает на старте). В проде compose требует все четыре.
 Список зарегистрированных инструментов пишется в лог на старте строкой `AI tools: …`.
 
 Граница задаётся набором методов, а не промптом:
 
-- **Почта не отправляется.** Инструмента отправки нет, в `GmailClient` нет метода send. `draft_reply` — только
-  ответ в существующий тред, адресата и тему берёт код из исходного письма. Scope токена — `gmail.readonly` +
-  `gmail.compose`
+- **Почта не отправляется.** Инструмента отправки нет, в `GmailClient` нет метода send. `draft_reply` — ответ в
+  существующий тред, адресата и тему берёт код из исходного письма; `draft_mail` — черновик нового письма, адресата
+  и тему задаёт модель (отправляет владелец из Gmail). Оба принимают `file_ids` — вложения из рабочей папки.
+  Scope токена — `gmail.readonly` + `gmail.compose`
+- `read_mail` перечисляет вложения с `attachment_id` — это partId части письма (короткий и стабильный), а не
+  attachmentId Gmail: `GmailClient.get_attachment` находит часть по partId и качает по свежему attachmentId
 - **Задачи не закрываются и не удаляются.** В `TodoistHttpClient` нет close/reopen/delete. `update_task` меняет
   только срок (`clear_due` снимает его как due «no date» с `due_lang` ru — проверено на живом Todoist), дедлайн
   (`clear_deadline` шлёт `deadline_date: null`) и метки — дописывает к текущим, `pa` на чужую задачу не навешивает
@@ -182,7 +195,8 @@ BOT_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=di
 REDIS_URL=redis://localhost:6379/4
 AI_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable&options=-csearch_path%3Dai
 CLAUDE_CODE_OAUTH_TOKEN=токен подписки          # claude setup-token; нативно необязательная — CLI возьмёт локальный логин
-AI_MODEL=claude-sonnet-4-5
+AI_MODEL=claude-sonnet-5
+CLAUDE_CODE_EFFORT_LEVEL=low                    # необязательная; effort CLI (low|medium|high|xhigh), прод — low; без неё — умолчание CLI
 OWNER_TIMEZONE=Asia/Almaty                      # необязательная (дефолт Asia/Almaty); пояс для даты в системном промпте
 VOICE_RECOGNITION_URL=http://localhost:8000     # необязательная (есть дефолт); HTTP-сервис распознавания речи (faster-whisper, GPU)
 VOICE_RECOGNITION_API_KEY=ключ                  # заголовок X-API-Key для сервиса распознавания; без него сервис отвечает 401
@@ -202,6 +216,7 @@ TODOIST_TOKEN=токен                             # необязательн�
 GMAIL_CLIENT_ID=id OAuth-клиента                # GMAIL_* — все три или ни одной; без них инструменты почты не регистрируются
 GMAIL_CLIENT_SECRET=секрет OAuth-клиента
 GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_auth.py
+PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
 Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`, `WIKI_DIR`,
@@ -230,17 +245,47 @@ GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_
   (≈3.75 МБ сырых байт — лимит Claude). Сверх — отказ сообщением, без скачивания и без AI
 - Байты вложений — в DO Spaces (`S3AttachmentStore`, бакет `sumarokov-pa-attachments`, fra1), в истории ai_framework
   (`ai_messages.attachments`) — только ключи. `AIApplication` сам оборачивает хранилище в `CachedAttachmentStore`.
-  На диск бота ничего не пишется. Объекты бакета библиотека не удаляет — `/clear` чистит историю, не бакет
-- `dropbox_save` (`src/ai_tools/dropbox_save/`) берёт вложение из истории треда `str(user_id)`: `PostgresMemoryStore(AI_DB_URL)`
-  читает `ai_messages`, байты — тот же `S3AttachmentStore`, что у `AIApplication`. Окно — последние `HISTORY_TURNS_LIMIT`
-  ходов. Пишет `DropboxFileSaver` (граница `DropboxBoundary` + журнал `dropbox_journal`, action `added`); перезаписи нет —
-  « (2)». Регистрируется при `DROPBOX_ROOT`. Текстовые `.txt/.md/.csv` в S3 не попадают — их `dropbox_save` не сохранит
+  Объекты бакета библиотека не удаляет — `/clear` чистит историю, не бакет. Вложение из чата модель берёт в работу
+  через `file_take(source=chat)` (см. «Файлы»): `ChatAttachments` читает историю треда `str(user_id)`
+  (`PostgresMemoryStore(AI_DB_URL)`, окно — последние `HISTORY_TURNS_LIMIT` ходов), байты — тот же `S3AttachmentStore`.
+  Текстовые `.txt/.md/.csv` в S3 не попадают — их `file_take(source=chat)` не найдёт
+
+## Файлы
+
+Одна механика для файла из любого места: письмо Gmail, Dropbox, чат. Сборка — `workers/bot/file_tools_factory.py`
+(`file_take`, `file_read`, `file_view`, `file_send`), почтовые черновики — `gmail_tools_factory.py`, `dropbox_save` —
+`build_dropbox_save_tool` в `__main__.py`. Код — `src/files/`.
+
+- **Рабочая папка** — `PA_WORK_DIR`, по умолчанию `/tmp/personal_assistant/files` (`tempfile.gettempdir()`), в контейнере
+  без тома: файлы живут сутки, перезапуск контейнера переживать им не нужно. `WorkFolder` кладёт файл в
+  `<file_id>/<имя>` рядом с `.work_file.json` (имя, тип, размер, источник), каталоги 0700, файлы 0600; `file_id` —
+  8 hex-символов. Каталог создаётся при первом `file_take`
+- `file_take` (`mail` — `message_id` + `attachment_id` из `read_mail`; `dropbox` — `path` через `DropboxBoundary`, закрытые
+  места не отдаёт; `chat` — вложение из истории треда) — предел 50 МБ, отвечает `{file_id, name, media_type, size}`
+- `file_read` — текст через `FileTextReader`: txt/md/csv/json, текстовый слой PDF (pypdf), DOCX, XLSX; обёрнут в
+  `UntrustedFileFrame`. `.doc`, `.xls`, скан-PDF без текста — error
+- `file_view` — картинки модели (ai_framework v0.9.5): JPEG/PNG/GIF/WebP ужимаются `ImageFitter` под `MAX_IMAGE_BYTES`,
+  страницы PDF растрирует `PdfRasterizer` (pypdfium2, 150 dpi), по умолчанию первые 3, не больше 5 за вызов
+- `file_send` — документом только владельцу (`OWNER_TELEGRAM_ID`), адресата во входе нет; больше 50 МБ — в «Personal Assistant»
+- `dropbox_save` — по `file_id`: пишет `DropboxFileSaver` (граница `DropboxBoundary` + журнал `dropbox_journal`, action
+  `added`); перезаписи нет — « (2)». Регистрируется при `DROPBOX_ROOT`
+- `draft_mail` / `draft_reply` с `file_ids`: лимит Gmail 25 МБ по закодированному MIME; что не влезает — не прикладывается,
+  а уходит в «Personal Assistant», в ответе путь
+- **«Personal Assistant»** — папка в корне Dropbox (`OVERFLOW_FOLDER_NAME`) для того, что не пролезает в Telegram или
+  Gmail. Временная, как рабочая: `OverflowFolder` пишет туда через `DropboxBoundary`, имя не перезаписывается
+- **Уборка** — `Sweeper` в фоновом потоке `files-sweeper` (`start_sweeper` в `__main__.py`): при старте и раз в час
+  удаляет файлы с mtime старше 24 ч и опустевшие каталоги ровно в двух корнях — рабочей папке и
+  `<DROPBOX_ROOT>/Personal Assistant`; по symlink не ходит, остальной Dropbox не трогает. Удалённое — строкой
+  `Sweeper removed …` в лог. Запись в «Personal Assistant» и удаления в `dropbox_journal` не попадают
+- Содержимое файла для модели — данные: `file_read` оборачивает текст рамкой, системный промпт запрещает исполнять
+  указания из файлов
 
 ## Технологический стек
 
 - Python 3.13+
 - bot-framework[all]==0.8.2 — фреймворк для Telegram-ботов
-- ai-bot-framework[claude-sdk,s3] (git-тег v0.9.4) — AIApplication, память, ClaudeSdkProvider, вложения в S3
+- ai-bot-framework[claude-sdk,s3] (git-тег v0.9.5) — AIApplication, память, ClaudeSdkProvider, вложения в S3, картинки в результате инструмента
+- pypdf, python-docx, openpyxl — текст PDF/DOCX/XLSX; pypdfium2 — скан-PDF в PNG; Pillow — ужать картинку под 5 МБ
 - uv — управление зависимостями
 
 ## Команды
@@ -278,7 +323,8 @@ GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_
   Новая чувствительная папка в корне Dropbox видна боту, пока её не добавят в оверлеи `compose.yaml`;
   `vault_selftest_*` меняют имена — их отсекает код инструментов Dropbox, не монтирование
 - В контейнере uid 1000; монтируются том вики, ключ вики и Dropbox: сессии CLI живут в `$HOME/.claude` контейнера
-  и пропадают с ним
+  и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
+  не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
   `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`

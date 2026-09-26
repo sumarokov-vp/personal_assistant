@@ -45,7 +45,9 @@ BOT_DB_URL="$(pass_first_line "$PASS_ROOT/db")"
 AI_DB_URL="${BOT_DB_URL}&options=-csearch_path%3Dai"
 CLAUDE_CODE_OAUTH_TOKEN="$(pass_first_line "$PASS_ROOT/claude-oauth-token")"
 VOICE_RECOGNITION_API_KEY="$(pass_first_line "$PASS_ROOT/voice-recognition-key")"
-AI_MODEL="${AI_MODEL:-claude-sonnet-4-5}"
+AI_MODEL="${AI_MODEL:-claude-sonnet-5}"
+# Effort CLI Claude Code (low|medium|high|xhigh): low выключает thinking, ход быстрее. CLI читает env сам
+CLAUDE_CODE_EFFORT_LEVEL="${CLAUDE_CODE_EFFORT_LEVEL:-low}"
 WIKI_REMOTE_URL="${WIKI_REMOTE_URL:-git@github.com:sumarokov-vp/obsidian_wiki.git}"
 
 # Вложения (фото, PDF) — DO Spaces. Запись spaces-attachments: первая строка — secret key,
@@ -95,6 +97,7 @@ if [ -n "$(ls -A "$EMPTY_DIR")" ]; then
 fi
 
 export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
+    CLAUDE_CODE_EFFORT_LEVEL \
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
     ATTACHMENTS_S3_ENDPOINT ATTACHMENTS_S3_BUCKET ATTACHMENTS_S3_REGION \
     ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \

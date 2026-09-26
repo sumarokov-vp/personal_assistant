@@ -21,7 +21,9 @@ CONTEXT = ToolContext({"chat_id": 1, "user_id": 1})
 
 def _run(tool: object, model_input: dict) -> dict:
     assert isinstance(tool, BaseTool)
-    return json.loads(tool.execute(tool.Input.model_validate(model_input), CONTEXT))
+    result = tool.execute(tool.Input.model_validate(model_input), CONTEXT)
+    assert isinstance(result, str)
+    return json.loads(result)
 
 
 def _created_body(fake_todoist: FakeTodoist) -> dict:

@@ -1,0 +1,2 @@
+class UnviewableFormatError(ValueError):
+    pass
