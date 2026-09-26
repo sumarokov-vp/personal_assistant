@@ -23,11 +23,13 @@ from src.agent_notifications.services.rabbitmq_consumer import (
 from src.agent_notifications.services.text_splitter import TelegramTextSplitter
 from src.access.services.update_gate_installer import UpdateGateInstaller
 from src.ai_tools import (
+    AgentNotificationsTool,
     MemoryCloseCommitmentTool,
     MemoryShowTool,
     MemoryUpsertCommitmentTool,
     MemoryUpsertDeadlineTool,
     MemoryUpsertTripTool,
+    UntrustedNotificationFrame,
     WikiAppendTool,
     WikiCreatePageTool,
     WikiReadTool,
@@ -408,6 +410,13 @@ def main() -> None:
     wiki_factory = build_wiki_factory()
     tools.extend(build_wiki_tools(wiki_factory))
     tools.extend(build_memory_tools(wiki_factory, owner_timezone))
+    tools.append(
+        AgentNotificationsTool(
+            journal=PostgresAgentNotificationRepository(database_url=db_url),
+            frame=UntrustedNotificationFrame(),
+            timezone=owner_timezone,
+        )
+    )
 
     todoist_token = getenv("TODOIST_TOKEN")
     if todoist_token:
