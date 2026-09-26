@@ -12,10 +12,13 @@ deploy/up.sh
 ```
 
 Скрипт:
-1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key}`,
+1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments}`,
    `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента, без пароля), экспортирует
    их только в своё окружение и не печатает;
 2. собирает `AI_DB_URL` из `db` (та же БД `personal_assistant`, `options=-csearch_path%3Dai`);
+   из `spaces-attachments` (хранилище фото и PDF в DO Spaces) — `ATTACHMENTS_S3_SECRET_KEY` из первой строки и
+   `ATTACHMENTS_S3_{ACCESS_KEY,BUCKET,REGION,ENDPOINT}` из строк `access_key=`, `bucket=`, `region=`, `endpoint=`;
+   нет какого-то поля — скрипт останавливается до сборки;
 3. кладёт deploy-ключ вики файлом 0600 в `~/docker/personal_assistant/secrets/wiki_deploy_key` (ssh берёт
    ключ только из файла; в контейнер он монтируется read-only) и заводит том вики
    `~/docker/personal_assistant/wiki` — первый clone `obsidian_wiki` на пустом томе делает сам бот;

@@ -98,6 +98,7 @@ class ScriptedProvider:
         system: str | None = None,
         tools: list[BaseTool] | None = None,
         tool_context: dict[str, Any] | None = None,
+        thread_id: str | None = None,
     ) -> AIResponse:
         self._record_results(messages)
         if self._step == len(self._script):

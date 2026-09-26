@@ -4,6 +4,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from ai_framework import AIApplication, BaseTool, Provider
+from ai_framework.attachments.s3_attachment_store import S3AttachmentStore
 from dotenv import load_dotenv
 
 from bot_framework.app import BotApplication
@@ -68,6 +69,8 @@ TOKEN_LEAKING_LOGGERS = ["TeleBot", "urllib3", "requests", "httpx", "anthropic"]
 
 HISTORY_TURNS_LIMIT = 10
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+# Лимит Claude на одну картинку (в base64): больше — отказ без вызова модели
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 CARD_LANGUAGE = "ru"
 SUBSCRIPTION_HAS_NO_API_KEY = ""
 
@@ -161,6 +164,17 @@ def build_wiki_factory() -> WikiFactory:
     )
 
 
+def build_attachment_store() -> S3AttachmentStore:
+    # AIApplication сам оборачивает хранилище в CachedAttachmentStore (LRU в памяти процесса)
+    return S3AttachmentStore(
+        endpoint_url=require_env("ATTACHMENTS_S3_ENDPOINT"),
+        bucket=require_env("ATTACHMENTS_S3_BUCKET"),
+        access_key=require_env("ATTACHMENTS_S3_ACCESS_KEY"),
+        secret_key=require_env("ATTACHMENTS_S3_SECRET_KEY"),
+        region=require_env("ATTACHMENTS_S3_REGION"),
+    )
+
+
 def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[BaseTool]:
     storage = WikiPageStorage(
         reader=wiki_factory.create_reader(),
@@ -229,6 +243,7 @@ def main() -> None:
         database_url=ai_db_url,
         tools=tools,
         history_turns_limit=HISTORY_TURNS_LIMIT,
+        attachment_store=build_attachment_store(),
     )
 
     message_sender = app.message_sender
@@ -280,9 +295,13 @@ def main() -> None:
     )
 
     photo_handler = PhotoMessageHandler(
+        document_downloader=app.core.document_downloader,
+        send_to_agent_action=send_to_agent_action,
         message_sender=message_sender,
+        message_replacer=message_replacer,
         role_repo=app.role_repo,
         max_file_bytes=MAX_ATTACHMENT_BYTES,
+        max_image_bytes=MAX_IMAGE_BYTES,
     )
 
     document_handler = DocumentMessageHandler(
@@ -292,6 +311,7 @@ def main() -> None:
         message_replacer=message_replacer,
         role_repo=app.role_repo,
         max_file_bytes=MAX_ATTACHMENT_BYTES,
+        max_image_bytes=MAX_IMAGE_BYTES,
     )
 
     app.core.message_handler_registry.register(
