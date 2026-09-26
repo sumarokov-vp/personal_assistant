@@ -98,6 +98,15 @@ deploy/                      # Образ и выкат в colima
 4. В `context` (`ToolContext`) приходят `chat_id` и `user_id` из `SendToAgentAction`
 5. Инструмент, который сам ответил в чат, возвращает `suppress_response` — тогда «Думаю...» удаляется, а текст модели не шлётся
 
+## Вики
+
+Слой `src/wiki` — локальная git-копия `obsidian_wiki` (`WIKI_DIR`): первый вызов делает clone по `WIKI_REMOTE_URL`
+на пустом каталоге, дальше pull перед чтением; запись — коммит `pa: …` и push в `main` ключом `WIKI_SSH_KEY_PATH`.
+Сборка — `build_wiki_tools` в `workers/bot/__main__.py`: один `WikiFactory` на бот, инструменты
+`wiki_search` (`WikiSearcher` поверх `WikiReader`), `wiki_read`, `wiki_create_page`, `wiki_append`.
+Инструменты памяти (`memory_*`) работают через тот же `WikiFactory` — общий замок на копию.
+В системном промпте: факт из вики — со ссылкой на путь страницы; служебные страницы памяти — только через `memory_*`.
+
 ## Переменные окружения (.env)
 
 ```
