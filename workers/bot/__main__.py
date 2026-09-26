@@ -3,6 +3,7 @@ from os import getenv
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import httpx
 from ai_framework import AIApplication, BaseTool, Provider
 from ai_framework.attachments.s3_attachment_store import S3AttachmentStore
 from dotenv import load_dotenv
@@ -61,6 +62,8 @@ from src.memory.repos import (
     WikiPageStorage,
 )
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
+from workers.bot.gmail_tools_factory import GMAIL_VARIABLES, build_gmail_tools
+from workers.bot.todoist_tools_factory import build_todoist_tools
 from workers.bot.transcriber_factory import build_transcriber
 
 logger = getLogger(__name__)
@@ -73,6 +76,7 @@ MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 CARD_LANGUAGE = "ru"
 SUBSCRIPTION_HAS_NO_API_KEY = ""
+GMAIL_HTTP_TIMEOUT_SECONDS = 30.0
 
 
 def configure_logging(level: str) -> None:
@@ -193,6 +197,10 @@ def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[Ba
     ]
 
 
+def gmail_configured() -> bool:
+    return any(getenv(name) for name in GMAIL_VARIABLES)
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent.parent
     load_dotenv(dotenv_path=project_root / ".env")
@@ -230,6 +238,22 @@ def main() -> None:
 
     wiki_factory = build_wiki_factory()
     tools.extend(build_memory_tools(wiki_factory, owner_timezone))
+
+    todoist_token = getenv("TODOIST_TOKEN")
+    if todoist_token:
+        tools.extend(build_todoist_tools(todoist_token))
+
+    if gmail_configured():
+        tools.extend(
+            build_gmail_tools(
+                http=httpx.Client(timeout=GMAIL_HTTP_TIMEOUT_SECONDS),
+                client_id=require_env("GMAIL_CLIENT_ID"),
+                client_secret=require_env("GMAIL_CLIENT_SECRET"),
+                refresh_token=require_env("GMAIL_REFRESH_TOKEN"),
+            )
+        )
+
+    logger.info("AI tools: %s", ", ".join(tool.name for tool in tools))
 
     system_prompt_builder = SystemPromptBuilder(
         template=(data_dir / "system_prompt.txt").read_text(encoding="utf-8"),
