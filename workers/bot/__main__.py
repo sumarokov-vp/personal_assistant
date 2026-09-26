@@ -379,6 +379,7 @@ def main() -> None:
             chat_attachments=chat_attachments,
             dropbox_boundary=dropbox_boundary,
             mail=mail,
+            max_image_bytes=MAX_IMAGE_BYTES,
         )
     )
 

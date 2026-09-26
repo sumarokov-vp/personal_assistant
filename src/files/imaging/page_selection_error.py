@@ -1,0 +1,2 @@
+class PageSelectionError(ValueError):
+    pass
