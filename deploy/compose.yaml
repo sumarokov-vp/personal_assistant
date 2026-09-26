@@ -39,7 +39,7 @@ services:
       BOT_DB_URL: ${BOT_DB_URL:?}
       AI_DB_URL: ${AI_DB_URL:?}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?}
-      AI_MODEL: ${AI_MODEL:-claude-sonnet-4-5}
+      AI_MODEL: ${AI_MODEL:-claude-sonnet-5}
       VOICE_RECOGNITION_API_KEY: ${VOICE_RECOGNITION_API_KEY:?}
       REDIS_URL: redis://redis:6379/4
       VOICE_RECOGNITION_URL: http://10.72.0.199:8000

@@ -172,7 +172,7 @@ BOT_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=di
 REDIS_URL=redis://localhost:6379/4
 AI_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable&options=-csearch_path%3Dai
 CLAUDE_CODE_OAUTH_TOKEN=токен подписки          # claude setup-token; нативно необязательная — CLI возьмёт локальный логин
-AI_MODEL=claude-sonnet-4-5
+AI_MODEL=claude-sonnet-5
 OWNER_TIMEZONE=Asia/Almaty                      # необязательная (дефолт Asia/Almaty); пояс для даты в системном промпте
 VOICE_RECOGNITION_URL=http://localhost:8000     # необязательная (есть дефолт); HTTP-сервис распознавания речи (faster-whisper, GPU)
 VOICE_RECOGNITION_API_KEY=ключ                  # заголовок X-API-Key для сервиса распознавания; без него сервис отвечает 401
