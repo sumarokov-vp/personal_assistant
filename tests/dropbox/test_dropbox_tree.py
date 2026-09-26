@@ -10,10 +10,10 @@ from src.dropbox.services.tree.dropbox_tree import DropboxTree
 def test_tree_counts_visible_files_only(boundary: DropboxBoundary):
     tree = DropboxTree(boundary).build(depth=1)
 
-    assert [folder.name for folder in tree.folders] == ["03_home", "Apps"]
+    assert [folder.name for folder in tree.folders] == ["01_work", "03_home", "Apps"]
     assert tree.file_count == 3
-    assert tree.total_file_count == 3 + 7 + 1
-    home = tree.folders[0]
+    assert tree.total_file_count == 3 + 1 + 7 + 1
+    home = tree.folders[1]
     assert home.path == "03_home"
     assert home.folders == []
     assert home.total_file_count == 7
@@ -31,4 +31,11 @@ def test_tree_of_subfolder_lists_files_when_asked(boundary: DropboxBoundary):
 
 def test_tree_of_closed_folder_is_denied(boundary: DropboxBoundary):
     with pytest.raises(DropboxAccessDeniedError):
-        DropboxTree(boundary).build("01_work")
+        DropboxTree(boundary).build("Vault")
+
+
+def test_tree_of_work_folder_is_open(boundary: DropboxBoundary):
+    tree = DropboxTree(boundary).build("01_work", depth=2, include_files=True)
+
+    assert tree.folders[0].path == "01_work/client"
+    assert tree.folders[0].files == ["contract.txt"]

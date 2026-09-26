@@ -16,7 +16,6 @@ from src.dropbox.services.reader.dropbox_reader import DropboxReader
         "vault/secret.md",
         "Vault",
         "vault_selftest_3544/probe.txt",
-        "01_work/client/contract.txt",
         "03_home/07_ecp/egov.kz/AUTH_RSA.p12",
         "03_home/07_ecp/egov.kz/password.md.gpg",
         "03_home/07_ecp/backup_AUTH.P12",
@@ -51,6 +50,7 @@ def test_absolute_path_inside_root_resolves(
 def test_root_listing_hides_closed_entries_and_outside_links(boundary: DropboxBoundary):
     names = [child.name for child in boundary.visible_children(boundary.root)]
     assert names == [
+        "01_work",
         "03_home",
         "Apps",
         "innocent.txt",
@@ -65,3 +65,9 @@ def test_key_file_is_listed_by_name(boundary: DropboxBoundary):
         "backup_AUTH.P12",
         "readme.md",
     ]
+
+
+def test_work_folder_is_readable(boundary: DropboxBoundary):
+    text = DropboxReader(boundary).read("01_work/client/contract.txt")
+
+    assert text.text == "клиентский договор"
