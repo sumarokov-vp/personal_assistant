@@ -1,5 +1,8 @@
 {
   "permissions": {
+    "allow": [
+      "mcp__ai-framework-tools"
+    ],
     "deny": [
       "Agent",
       "AskUserQuestion",
@@ -50,6 +53,9 @@
       "Workflow",
       "Write"
     ]
+  },
+  "env": {
+    "ENABLE_TOOL_SEARCH": "false"
   },
   "allowManagedPermissionRulesOnly": true,
   "allowManagedHooksOnly": true,

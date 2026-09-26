@@ -75,7 +75,12 @@ deploy/                      # Образ и выкат в colima
 `deploy/claude-code/managed-settings.json` кладётся в образ как `/etc/claude-code/managed-settings.json`
 (root, uid 1000 его не перепишет). Managed settings грузятся всегда, независимо от `setting_sources`:
 
+- `permissions.allow` — `mcp__ai-framework-tools` (весь сервер). Без него инструменты бота не вызываются: при
+  `allowManagedPermissionRulesOnly` правило `allowed_tools` от ai_framework (флаг CLI) не действует, `permission_mode`
+  default просит разрешения, дать его в SDK некому — модель отвечает владельцу «нужно ваше разрешение»
 - `permissions.deny` — все встроенные инструменты CLI поимённо: запрещённый инструмент убирается из контекста модели
+- `env.ENABLE_TOOL_SEARCH=false` — MCP-инструменты всегда в контексте целиком: `ToolSearch` в deny, и отложенный
+  за ним инструмент модель не нашла бы
 - `PreToolUse`-хук на всё — страховка на инструмент, которого нет в списке (новая версия CLI): пропускает только
   `mcp__ai-framework-tools__*`, остальное блокирует
 - `allowedMcpServers` — только `ai-framework-tools`; `allowManaged{PermissionRules,Hooks}Only` — правила и хуки
@@ -88,7 +93,10 @@ deploy/                      # Образ и выкат в colima
   в образе: `docker run --rm -v "$PWD/scripts:/app/scripts:ro" --entrypoint python personal_assistant-bot:latest -m scripts.claude_cli_tools_check`.
   Должно быть ровно `mcp__ai-framework-tools__…`
 - `uv run python -m scripts.claude_sdk_live_check bot|checkup` — живой прогон `AIApplication(CLAUDE_SDK)` со
-  списком инструментов бота или чекапа на локальных подменах источников, вызовы модели настоящие
+  списком инструментов бота или чекапа на локальных подменах источников, вызовы модели настоящие.
+  Нативно файл — project settings, а `allowManaged*Only` действует только из managed: запрос разрешения на
+  инструмент бота ловится лишь прогоном в образе — `docker build -f deploy/Dockerfile -t <свой тег> .`, затем
+  `docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/tests:/app/tests:ro" -v "$PWD/deploy:/app/deploy:ro" --entrypoint python <тег> -m scripts.claude_sdk_live_check bot`
 
 Обновил `claude-agent-sdk` в `uv.lock` — прогони `claude_cli_tools_check`: новый инструмент CLI добавляется в `deny`.
 Инструменты вызываются синхронно изнутри event loop провайдера: `asyncio.run` в их коде падает (так `GitCli`
