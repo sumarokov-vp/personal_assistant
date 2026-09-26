@@ -1,3 +1,5 @@
+from src.ai_tools.file_read import FileReadTool
+from src.ai_tools.file_take import FileTakeTool
 from src.ai_tools.memory_close_commitment import MemoryCloseCommitmentTool
 from src.ai_tools.memory_show import MemoryShowTool
 from src.ai_tools.memory_upsert_commitment import MemoryUpsertCommitmentTool
@@ -9,6 +11,8 @@ from src.ai_tools.wiki_read import WikiReadTool
 from src.ai_tools.wiki_search import WikiSearchTool
 
 __all__ = [
+    "FileReadTool",
+    "FileTakeTool",
     "MemoryCloseCommitmentTool",
     "MemoryShowTool",
     "MemoryUpsertCommitmentTool",

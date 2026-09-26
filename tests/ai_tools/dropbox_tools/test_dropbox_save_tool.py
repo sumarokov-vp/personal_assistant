@@ -9,7 +9,8 @@ from ai_framework.entities.message import Message
 from ai_framework.entities.tool import ToolResult
 from ai_framework.entities.tool_context import ToolContext
 
-from src.ai_tools.dropbox_save import ChatAttachments, DropboxSaveTool
+from src.ai_tools.dropbox_save import DropboxSaveTool
+from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
 from src.ai_tools.dropbox_save.tool import DropboxSaveInput
 from src.dropbox.models.journal_action import JournalAction
 from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy

@@ -1,0 +1,2 @@
+class FileTakeRefusedError(ValueError):
+    pass
