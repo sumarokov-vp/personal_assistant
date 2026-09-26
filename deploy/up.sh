@@ -24,6 +24,12 @@ pass_field() {
     pass show "$1" | tail -n +2 | sed -n "s/^$2=//p" | awk "NR == 1"
 }
 
+# Поле installed.<имя> из OAuth-клиента Google: запись pass — JSON client_secret_*.json целиком.
+# Значение идёт через stdin, в аргументы процесса секрет не попадает
+oauth_client_field() {
+    pass show "$1" | python3 -c 'import json, sys; print(json.load(sys.stdin)["installed"][sys.argv[1]])' "$2"
+}
+
 require_value() {
     if [ -z "$2" ]; then
         echo "up.sh: в pass нет значения для $1" >&2
@@ -53,6 +59,17 @@ require_value "$SPACES_ENTRY bucket" "$ATTACHMENTS_S3_BUCKET"
 require_value "$SPACES_ENTRY region" "$ATTACHMENTS_S3_REGION"
 require_value "$SPACES_ENTRY endpoint" "$ATTACHMENTS_S3_ENDPOINT"
 
+# Todoist и Gmail. Refresh token Gmail владелец кладёт в pass скриптом scripts/gmail_auth.py
+# (uv run scripts/gmail_auth.py); пока записи нет, выкат останавливается здесь
+TODOIST_TOKEN="$(pass_first_line "$PASS_ROOT/todoist-token")"
+GMAIL_CLIENT_ID="$(oauth_client_field "$PASS_ROOT/gmail-oauth-client" client_id)"
+GMAIL_CLIENT_SECRET="$(oauth_client_field "$PASS_ROOT/gmail-oauth-client" client_secret)"
+GMAIL_REFRESH_TOKEN="$(pass_first_line "$PASS_ROOT/gmail-refresh-token")"
+require_value "$PASS_ROOT/todoist-token" "$TODOIST_TOKEN"
+require_value "$PASS_ROOT/gmail-oauth-client installed.client_id" "$GMAIL_CLIENT_ID"
+require_value "$PASS_ROOT/gmail-oauth-client installed.client_secret" "$GMAIL_CLIENT_SECRET"
+require_value "$PASS_ROOT/gmail-refresh-token" "$GMAIL_REFRESH_TOKEN"
+
 # Deploy-ключ вики: ssh читает ключ только из файла. Файл 0600 в каталоге 0700 вне репо и вне
 # тома вики, в контейнер монтируется только на чтение. Пишется целиком (ключ многострочный),
 # через umask — без окна, когда файл уже есть, а права ещё широкие.
@@ -77,6 +94,7 @@ fi
 export BOT_TOKEN BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
     ATTACHMENTS_S3_ENDPOINT ATTACHMENTS_S3_BUCKET ATTACHMENTS_S3_REGION \
-    ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY
+    ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \
+    TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN
 
 docker compose -f deploy/compose.yaml up -d --build

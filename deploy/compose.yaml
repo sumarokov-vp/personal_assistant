@@ -19,6 +19,8 @@
 #    содержимое в контейнер не попадает вовсе: Vault, 01_work, 03_home/07_ecp/egov.kz (ключи
 #    ЭЦП и пароль). Новая чувствительная папка в корне Dropbox видна боту, пока её не добавят
 #    сюда; vault_selftest_* меняют имена — их отсекает код инструментов Dropbox.
+#  * Todoist и Gmail: TODOIST_TOKEN и GMAIL_* из pass. GMAIL_CLIENT_ID/SECRET up.sh достаёт из
+#    JSON OAuth-клиента (installed.client_id/client_secret), refresh token — отдельная запись.
 name: personal_assistant
 
 services:
@@ -49,6 +51,10 @@ services:
       ATTACHMENTS_S3_ACCESS_KEY: ${ATTACHMENTS_S3_ACCESS_KEY:?}
       ATTACHMENTS_S3_SECRET_KEY: ${ATTACHMENTS_S3_SECRET_KEY:?}
       DROPBOX_ROOT: /dropbox
+      TODOIST_TOKEN: ${TODOIST_TOKEN:?}
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:?}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:?}
+      GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN:?}
     volumes:
       - ${PA_DATA_DIR:?}/wiki:/wiki
       - ${WIKI_DEPLOY_KEY_FILE:?}:/run/secrets/wiki_deploy_key:ro
