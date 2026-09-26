@@ -1,19 +1,26 @@
-from bot_framework import IMessageReplacer, IMessageSender
-from src.agent.protocols.i_agent_client import IAgentClient
+from bot_framework import IMessageDeleter, IMessageReplacer, IMessageSender
+
+from src.chat.actions.protocols.i_conversation_ai import IConversationAI
+from src.chat.actions.protocols.i_system_prompt_builder import ISystemPromptBuilder
 
 TELEGRAM_MESSAGE_LIMIT = 4096
+EMPTY_RESPONSE_TEXT = "Пустой ответ от ассистента"
 
 
 class SendToAgentAction:
     def __init__(
         self,
-        agent_client: IAgentClient,
+        ai: IConversationAI,
+        system_prompt_builder: ISystemPromptBuilder,
         message_sender: IMessageSender,
         message_replacer: IMessageReplacer,
+        message_deleter: IMessageDeleter,
     ) -> None:
-        self.agent_client = agent_client
+        self.ai = ai
+        self.system_prompt_builder = system_prompt_builder
         self.message_sender = message_sender
         self.message_replacer = message_replacer
+        self.message_deleter = message_deleter
 
     def execute(
         self,
@@ -22,10 +29,18 @@ class SendToAgentAction:
         text: str,
         thinking_message_id: int,
     ) -> None:
-        response = self.agent_client.send_message(user_id, chat_id, text)
-        if not response.strip():
-            response = "Пустой ответ от агента"
-        chunks = _split_message(response)
+        self.ai.update_system_prompt(self.system_prompt_builder.build())
+        response = self.ai.process_message(
+            thread_id=str(user_id),
+            user_message=text,
+            tool_context={"chat_id": chat_id, "user_id": user_id},
+        )
+        if response.suppress_response:
+            self.message_deleter.delete(chat_id=chat_id, message_id=thinking_message_id)
+            return
+
+        content = response.content or ""
+        chunks = _split_message(content if content.strip() else EMPTY_RESPONSE_TEXT)
 
         self.message_replacer.replace(
             chat_id=chat_id,
