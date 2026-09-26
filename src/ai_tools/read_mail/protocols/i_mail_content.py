@@ -1,6 +1,8 @@
 from collections.abc import Sequence
 from typing import Protocol
 
+from src.ai_tools.read_mail.protocols.i_mail_attachment import IMailAttachment
+
 
 class IMailContent(Protocol):
     @property
@@ -25,4 +27,4 @@ class IMailContent(Protocol):
     def body(self) -> str: ...
 
     @property
-    def attachment_names(self) -> Sequence[str]: ...
+    def attachments(self) -> Sequence[IMailAttachment]: ...
