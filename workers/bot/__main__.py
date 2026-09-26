@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 
 from bot_framework.app import BotApplication
 from bot_framework.features.flows.request_role_flow.handlers import RequestRoleCommandHandler
+from src.ai_tools.dropbox_read import DropboxReadTool
+from src.ai_tools.dropbox_search import DropboxSearchTool
+from src.ai_tools.dropbox_tree import DropboxTreeTool
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
@@ -18,6 +21,11 @@ from src.chat.handlers.document_message_handler import DocumentMessageHandler
 from src.chat.handlers.photo_message_handler import PhotoMessageHandler
 from src.chat.handlers.text_message_handler import TextMessageHandler
 from src.chat.handlers.voice_message_handler import VoiceMessageHandler
+from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
+from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
+from src.dropbox.services.reader.dropbox_reader import DropboxReader
+from src.dropbox.services.search.dropbox_search import DropboxSearch
+from src.dropbox.services.tree.dropbox_tree import DropboxTree
 from src.voice_recognition.transcript_cleaner import TranscriptCleaner
 from workers.bot.transcriber_factory import build_transcriber
 
@@ -40,6 +48,17 @@ def require_env(name: str) -> str:
     if not value:
         raise ValueError(f"{name} environment variable is required")
     return value
+
+
+def build_dropbox_tools(root: Path) -> list[BaseTool]:
+    if not root.is_dir():
+        raise ValueError(f"DROPBOX_ROOT={root} is not a directory")
+    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
+    return [
+        DropboxTreeTool(tree_builder=DropboxTree(boundary=boundary)),
+        DropboxSearchTool(finder=DropboxSearch(boundary=boundary)),
+        DropboxReadTool(reader=DropboxReader(boundary=boundary)),
+    ]
 
 
 def main() -> None:
@@ -75,6 +94,9 @@ def main() -> None:
     )
 
     tools: list[BaseTool] = []
+    dropbox_root = getenv("DROPBOX_ROOT")
+    if dropbox_root:
+        tools.extend(build_dropbox_tools(Path(dropbox_root)))
 
     system_prompt_builder = SystemPromptBuilder(
         template=(data_dir / "system_prompt.txt").read_text(encoding="utf-8"),
