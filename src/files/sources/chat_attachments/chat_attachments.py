@@ -9,16 +9,12 @@ from src.files.sources.chat_attachments.protocols.i_chat_history import (
 
 
 class ChatAttachments:
-    def __init__(
-        self, history: IChatHistory, store: IAttachmentBytes, turns_limit: int
-    ) -> None:
+    def __init__(self, history: IChatHistory, store: IAttachmentBytes) -> None:
         self._history = history
         self._store = store
-        self._turns_limit = turns_limit
 
-    def recent(self, thread_id: str) -> list[Attachment]:
+    def in_thread(self, thread_id: str) -> list[Attachment]:
         found: list[Attachment] = []
-        turns = 0
         for message in reversed(self._history.get_messages(thread_id)):
             if message.role != "user" or message.tool_results:
                 continue
@@ -27,9 +23,6 @@ class ChatAttachments:
                 for attachment in reversed(message.attachments or [])
                 if attachment.key is not None
             )
-            turns += 1
-            if turns >= self._turns_limit:
-                break
         return found
 
     def content(self, attachment: Attachment) -> bytes:
