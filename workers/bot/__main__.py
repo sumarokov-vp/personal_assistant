@@ -1,4 +1,3 @@
-import tempfile
 from logging import WARNING, basicConfig, getLogger
 from os import getenv
 from pathlib import Path
@@ -26,6 +25,7 @@ logger = getLogger(__name__)
 TOKEN_LEAKING_LOGGERS = ["TeleBot", "urllib3", "requests", "httpx", "anthropic"]
 
 HISTORY_TURNS_LIMIT = 10
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
 def configure_logging(level: str) -> None:
@@ -60,8 +60,6 @@ def main() -> None:
     whisper_model = getenv("WHISPER_MODEL", "small")
 
     data_dir = project_root / "data"
-    inbox_dir = Path(tempfile.gettempdir()) / "personal_assistant_inbox"
-    inbox_dir.mkdir(parents=True, exist_ok=True)
 
     app = BotApplication(
         bot_token=bot_token,
@@ -138,12 +136,9 @@ def main() -> None:
     )
 
     photo_handler = PhotoMessageHandler(
-        document_downloader=app.core.document_downloader,
-        send_to_agent_action=send_to_agent_action,
         message_sender=message_sender,
-        message_replacer=message_replacer,
         role_repo=app.role_repo,
-        inbox_dir=inbox_dir,
+        max_file_bytes=MAX_ATTACHMENT_BYTES,
     )
 
     document_handler = DocumentMessageHandler(
@@ -152,7 +147,7 @@ def main() -> None:
         message_sender=message_sender,
         message_replacer=message_replacer,
         role_repo=app.role_repo,
-        inbox_dir=inbox_dir,
+        max_file_bytes=MAX_ATTACHMENT_BYTES,
     )
 
     app.core.message_handler_registry.register(
