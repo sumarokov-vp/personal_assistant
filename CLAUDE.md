@@ -183,10 +183,17 @@ ATTACHMENTS_S3_SECRET_KEY=секрет Spaces
   руками (`docker exec -u postgres postgres psql -U sumarokov -d personal_assistant`), миграции ai_framework её не создают
 - Сеть — внешняя `infra`: `postgres`, `redis` по именам. `network_mode: host` в colima указывал бы на Linux-VM, а не на mac
 - Распознавание речи — GPU-сервер по mesh `http://10.72.0.199:8000`, из контейнера достижим
-- В контейнере uid 1000; монтируются только том вики и ключ вики: сессии CLI живут в `$HOME/.claude` контейнера
+- Dropbox: `~/Dropbox` хоста (синхронизирует Maestral на Mac mini) — том `/dropbox` на запись, `DROPBOX_ROOT=/dropbox`.
+  colima отдаёт `$HOME` через virtiofs (`~/.colima/default/colima.yaml`: `mounts: []`), файл из контейнера ложится
+  на хост под владельцем, и Maestral его подхватывает как обычную правку. Закрытые папки перекрыты пустым каталогом
+  `~/docker/personal_assistant/empty` только на чтение — их содержимого в контейнере нет физически: `Vault`,
+  `01_work`, `03_home/07_ecp/egov.kz` (ключи ЭЦП и пароль). Заглушку создаёт `up.sh` и падает, если она не пуста.
+  Новая чувствительная папка в корне Dropbox видна боту, пока её не добавят в оверлеи `compose.yaml`;
+  `vault_selftest_*` меняют имена — их отсекает код инструментов Dropbox, не монтирование
+- В контейнере uid 1000; монтируются том вики, ключ вики и Dropbox: сессии CLI живут в `$HOME/.claude` контейнера
   и пропадают с ним
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x docker compose -f deploy/compose.yaml build`.
+  `BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
