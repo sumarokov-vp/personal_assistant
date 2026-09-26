@@ -83,3 +83,21 @@ def html_only_message() -> dict[str, Any]:
             "body": {"data": encode(html, "windows-1251")},
         },
     }
+
+
+def reply_source_message(**extra_headers: str) -> dict[str, Any]:
+    return {
+        "id": "18c3c",
+        "threadId": "18c30",
+        "snippet": "Когда встречаемся?",
+        "payload": {
+            "mimeType": "text/plain",
+            "headers": headers(
+                From="Иван Петров <ivan@example.com>",
+                Subject="Встреча в пятницу",
+                Message_Id="<CAB-2@mail.example.com>",
+                References="<CAB-0@mail.example.com> <CAB-1@mail.example.com>",
+                **extra_headers,
+            ),
+        },
+    }

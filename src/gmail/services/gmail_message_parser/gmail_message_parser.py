@@ -6,6 +6,7 @@ from typing import Any
 
 from src.gmail.models.mail_message import MailMessage
 from src.gmail.models.mail_summary import MailSummary
+from src.gmail.models.reply_target import ReplyTarget
 from src.gmail.services.gmail_message_parser.html_to_text_converter import (
     HtmlToTextConverter,
 )
@@ -41,6 +42,16 @@ class GmailMessageParser:
             attachment_names=[
                 part["filename"] for part in parts if part.get("filename")
             ],
+        )
+
+    def parse_reply_target(self, raw_message: dict[str, Any]) -> ReplyTarget:
+        headers = _headers(raw_message.get("payload", {}))
+        return ReplyTarget(
+            thread_id=raw_message["threadId"],
+            recipient=headers.get("reply-to") or headers.get("from", ""),
+            subject=headers.get("subject", ""),
+            message_id_header=headers.get("message-id", ""),
+            references=headers.get("references", ""),
         )
 
     def _body_text(self, parts: list[dict[str, Any]]) -> str:

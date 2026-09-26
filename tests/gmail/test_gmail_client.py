@@ -11,6 +11,9 @@ from src.gmail.services.gmail_message_parser.gmail_message_parser import (
 from src.gmail.services.gmail_message_parser.html_to_text_converter import (
     HtmlToTextConverter,
 )
+from src.gmail.services.reply_mime_composer.reply_mime_composer import (
+    ReplyMimeComposer,
+)
 from tests.gmail.fixtures import html_only_message, multipart_message
 
 FORBIDDEN_VERBS = (
@@ -49,6 +52,7 @@ def make_client(
         http=httpx.Client(transport=gmail_api(routes, requests)),
         token_provider=StaticToken(),
         parser=GmailMessageParser(HtmlToTextConverter()),
+        composer=ReplyMimeComposer(),
     )
 
 
