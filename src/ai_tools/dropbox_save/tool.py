@@ -2,94 +2,67 @@ import json
 from pathlib import PurePosixPath
 from typing import ClassVar
 
-from ai_framework import Attachment
-from ai_framework.entities.tool_context import ToolContext
-from ai_framework.protocols.base_tool import BaseTool
-from pydantic import BaseModel
+from ai_framework import BaseTool, ToolContext
+from pydantic import BaseModel, Field
 
-from src.ai_tools.dropbox_save.protocols.i_chat_attachments import IChatAttachments
 from src.ai_tools.dropbox_save.protocols.i_dropbox_file_saver import (
     IDropboxFileSaver,
 )
+from src.ai_tools.dropbox_save.protocols.i_work_file_reader import IWorkFileReader
 from src.ai_tools.dropbox_save.saved_file_name import saved_file_name
 from src.dropbox.services.boundary.dropbox_access_denied_error import (
     DropboxAccessDeniedError,
 )
+from src.files.work_folder.work_file_not_found_error import WorkFileNotFoundError
 
 
 class DropboxSaveInput(BaseModel):
-    folder: str
-    name: str | None = None
-    attachment_filename: str | None = None
+    file_id: str = Field(description="file_id из ответа file_take")
+    folder: str = Field(
+        description=(
+            "папка относительно корня Dropbox, как её показывает dropbox_tree; "
+            "несуществующая будет создана"
+        )
+    )
+    name: str | None = Field(
+        default=None,
+        description=(
+            "имя файла в Dropbox; не указано — имя файла из рабочей папки, "
+            "без расширения — расширение добавится само"
+        ),
+    )
 
 
 class DropboxSaveTool(BaseTool):
     name: ClassVar[str] = "dropbox_save"
     description: ClassVar[str] = (
-        "Кладёт в Dropbox вложение (PDF или картинку), которое владелец прислал в чат — "
-        "в этом или одном из недавних сообщений. folder — папка относительно корня "
-        "Dropbox, как её показывает dropbox_tree; несуществующая папка будет создана. "
-        "name — имя файла; не указано — исходное имя вложения, без расширения — "
-        "расширение добавится само. attachment_filename — исходное имя нужного вложения "
-        "(из строки «Файл …» сообщения); не указано — берётся последнее присланное. "
-        "Существующий файл не перезаписывается: при совпадении имени добавляется « (2)». "
-        "Возвращает path — итоговый путь; его и называй владельцу. Закрытые части "
-        "Dropbox — error."
+        "Кладёт в Dropbox файл из рабочей папки бота по file_id. Файл сперва забирается "
+        "в рабочую папку инструментом file_take — из письма, из Dropbox или вложением "
+        "из чата (source=chat), — и его file_id передаётся сюда. Существующий файл не "
+        "перезаписывается: при совпадении имени добавляется « (2)». Возвращает path — "
+        "итоговый путь; его и называй владельцу. Закрытые части Dropbox и неизвестный "
+        "file_id — error."
     )
 
     Input: ClassVar[type[BaseModel]] = DropboxSaveInput
 
-    def __init__(self, attachments: IChatAttachments, saver: IDropboxFileSaver) -> None:
-        self._attachments = attachments
+    def __init__(self, work_files: IWorkFileReader, saver: IDropboxFileSaver) -> None:
+        self._work_files = work_files
         self._saver = saver
 
     def execute(self, input: DropboxSaveInput, context: ToolContext) -> str:  # noqa: A002
-        recent = self._attachments.recent(str(context.user_id))
-        attachment = _pick(recent, input.attachment_filename)
-        if attachment is None:
-            return _missing(recent, input.attachment_filename)
-        name = saved_file_name(attachment, input.name)
+        file_id = input.file_id.strip()
         try:
-            content = self._attachments.content(attachment)
-        except KeyError:
-            return _error(
-                "Вложения больше нет в хранилище — попроси прислать файл заново"
-            )
-        try:
-            path = self._saver.save(input.folder, name, content)
-        except (DropboxAccessDeniedError, NotADirectoryError, FileExistsError) as error:
-            return _error(str(error))
+            name = saved_file_name(self._work_files.get(file_id), input.name)
+            path = self._saver.save(input.folder, name, self._work_files.read(file_id))
+        except (
+            WorkFileNotFoundError,
+            DropboxAccessDeniedError,
+            NotADirectoryError,
+            FileExistsError,
+        ) as error:
+            return json.dumps({"error": str(error)}, ensure_ascii=False)
         return json.dumps(
-            {
-                "path": path,
-                "renamed": PurePosixPath(path).name != name,
-            },
+            {"path": path, "renamed": PurePosixPath(path).name != name},
             ensure_ascii=False,
         )
-
-
-def _pick(recent: list[Attachment], filename: str | None) -> Attachment | None:
-    if not filename:
-        return recent[0] if recent else None
-    wanted = filename.strip().casefold()
-    return next(
-        (
-            attachment
-            for attachment in recent
-            if (attachment.filename or "").casefold() == wanted
-        ),
-        None,
-    )
-
-
-def _missing(recent: list[Attachment], filename: str | None) -> str:
-    if not recent:
-        return _error(
-            "В недавних сообщениях нет вложений — попроси прислать файл в чат"
-        )
-    names = [attachment.filename or "фото без имени" for attachment in recent]
-    return _error(f"Вложения «{filename}» нет среди недавних: {', '.join(names)}")
-
-
-def _error(message: str) -> str:
-    return json.dumps({"error": message}, ensure_ascii=False)

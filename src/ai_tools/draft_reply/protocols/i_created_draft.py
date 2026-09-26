@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Protocol
 
 
@@ -16,3 +17,9 @@ class ICreatedDraft(Protocol):
 
     @property
     def url(self) -> str: ...
+
+    @property
+    def attached(self) -> Sequence[str]: ...
+
+    @property
+    def left_out(self) -> Sequence[str]: ...

@@ -12,7 +12,10 @@
 #    ~/docker/personal_assistant/secrets/ (вне тома вики и вне репо), сюда он монтируется
 #    только на чтение.
 #  * Вложения (фото, PDF) — в DO Spaces: бакет и ключ из pass-записи spaces-attachments,
-#    up.sh разбирает её в ATTACHMENTS_S3_*. На диск бота вложения не пишутся.
+#    up.sh разбирает её в ATTACHMENTS_S3_*.
+#  * Рабочая папка файлов (file_take и прочие file_*) — /tmp/personal_assistant/files контейнера,
+#    без тома: файлы живут сутки, уборщик бота удаляет старше 24 ч здесь и в папке
+#    «Personal Assistant» в корне Dropbox, больше нигде. PA_WORK_DIR не задаётся — дефолт кода.
 #  * Dropbox: ~/Dropbox хоста (синхронизирует Maestral) — том /dropbox, запись разрешена
 #    (colima отдаёт $HOME через virtiofs, файл ложится на хост под владельцем). Закрытые папки
 #    перекрыты пустым каталогом ~/docker/personal_assistant/empty только на чтение — их

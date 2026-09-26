@@ -11,7 +11,7 @@ from src.ai_tools.dropbox_read.protocols.i_dropbox_file_reader import (
 from src.dropbox.services.boundary.dropbox_access_denied_error import (
     DropboxAccessDeniedError,
 )
-from src.dropbox.services.reader.unreadable_format_error import UnreadableFormatError
+from src.files.readers.unreadable_format_error import UnreadableFormatError
 
 
 class DropboxReadInput(BaseModel):
@@ -22,8 +22,10 @@ class DropboxReadTool(BaseTool):
     name: ClassVar[str] = "dropbox_read"
     description: ClassVar[str] = (
         "Читает текст файла Dropbox. path — путь к файлу относительно корня Dropbox, "
-        "как его вернули dropbox_search или dropbox_tree. Читаются txt, md, csv, json "
-        "и текстовый слой PDF; картинки, сканы и прочие форматы вернут error. "
+        "как его вернули dropbox_search или dropbox_tree. Читаются txt, md, csv, json, "
+        "текстовый слой PDF, DOCX (абзацы, затем таблицы строками через таб) и XLSX "
+        "(каждый лист — «## <имя листа>», строки через таб); .doc, .xls, картинки, "
+        "сканы и прочие форматы вернут error. "
         "Длинный текст обрезается — тогда truncated=true. "
         "Ключевые файлы (.p12, .pfx, .key, .pem, .jks, .gpg) и закрытые части Dropbox "
         "не читаются — вернётся error."

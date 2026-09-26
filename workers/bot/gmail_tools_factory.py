@@ -1,9 +1,13 @@
 import httpx
 from ai_framework import BaseTool
 
+from src.ai_tools.draft_mail import DraftAttachments, DraftMailTool
 from src.ai_tools.draft_reply.tool import DraftReplyTool
 from src.ai_tools.read_mail.tool import ReadMailTool
 from src.ai_tools.search_mail.tool import SearchMailTool
+from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
+from src.files.overflow.overflow_folder import OverflowFolder
+from src.files.work_folder.work_folder import WorkFolder
 from src.gmail.repos.gmail_client import GmailClient
 from src.gmail.repos.oauth_access_token_provider import OAuthAccessTokenProvider
 from src.gmail.services.gmail_message_parser.gmail_message_parser import (
@@ -20,10 +24,10 @@ from src.gmail.services.untrusted_frame.untrusted_mail_frame import UntrustedMai
 GMAIL_VARIABLES = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN")
 
 
-def build_gmail_tools(
+def build_gmail_client(
     http: httpx.Client, client_id: str, client_secret: str, refresh_token: str
-) -> list[BaseTool]:
-    mail = GmailClient(
+) -> GmailClient:
+    return GmailClient(
         http=http,
         token_provider=OAuthAccessTokenProvider(
             http=http,
@@ -34,9 +38,25 @@ def build_gmail_tools(
         parser=GmailMessageParser(HtmlToTextConverter()),
         composer=ReplyMimeComposer(),
     )
+
+
+def build_gmail_tools(
+    mail: GmailClient,
+    work_folder: WorkFolder,
+    dropbox_boundary: DropboxBoundary | None,
+) -> list[BaseTool]:
     frame = UntrustedMailFrame()
+    attachments = DraftAttachments(
+        work_files=work_folder,
+        overflow=(
+            OverflowFolder(dropbox_boundary, work_folder)
+            if dropbox_boundary is not None
+            else None
+        ),
+    )
     return [
         SearchMailTool(searcher=mail, frame=frame),
         ReadMailTool(reader=mail, frame=frame),
-        DraftReplyTool(drafter=mail, frame=frame),
+        DraftReplyTool(drafter=mail, frame=frame, attachments=attachments),
+        DraftMailTool(drafter=mail, attachments=attachments),
     ]

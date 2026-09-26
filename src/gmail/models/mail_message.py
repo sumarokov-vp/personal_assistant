@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from src.gmail.models.mail_attachment import MailAttachment
+
 
 class MailMessage(BaseModel):
     id: str
@@ -9,4 +11,4 @@ class MailMessage(BaseModel):
     subject: str
     date: str
     body: str
-    attachment_names: list[str]
+    attachments: list[MailAttachment]

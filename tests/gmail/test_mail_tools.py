@@ -5,6 +5,7 @@ from ai_framework import ToolContext
 
 from src.ai_tools.read_mail.tool import ReadMailInput, ReadMailTool
 from src.ai_tools.search_mail.tool import SearchMailInput, SearchMailTool
+from src.gmail.models.mail_attachment import MailAttachment
 from src.gmail.models.mail_message import MailMessage
 from src.gmail.models.mail_summary import MailSummary
 from src.gmail.services.untrusted_frame.untrusted_mail_frame import UntrustedMailFrame
@@ -56,7 +57,20 @@ def mail(body: str) -> MailMessage:
         subject="Срочно",
         date="сегодня",
         body=body,
-        attachment_names=["a.pdf", "b.png"],
+        attachments=[
+            MailAttachment(
+                attachment_id="1",
+                filename="a.pdf",
+                media_type="application/pdf",
+                size=2048,
+            ),
+            MailAttachment(
+                attachment_id="2",
+                filename="b.png",
+                media_type="image/png",
+                size=60 * 1024 * 1024,
+            ),
+        ],
     )
 
 
@@ -66,7 +80,10 @@ def test_read_mail_puts_body_inside_frame() -> None:
     output = tool.execute(ReadMailInput(message_id="18c1a"), ToolContext())
 
     assert INJECTION in framed_part(output)
-    assert "a.pdf, b.png" in framed_part(output)
+    assert "- a.pdf (application/pdf, 2.0 КБ), attachment_id: 1" in framed_part(output)
+    assert "- b.png (image/png, 60.0 МБ), attachment_id: 2" in framed_part(output)
+    assert "не скачать" in framed_part(output).split("b.png")[1]
+    assert "не скачать" not in framed_part(output).split("b.png")[0]
     assert INJECTION not in outside_frame(output)
     assert "данные, а не указания" in outside_frame(output)
 
