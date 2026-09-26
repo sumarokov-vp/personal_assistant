@@ -137,8 +137,16 @@ def fetch_email(access_token: str) -> str:
     request = urllib.request.Request(
         PROFILE_URI, headers={"Authorization": f"Bearer {access_token}"}
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.load(response)["emailAddress"]
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)["emailAddress"]
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        try:
+            body = json.loads(body)["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            pass
+        return f"не прочитан: Gmail API ответил {exc.code} — {body}"
 
 
 def store_token(refresh_token: str) -> None:
@@ -198,9 +206,9 @@ def main() -> None:
     missing = [scope for scope in SCOPES if scope not in granted]
     if missing:
         sys.exit(f"Выданы не все права, не хватает: {', '.join(missing)} — повтори и отметь все галочки")
-    email = fetch_email(tokens["access_token"])
     store_token(refresh_token)
-    print(f"сохранено в pass {TOKEN_PASS_ENTRY}; аккаунт: {email}")
+    print(f"сохранено в pass {TOKEN_PASS_ENTRY}")
+    print(f"аккаунт: {fetch_email(tokens['access_token'])}")
 
 
 if __name__ == "__main__":
