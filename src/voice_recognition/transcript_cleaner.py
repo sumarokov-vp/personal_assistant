@@ -14,13 +14,17 @@ CLEANUP_PROMPT = (
 
 
 class TranscriptCleaner:
+    def __init__(self, workspace_dir: Path) -> None:
+        self._workspace_dir = workspace_dir
+
     def clean(self, raw_text: str) -> str:
         return asyncio.run(self._clean_async(raw_text))
 
     async def _clean_async(self, raw_text: str) -> str:
         options = ClaudeAgentOptions(
-            cwd=str(Path.home()),
+            cwd=str(self._workspace_dir),
             system_prompt={"type": "preset", "preset": "claude_code"},
+            tools=[],
             setting_sources=[],
             model="claude-haiku-4-5-20251001",
         )

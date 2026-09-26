@@ -1,0 +1,36 @@
+# Бот живёт на Mac mini (arm64) в colima. Запуск — deploy/up.sh: он достаёт секреты из pass
+# и передаёт их переменными шелла, в файлы они не пишутся.
+#
+#  * network_mode: host не используется — «host» в colima это Linux-VM, а не сам mac,
+#    postgres и redis достижимы по именам в общей внешней сети infra.
+#  * Хостовый ~/.claude не монтируется: у бота своя папка ~/docker/personal_assistant/claude-home
+#    (сессии CLI), авторизация — CLAUDE_CODE_OAUTH_TOKEN (claude setup-token).
+#  * Песочница Claude Code (bubblewrap) в контейнере выключена (AGENT_SANDBOX=false):
+#    границей служит сам контейнер, в нём смонтированы только workspace и claude-home.
+name: personal_assistant
+
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: personal_assistant-bot:latest
+    container_name: personal_assistant_bot
+    restart: unless-stopped
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:?}
+      BOT_DB_URL: ${BOT_DB_URL:?}
+      VOICE_RECOGNITION_API_KEY: ${VOICE_RECOGNITION_API_KEY:?}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?}
+      REDIS_URL: redis://redis:6379/4
+      VOICE_RECOGNITION_URL: http://10.72.0.199:8000
+      AGENT_SANDBOX: "false"
+      LOG_LEVEL: INFO
+    volumes:
+      - ../workspace:/app/workspace
+      - ${HOME}/docker/personal_assistant/claude-home:/home/sumarokov/.claude
+
+networks:
+  default:
+    name: infra
+    external: true

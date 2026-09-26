@@ -3,63 +3,115 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 import src.agent.tools.send_file as send_file_module
 from src.agent.tools.registry import SessionRegistry
 from src.agent.tools.send_file import init_send_file, send_file
+from src.agent.tools.workspace_file_reader import WorkspaceFileReader
 
 _handler = send_file.handler
 
 
-def _run(coro: object) -> dict[str, Any]:
-    return asyncio.new_event_loop().run_until_complete(coro)  # type:ignore[arg-type]
+def _run(coro: Any) -> dict[str, Any]:
+    return asyncio.new_event_loop().run_until_complete(coro)
 
 
-def _setup_registry(tmp_path: Path) -> tuple[SessionRegistry, MagicMock]:
+def _setup(workspace: Path) -> MagicMock:
     registry = SessionRegistry()
     document_sender = MagicMock()
     registry.set_context(user_id=1, chat_id=100, document_sender=document_sender)
-    init_send_file(registry)
-    return registry, document_sender
+    init_send_file(registry, WorkspaceFileReader(workspace))
+    return document_sender
+
+
+@pytest.fixture
+def workspace(tmp_path: Path) -> Path:
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    return workspace_dir
+
+
+@pytest.fixture
+def outside_secret(tmp_path: Path) -> Path:
+    secret = tmp_path / "id_ed25519"
+    secret.write_text("private key")
+    return secret
 
 
 class TestSendFileSuccess:
-    def test_sends_existing_file(self, tmp_path: Path) -> None:
-        _registry, document_sender = _setup_registry(tmp_path)
-        test_file = tmp_path / "report.md"
-        test_file.write_text("# Report content")
+    def test_sends_file_by_absolute_path(self, workspace: Path) -> None:
+        document_sender = _setup(workspace)
+        report = workspace / "report.md"
+        report.write_text("# Report content")
 
-        result = _run(_handler({"file_path": str(test_file)}))
+        result = _run(_handler({"file_path": str(report)}))
 
-        document_sender.send_document.assert_called_once()
-        call_args = document_sender.send_document.call_args
-        assert call_args.kwargs["chat_id"] == 100
-        assert result == {
-            "content": [{"type": "text", "text": "File sent successfully: report.md"}]
-        }
+        document_sender.send_document.assert_called_once_with(
+            chat_id=100, document=b"# Report content", filename="report.md"
+        )
+        assert result == {"content": [{"type": "text", "text": "File sent successfully: report.md"}]}
+
+    def test_sends_file_by_path_relative_to_workspace(self, workspace: Path) -> None:
+        document_sender = _setup(workspace)
+        (workspace / "inbox").mkdir()
+        (workspace / "inbox" / "photo.jpg").write_bytes(b"jpeg")
+
+        _run(_handler({"file_path": "inbox/photo.jpg"}))
+
+        assert document_sender.send_document.call_args.kwargs["document"] == b"jpeg"
+
+
+class TestSendFileOutsideWorkspace:
+    def test_rejects_absolute_path_outside(self, workspace: Path, outside_secret: Path) -> None:
+        document_sender = _setup(workspace)
+
+        with pytest.raises(PermissionError, match="рабочей папки"):
+            _run(_handler({"file_path": str(outside_secret)}))
+
+        document_sender.send_document.assert_not_called()
+
+    def test_rejects_parent_traversal(self, workspace: Path, outside_secret: Path) -> None:
+        document_sender = _setup(workspace)
+
+        with pytest.raises(PermissionError):
+            _run(_handler({"file_path": f"../{outside_secret.name}"}))
+
+        document_sender.send_document.assert_not_called()
+
+    def test_rejects_symlink_pointing_outside(self, workspace: Path, outside_secret: Path) -> None:
+        document_sender = _setup(workspace)
+        (workspace / "innocent.txt").symlink_to(outside_secret)
+
+        with pytest.raises(PermissionError):
+            _run(_handler({"file_path": str(workspace / "innocent.txt")}))
+
+        document_sender.send_document.assert_not_called()
+
+    def test_rejects_symlinked_directory_pointing_outside(
+        self, workspace: Path, outside_secret: Path
+    ) -> None:
+        document_sender = _setup(workspace)
+        (workspace / "keys").symlink_to(outside_secret.parent)
+
+        with pytest.raises(PermissionError):
+            _run(_handler({"file_path": f"keys/{outside_secret.name}"}))
+
+        document_sender.send_document.assert_not_called()
 
 
 class TestSendFileNotFound:
-    def test_returns_error_for_missing_file(self, tmp_path: Path) -> None:
-        _setup_registry(tmp_path)
-        missing_file = tmp_path / "nonexistent.txt"
+    def test_raises_for_missing_file(self, workspace: Path) -> None:
+        _setup(workspace)
 
-        result = _run(_handler({"file_path": str(missing_file)}))
-
-        assert result["isError"] is True
-        assert "File not found" in result["content"][0]["text"]
+        with pytest.raises(FileNotFoundError):
+            _run(_handler({"file_path": str(workspace / "nonexistent.txt")}))
 
 
 class TestSendFileNotInitialized:
-    def test_raises_when_registry_not_set(self, tmp_path: Path) -> None:
+    def test_raises_when_registry_not_set(self, workspace: Path) -> None:
         send_file_module._registry = None
-        test_file = tmp_path / "test.txt"
-        test_file.write_text("content")
+        (workspace / "test.txt").write_text("content")
 
-        raised = False
-        try:
-            _run(_handler({"file_path": str(test_file)}))
-        except ValueError as e:
-            raised = True
-            assert "not initialized" in str(e)
-
-        assert raised
+        with pytest.raises(ValueError, match="not initialized"):
+            _run(_handler({"file_path": str(workspace / "test.txt")}))

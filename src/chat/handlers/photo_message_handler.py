@@ -20,12 +20,14 @@ class PhotoMessageHandler:
         message_sender: IMessageSender,
         message_replacer: IMessageReplacer,
         role_repo: RoleRepo,
+        inbox_dir: Path,
     ) -> None:
         self.document_downloader = document_downloader
         self.send_to_agent_action = send_to_agent_action
         self.message_sender = message_sender
         self.message_replacer = message_replacer
         self.role_repo = role_repo
+        self.inbox_dir = inbox_dir
 
     @check_message_roles
     def handle(self, message: BotMessage) -> None:
@@ -44,6 +46,7 @@ class PhotoMessageHandler:
             delete=False,
             suffix=suffix,
             prefix="photo_",
+            dir=self.inbox_dir,
         )
         tmp_file.write(file_bytes)
         tmp_file.close()

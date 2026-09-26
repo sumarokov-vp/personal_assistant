@@ -6,16 +6,20 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "bot-framework[all]==0.8.2",
-    "claude-agent-sdk==0.1.32",
+    "claude-agent-sdk==0.2.158",
     "httpx>=0.28.1",
     "python-dotenv==1.2.1",
 ]
+
+[project.optional-dependencies]
+# Нативное распознавание речи (VOICE_RECOGNITION_MODE=native).
+# Тянет torch + CUDA (~7 GiB), поэтому НЕ ставится по умолчанию: uv sync --extra whisper
+whisper = ["openai-whisper>=20250625"]
 
 [dependency-groups]
 dev = [
     "import-linter==2.10",
     "mypy==1.19.1",
-    "openai-whisper>=20250625",
     "pyright==1.1.408",
     "pytest==9.0.2",
     "ruff==0.15.0",

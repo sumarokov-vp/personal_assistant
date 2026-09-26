@@ -1,26 +1,38 @@
-title: Выпилить openai-whisper из зависимостей после перехода на HTTP-транскрайбер
-status: pending
+title: Сделать openai-whisper опциональной зависимостью (нативный транскрайбер остаётся в коде)
+status: done
 created_at: 23.06.2026
+completed_at: 21.08.2026
 
 description: |
-  Бот переключён на HTTP-сервис распознавания речи (faster-whisper, GPU) через
+  Бот работает через HTTP-сервис распознавания речи (faster-whisper, GPU) —
   src/voice_recognition/http_transcriber.py. Нативная реализация на openai-whisper
-  (src/voice_recognition/transcriber.py) больше не используется в DI, но оставлена
-  на месте как резервный путь.
+  остаётся в репозитории как альтернативный подключаемый путь.
+
+  Решение пользователя (21.08.2026): нативный код НЕ удаляем. Вместо полного
+  выпиливания openai-whisper переведён в опциональный extra, а выбор транскрайбера
+  вынесен в переменную окружения.
 
   СДЕЛАНО (23.06.2026): openai-whisper перенесён из [project].dependencies в
-  [dependency-groups].dev. deploy/Dockerfile генерирует requirements.txt только из
-  [project].dependencies, поэтому openai-whisper (и torch + CUDA, ~3.9GB) больше
-  НЕ попадает в Docker-образ. В локальном/dev-окружении пакет остаётся установлен
-  (uv sync синкает dev-группу по умолчанию): нативный транскрайбер работает локально,
-  а mypy/pyright/import-linter/pytest по-прежнему зелёные.
+  [dependency-groups].dev — пакет перестал попадать в Docker-образ, но продолжал
+  ставиться локально при uv sync (torch + CUDA + triton + numba, ~7 GiB в .venv).
 
-  ОСТАЛОСЬ (отдельный шаг): полное удаление нативной реализации и зависимости —
-  после того как HTTP-сервис подтвердит стабильность в проде.
+  СДЕЛАНО (21.08.2026):
+  1. openai-whisper перенесён из [dependency-groups].dev в
+     [project.optional-dependencies].whisper — uv sync его больше не ставит.
+     Ставится явно: uv sync --extra whisper.
+  2. src/voice_recognition/transcriber.py (функция transcribe) заменён на
+     src/voice_recognition/native_transcriber.py — класс NativeTranscriber,
+     удовлетворяющий ITranscriber, с ленивым импортом whisper через
+     importlib.import_module. Импорт модуля не падает без установленного пакета,
+     type: ignore больше не нужен.
+  3. Выбор транскрайбера — workers/bot/transcriber_factory.py, режим из
+     VOICE_RECOGNITION_MODE (http | native, дефолт http), модель — WHISPER_MODEL.
+     Режим native без установленного пакета падает на старте с подсказкой.
+  4. .venv: 7.4 GiB -> 413 MiB. mypy, pyright, ruff, lint-imports, pytest зелёные
+     без установленного whisper.
 
 recommendation: |
-  Полное удаление (отдельный шаг, когда HTTP-сервис подтвердит стабильность):
-  1. Удалить src/voice_recognition/transcriber.py.
-  2. Убрать "openai-whisper" из [dependency-groups].dev в pyproject.toml, uv sync.
-  3. Проверить, что в дереве зависимостей больше ничего не тянет torch.
-  4. Прогнать тесты и линтеры.
+  Задача закрыта. Полное удаление нативной реализации не планируется —
+  она подключается через extra. Если когда-нибудь понадобится выпилить совсем:
+  удалить src/voice_recognition/native_transcriber.py, ветку native в
+  transcriber_factory.py и секцию [project.optional-dependencies].

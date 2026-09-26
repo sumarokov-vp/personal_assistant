@@ -8,3 +8,7 @@ dist/
 *.egg-info/
 .venv/
 deploy/pip-cache/
+
+# Рабочая папка агента бота: трекается только инструкция
+workspace/*
+!workspace/CLAUDE.md
