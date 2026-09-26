@@ -3,10 +3,8 @@
 #
 #  * network_mode: host не используется — «host» в colima это Linux-VM, а не сам mac,
 #    postgres и redis достижимы по именам в общей внешней сети infra.
-#  * Хостовый ~/.claude не монтируется: у бота своя папка ~/docker/personal_assistant/claude-home
-#    (сессии CLI), авторизация — CLAUDE_CODE_OAUTH_TOKEN (claude setup-token).
-#  * Песочница Claude Code (bubblewrap) в контейнере выключена (AGENT_SANDBOX=false):
-#    границей служит сам контейнер, в нём смонтированы только workspace и claude-home.
+#  * Без Claude Code: никаких CLAUDE_CODE_OAUTH_TOKEN, workspace/ и claude-home — модель
+#    ходит по ANTHROPIC_API_KEY через ai_framework (Provider.ANTHROPIC).
 name: personal_assistant
 
 services:
@@ -20,15 +18,14 @@ services:
     environment:
       BOT_TOKEN: ${BOT_TOKEN:?}
       BOT_DB_URL: ${BOT_DB_URL:?}
+      AI_DB_URL: ${AI_DB_URL:?}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?}
+      AI_MODEL: ${AI_MODEL:-claude-sonnet-4-5}
       VOICE_RECOGNITION_API_KEY: ${VOICE_RECOGNITION_API_KEY:?}
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?}
       REDIS_URL: redis://redis:6379/4
       VOICE_RECOGNITION_URL: http://10.72.0.199:8000
-      AGENT_SANDBOX: "false"
+      OWNER_TIMEZONE: ${OWNER_TIMEZONE:-Asia/Almaty}
       LOG_LEVEL: INFO
-    volumes:
-      - ../workspace:/app/workspace
-      - ${HOME}/docker/personal_assistant/claude-home:/home/sumarokov/.claude
 
 networks:
   default:
