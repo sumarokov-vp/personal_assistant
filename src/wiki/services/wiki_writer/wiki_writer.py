@@ -6,6 +6,9 @@ from src.wiki.errors.wiki_page_not_found_error import WikiPageNotFoundError
 from src.wiki.services.wiki_writer.protocols.i_git_committer import IGitCommitter
 from src.wiki.services.wiki_writer.protocols.i_wiki_publisher import IWikiPublisher
 from src.wiki.services.wiki_writer.protocols.i_write_path_policy import IWritePathPolicy
+from src.wiki.services.wiki_writer.wiki_page_encoding_error import (
+    WikiPageEncodingError,
+)
 from src.wiki.services.wiki_writer.wiki_write_result import WikiWriteResult
 
 COMMIT_PREFIX = "pa: "
@@ -48,7 +51,7 @@ class WikiWriter:
             file = self._path_policy.resolve_for_write(relative_path)
             if not file.is_file():
                 raise WikiPageNotFoundError(relative_path)
-            existing = file.read_text(encoding="utf-8")
+            existing = _read_utf8(file, relative_path)
             separator = "" if not existing or existing.endswith("\n") else "\n"
             file.write_text(
                 existing + separator + _with_trailing_newline(text), encoding="utf-8"
@@ -92,6 +95,14 @@ class WikiWriter:
 
     def _head(self) -> str:
         return self._git.run_checked("rev-parse", "HEAD").strip()
+
+
+def _read_utf8(file: Path, relative_path: str) -> str:
+    raw = file.read_bytes()
+    content = raw.decode("utf-8", errors="replace")
+    if content.encode("utf-8") != raw:
+        raise WikiPageEncodingError(relative_path)
+    return content
 
 
 def _with_trailing_newline(text: str) -> str:

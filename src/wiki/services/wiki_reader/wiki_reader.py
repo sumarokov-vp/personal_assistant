@@ -1,3 +1,4 @@
+import logging
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -5,6 +6,8 @@ from src.wiki.errors.wiki_page_not_found_error import WikiPageNotFoundError
 from src.wiki.models.wiki_page import WikiPage
 from src.wiki.services.wiki_reader.protocols.i_read_path_policy import IReadPathPolicy
 from src.wiki.services.wiki_reader.protocols.i_wiki_refresher import IWikiRefresher
+
+logger = logging.getLogger(__name__)
 
 
 class WikiReader:
@@ -41,5 +44,15 @@ class WikiReader:
     def _load(self, file: Path) -> WikiPage:
         return WikiPage(
             path=self._path_policy.relative_name(file),
-            content=file.read_text(encoding="utf-8"),
+            content=self._decode(file),
         )
+
+    def _decode(self, file: Path) -> str:
+        raw = file.read_bytes()
+        content = raw.decode("utf-8", errors="replace")
+        if content.encode("utf-8") != raw:
+            logger.warning(
+                "Страница вики не в UTF-8, нечитаемые байты заменены: %s",
+                self._path_policy.relative_name(file),
+            )
+        return content
