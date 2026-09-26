@@ -106,5 +106,13 @@ name = "src contexts independence"
 type = "independence"
 modules = ["src.chat", "src.ai_tools", "src.voice_recognition", "src.gmail"]
 
+# Рабочая папка, папка «Personal Assistant» и уборка не знают реализаций соседних
+# контекстов: Dropbox им отдаёт composition root через Protocol
+[[tool.importlinter.contracts]]
+name = "files work folder, overflow and sweeper stand alone"
+type = "forbidden"
+source_modules = ["src.files.work_folder", "src.files.overflow", "src.files.sweeper"]
+forbidden_modules = ["src.dropbox", "src.gmail", "src.chat", "src.ai_tools"]
+
 [tool.uv.sources]
 ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.3" }

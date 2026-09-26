@@ -1,0 +1,2 @@
+class WorkFileNotFoundError(LookupError):
+    pass

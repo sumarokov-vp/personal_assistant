@@ -1,6 +1,9 @@
 from logging import WARNING, basicConfig, getLogger
 from os import getenv
 from pathlib import Path
+from tempfile import gettempdir
+from threading import Thread
+from time import sleep
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -54,6 +57,8 @@ from src.dropbox.services.reader.dropbox_reader import DropboxReader
 from src.dropbox.services.saver.dropbox_file_saver import DropboxFileSaver
 from src.dropbox.services.search.dropbox_search import DropboxSearch
 from src.dropbox.services.tree.dropbox_tree import DropboxTree
+from src.files.overflow.overflow_folder import OVERFLOW_FOLDER_NAME
+from src.files.sweeper.sweeper import Sweeper
 from src.flows.dropbox_moves import (
     CancelMovePlanHandler,
     ExecuteMovePlanHandler,
@@ -85,6 +90,8 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 CARD_LANGUAGE = "ru"
 SUBSCRIPTION_HAS_NO_API_KEY = ""
 GMAIL_HTTP_TIMEOUT_SECONDS = 30.0
+DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
+SWEEP_INTERVAL_SECONDS = 60 * 60
 
 
 def configure_logging(level: str) -> None:
@@ -198,6 +205,25 @@ def build_dropbox_save_tool(
     )
 
 
+def sweep_forever(sweeper: Sweeper) -> None:
+    while True:
+        try:
+            for path in sweeper.sweep():
+                logger.info("Sweeper removed %s", path)
+        except OSError:
+            logger.exception("Sweeper pass failed")
+        sleep(SWEEP_INTERVAL_SECONDS)
+
+
+def start_sweeper(work_dir: Path, dropbox_root: str | None) -> None:
+    roots = [work_dir]
+    if dropbox_root:
+        roots.append(Path(dropbox_root) / OVERFLOW_FOLDER_NAME)
+    Thread(
+        target=sweep_forever, args=(Sweeper(roots),), name="files-sweeper", daemon=True
+    ).start()
+
+
 def build_wiki_factory() -> WikiFactory:
     ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
     return WikiFactory(
@@ -288,8 +314,11 @@ def main() -> None:
 
     attachment_store = build_attachment_store()
 
-    tools: list[BaseTool] = []
     dropbox_root = getenv("DROPBOX_ROOT")
+    work_dir = Path(getenv("PA_WORK_DIR", str(DEFAULT_WORK_DIR)))
+    start_sweeper(work_dir, dropbox_root)
+
+    tools: list[BaseTool] = []
     if dropbox_root:
         tools.extend(build_dropbox_tools(Path(dropbox_root)))
         tools.extend(build_dropbox_move_tools(Path(dropbox_root), db_url, app))
