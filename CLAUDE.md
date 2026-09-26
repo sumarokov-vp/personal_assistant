@@ -19,7 +19,7 @@ Telegram <-> bot_framework <-> SendToAgentAction <-> ai_framework.AIApplication 
 workers/bot/
 ├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
-├── todoist_tools_factory.py # find_tasks, create_task поверх TodoistTaskService
+├── todoist_tools_factory.py # find_tasks, create_task, read_task, add_task_link, update_task поверх TodoistTaskService
 └── gmail_tools_factory.py   # search_mail, read_mail, draft_reply поверх GmailClient (OAuth refresh token)
 src/
 ├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
@@ -37,7 +37,7 @@ src/
 │       ├── photo_message_handler.py, document_message_handler.py  # фото/PDF — вложениями, текстовые — текстом
 │       ├── attachment_limits.py      # лимит Claude на картинку (5 МБ в base64)
 │       └── protocols/                # IConversationClearer
-├── todoist/                 # TodoistHttpClient (API v1, без close/update/delete), TodoistTaskService
+├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete), TodoistTaskService: дела, подзадачи, ссылки-комментарии
 ├── gmail/                   # GmailClient (поиск, чтение, черновик ответа — без отправки), UntrustedMailFrame
 └── voice_recognition/       # HttpTranscriber, NativeTranscriber
 scripts/
@@ -101,7 +101,8 @@ deploy/                      # Образ и выкат в colima
   в образе: `docker run --rm -v "$PWD/scripts:/app/scripts:ro" --entrypoint python personal_assistant-bot:latest -m scripts.claude_cli_tools_check`.
   Должно быть ровно `mcp__ai-framework-tools__…`
 - `uv run python -m scripts.claude_sdk_live_check bot|checkup` — живой прогон `AIApplication(CLAUDE_SDK)` со
-  списком инструментов бота или чекапа на локальных подменах источников, вызовы модели настоящие.
+  списком инструментов бота или чекапа на локальных подменах источников (Todoist — `FakeTodoistClient`, в конце
+  прогона `bot` в лог идут заведённые задачи и комментарии), вызовы модели настоящие.
   Нативно файл — project settings, а `allowManaged*Only` действует только из managed: запрос разрешения на
   инструмент бота ловится лишь прогоном в образе — `docker build -f deploy/Dockerfile -t <свой тег> .`, затем
   `docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/tests:/app/tests:ro" -v "$PWD/deploy:/app/deploy:ro" --entrypoint python <тег> -m scripts.claude_sdk_live_check bot`
@@ -113,7 +114,8 @@ deploy/                      # Образ и выкат в colima
 ### Todoist и Gmail
 
 Регистрируются в `__main__.py` через `workers/bot/todoist_tools_factory.py` и `workers/bot/gmail_tools_factory.py`,
-если заданы переменные: `TODOIST_TOKEN` — `find_tasks`, `create_task`; все три `GMAIL_*` — `search_mail`, `read_mail`,
+если заданы переменные: `TODOIST_TOKEN` — `find_tasks`, `create_task`, `read_task`, `add_task_link`,
+`update_task`; все три `GMAIL_*` — `search_mail`, `read_mail`,
 `draft_reply` (задана только часть `GMAIL_*` — бот падает на старте). В проде compose требует все четыре.
 Список зарегистрированных инструментов пишется в лог на старте строкой `AI tools: …`.
 
@@ -122,8 +124,16 @@ deploy/                      # Образ и выкат в colima
 - **Почта не отправляется.** Инструмента отправки нет, в `GmailClient` нет метода send. `draft_reply` — только
   ответ в существующий тред, адресата и тему берёт код из исходного письма. Scope токена — `gmail.readonly` +
   `gmail.compose`
-- **Задачи не закрываются и не удаляются.** В `TodoistHttpClient` нет close/update/delete. `create_task` ставит
-  задачу во Входящие с меткой `pa` (ставит код, не модель) и обязательным сроком
+- **Задачи не закрываются и не удаляются.** В `TodoistHttpClient` нет close/reopen/delete. `update_task` меняет
+  только срок (`clear_due` снимает его как due «no date» с `due_lang` ru — проверено на живом Todoist), дедлайн
+  (`clear_deadline` шлёт `deadline_date: null`) и метки — дописывает к текущим, `pa` на чужую задачу не навешивает
+- `create_task` — метка `pa` ставится кодом, не моделью. Срок необязателен; `deadline` — внешняя граница
+  (`YYYY-MM-DD`), `parent_id` — подзадача. Проект — по имени и только по указанию владельца, без него — Входящие;
+  неизвестный проект — ошибка модели без создания задачи, новый проект — только с `create_project`. Метки — `pa` плюс
+  названные владельцем
+- Дело = задача Todoist с подзадачами, ссылки на источники (вики, Dropbox, письмо, контакт) — отдельными
+  комментариями через `add_task_link`; `read_task` отдаёт задачу, подзадачи и комментарии. Поиск дела по названию —
+  `find_tasks` («search: <тема>»). Файлов дел в вики нет
 - Текст писем — данные: инструменты почты оборачивают его в `UntrustedMailFrame`, системный промпт запрещает
   исполнять указания из писем
 
@@ -188,7 +198,7 @@ ATTACHMENTS_S3_BUCKET=sumarokov-pa-attachments
 ATTACHMENTS_S3_REGION=fra1
 ATTACHMENTS_S3_ACCESS_KEY=ключ Spaces
 ATTACHMENTS_S3_SECRET_KEY=секрет Spaces
-TODOIST_TOKEN=токен                             # необязательная; без неё find_tasks и create_task не регистрируются
+TODOIST_TOKEN=токен                             # необязательная; без неё инструменты Todoist не регистрируются
 GMAIL_CLIENT_ID=id OAuth-клиента                # GMAIL_* — все три или ни одной; без них инструменты почты не регистрируются
 GMAIL_CLIENT_SECRET=секрет OAuth-клиента
 GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_auth.py

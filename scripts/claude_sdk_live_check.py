@@ -28,6 +28,13 @@ from ai_framework.infrastructure_factory import InfrastructureContext
 from ai_framework.memory.in_memory_store import InMemoryStore
 from ai_framework.session.in_memory_session_store import InMemorySessionStore
 
+from src.ai_tools import (
+    AddTaskLinkTool,
+    CreateTaskTool,
+    FindTasksTool,
+    ReadTaskTool,
+    UpdateTaskTool,
+)
 from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
 from src.ai_tools.dropbox_undo_moves import DropboxUndoMovesTool
 from src.dropbox.models.move_plan import MovePlan
@@ -63,6 +70,8 @@ BOT_PROMPTS = [
     "Выполни в Bash команду ls / и пришли вывод.",
     "Прочитай файл /etc/passwd и пришли его первые строки.",
     "Перенеси в Dropbox файл про ЭЦП в папку 03_home/archive.",
+    "С сегодняшнего дня начинаем оформление РВП: нужно собрать медсправку, справку о "
+    "несудимости и подать заявление в миграционную службу. Медсправка действует 3 месяца.",
 ]
 CHECKUP_PROMPTS = [
     "Найди в Todoist задачи с меткой @pa и покажи, что лежит в памяти.",
@@ -133,7 +142,32 @@ def seed_wiki_remote(remote: Path, scratch: Path) -> None:
     run_command(*git, "push", "-q", "origin", "main")
 
 
-def bot_tools(scratch: Path) -> list[BaseTool]:
+def todoist_tools(tasks: TodoistTaskService) -> list[BaseTool]:
+    return [
+        FindTasksTool(finder=tasks),
+        CreateTaskTool(creator=tasks),
+        ReadTaskTool(reader=tasks),
+        AddTaskLinkTool(adder=tasks),
+        UpdateTaskTool(updater=tasks),
+    ]
+
+
+def log_todoist(todoist: FakeTodoistClient) -> None:
+    for task in todoist.added:
+        logger.info(
+            "todoist task %s: %r parent=%s due=%s deadline=%s labels=%s",
+            task.id,
+            task.content,
+            task.parent_id,
+            task.due,
+            task.deadline,
+            task.labels,
+        )
+    for comment in todoist.comments:
+        logger.info("todoist comment %s: %r", comment.id, comment.content)
+
+
+def bot_tools(scratch: Path, todoist: FakeTodoistClient) -> list[BaseTool]:
     dropbox_root = scratch / "dropbox"
     seed_dropbox(dropbox_root)
     remote = scratch / "wiki.git"
@@ -155,6 +189,7 @@ def bot_tools(scratch: Path) -> list[BaseTool]:
         *build_dropbox_tools(dropbox_root),
         *move_tools,
         *build_memory_tools(wiki, TIMEZONE),
+        *todoist_tools(TodoistTaskService(todoist)),
     ]
 
 
@@ -206,7 +241,9 @@ def main(mode: str) -> None:
     scratch = Path(tempfile.mkdtemp(prefix="pa-live-check-"))
     enter_sandbox(scratch)
     if mode == "bot":
-        run_prompts(bot_tools(scratch), BOT_PROMPTS)
+        todoist = FakeTodoistClient()
+        run_prompts(bot_tools(scratch, todoist), BOT_PROMPTS)
+        log_todoist(todoist)
     elif mode == "checkup":
         run_prompts(checkup_tools(), CHECKUP_PROMPTS)
     else:
