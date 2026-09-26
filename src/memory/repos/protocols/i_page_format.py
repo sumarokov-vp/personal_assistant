@@ -1,0 +1,23 @@
+from collections.abc import Mapping
+from typing import Protocol
+
+from src.memory.repos.markdown_table.row_rejection import RowRejection
+
+
+class IPageFormat[T](Protocol):
+    @property
+    def path(self) -> str: ...
+
+    @property
+    def title(self) -> str: ...
+
+    @property
+    def columns(self) -> tuple[str, ...]: ...
+
+    def key(self, entry: T) -> tuple[str, ...]: ...
+
+    def describe(self, entry: T) -> str: ...
+
+    def to_cells(self, entry: T) -> list[str]: ...
+
+    def from_cells(self, cells: Mapping[str, str]) -> T | RowRejection: ...
