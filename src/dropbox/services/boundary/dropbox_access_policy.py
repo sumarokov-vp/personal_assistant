@@ -5,6 +5,7 @@ HIDDEN_TOP_LEVEL = ("vault", "01_work")
 HIDDEN_TOP_LEVEL_PREFIXES = ("vault_selftest_",)
 HIDDEN_SUBTREES = (("03_home", "07_ecp", "egov.kz"),)
 KEY_FILE_SUFFIXES = (".p12", ".pfx", ".key", ".pem", ".jks", ".gpg")
+IMMOVABLE_TOP_LEVEL = ("apps",)
 
 
 class DropboxAccessPolicy:
@@ -22,6 +23,9 @@ class DropboxAccessPolicy:
             == tuple(_normalize(part) for part in subtree)
             for subtree in HIDDEN_SUBTREES
         )
+
+    def is_immovable(self, parts: Sequence[str]) -> bool:
+        return bool(parts) and _normalize(parts[0]) in IMMOVABLE_TOP_LEVEL
 
     def is_key_file(self, name: str) -> bool:
         return _normalize(name).endswith(KEY_FILE_SUFFIXES)

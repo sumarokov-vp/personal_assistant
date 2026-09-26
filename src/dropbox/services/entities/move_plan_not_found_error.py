@@ -1,0 +1,2 @@
+class MovePlanNotFoundError(LookupError):
+    pass

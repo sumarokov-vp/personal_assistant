@@ -1,4 +1,7 @@
+import os
 import shutil
+from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -55,3 +58,25 @@ def dropbox_root(tmp_path: Path) -> Path:
 @pytest.fixture
 def boundary(dropbox_root: Path) -> DropboxBoundary:
     return DropboxBoundary(dropbox_root, DropboxAccessPolicy())
+
+
+def tree_snapshot(root: Path) -> dict[str, bytes]:
+    snapshot = {}
+    for current, _, files in os.walk(root):
+        for name in files:
+            path = Path(current) / name
+            relative = path.relative_to(root).as_posix()
+            snapshot[relative] = (
+                os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
+            )
+    return snapshot
+
+
+@pytest.fixture(autouse=True)
+def no_overwrite_or_deletion(dropbox_root: Path) -> Iterator[None]:
+    before = Counter(tree_snapshot(dropbox_root).values())
+    yield
+    after = Counter(tree_snapshot(dropbox_root).values())
+    assert before - after == Counter(), (
+        "содержимое файла пропало: перезапись или удаление"
+    )
