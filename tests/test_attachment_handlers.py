@@ -150,6 +150,7 @@ def _photo_message(file_size: int, caption: str | None = None) -> BotMessage:
                 SimpleNamespace(file_id="photo-file", file_size=file_size),
             ],
             caption=caption,
+            media_group_id=None,
         )
     )
     return message
