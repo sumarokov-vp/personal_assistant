@@ -17,6 +17,10 @@ from src.ai_tools import (
     MemoryUpsertCommitmentTool,
     MemoryUpsertDeadlineTool,
     MemoryUpsertTripTool,
+    WikiAppendTool,
+    WikiCreatePageTool,
+    WikiReadTool,
+    WikiSearchTool,
 )
 from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
 from src.ai_tools.dropbox_read import DropboxReadTool
@@ -61,6 +65,7 @@ from src.memory.repos import (
     WikiPageStorage,
 )
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
+from src.wiki.search import WikiSearcher
 from workers.bot.transcriber_factory import build_transcriber
 
 logger = getLogger(__name__)
@@ -175,6 +180,17 @@ def build_attachment_store() -> S3AttachmentStore:
     )
 
 
+def build_wiki_tools(wiki_factory: WikiFactory) -> list[BaseTool]:
+    reader = wiki_factory.create_reader()
+    writer = wiki_factory.create_writer()
+    return [
+        WikiSearchTool(searcher=WikiSearcher(reader)),
+        WikiReadTool(reader=reader),
+        WikiCreatePageTool(creator=writer, lister=reader),
+        WikiAppendTool(appender=writer),
+    ]
+
+
 def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[BaseTool]:
     storage = WikiPageStorage(
         reader=wiki_factory.create_reader(),
@@ -229,6 +245,7 @@ def main() -> None:
         tools.extend(build_dropbox_move_tools(Path(dropbox_root), db_url, app))
 
     wiki_factory = build_wiki_factory()
+    tools.extend(build_wiki_tools(wiki_factory))
     tools.extend(build_memory_tools(wiki_factory, owner_timezone))
 
     system_prompt_builder = SystemPromptBuilder(
