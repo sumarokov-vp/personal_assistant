@@ -22,6 +22,7 @@ workers/bot/
 ├── todoist_tools_factory.py # find_tasks, create_task поверх TodoistTaskService
 └── gmail_tools_factory.py   # search_mail, read_mail, draft_reply поверх GmailClient (OAuth refresh token)
 src/
+├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
 ├── ai_tools/                # Инструменты модели: пакет на инструмент, класс — наследник BaseTool
 ├── chat/
 │   ├── actions/
@@ -63,7 +64,7 @@ deploy/                      # Образ и выкат в colima
 - `/clear` — `AIApplication.clear_context(thread_id)`: чистит историю треда владельца и (с v0.9.3) сбрасывает
   сессию SDK этого треда. `/context` нет: статистика была у сессии Claude Code
 - Зависимость — `ai-bot-framework[claude-sdk,s3]` тега `v0.9.3` (v0.9.2 не брать)
-- Все хендлеры — только роль `admin`
+- Все хендлеры — только роль `admin` (второй слой после фильтра владельца, см. «Безопасность»)
 
 ## Инструменты (tools)
 
@@ -148,10 +149,23 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
 Инструменты памяти (`memory_*`) работают через тот же `WikiFactory` — общий замок на копию.
 В системном промпте: факт из вики — со ссылкой на путь страницы; служебные страницы памяти — только через `memory_*`.
 
+## Безопасность: бот слышит только владельца
+
+- `src/access`: `OwnerUpdateGate` пропускает только `message` из личного чата и `callback_query` с сообщением
+  в личном чате, отправитель и чат — `OWNER_TELEGRAM_ID`. `UpdateGateInstaller` ставит его в
+  `TeleBot.process_new_updates` (`app.core.bot`) — раньше `EnsureUserMiddleware`, next-step и любых хендлеров:
+  посторонний не получает ответа и не попадает в `users`. Отброшенный апдейт — строка в лог
+  `Dropped update: type=… from=… chat=…`, без содержимого; offset `getUpdates` за ним сдвигается
+- `OWNER_TELEGRAM_ID` не задан или не число — `main()` падает до `BotApplication` и поллинга
+- `/request_role` в `__main__.py` не регистрируется (bot_framework регистрирует свой, но до него доходит только
+  владелец). Проверки роли `admin` в хендлерах — второй слой
+- Прод: значение — pass `assistant/personal_assistant/owner-telegram-id`
+
 ## Переменные окружения (.env)
 
 ```
 BOT_TOKEN=токен-бота
+OWNER_TELEGRAM_ID=123456789                    # Telegram ID владельца; бот слышит только его в личном чате
 BOT_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable
 REDIS_URL=redis://localhost:6379/4
 AI_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable&options=-csearch_path%3Dai
@@ -178,7 +192,7 @@ GMAIL_CLIENT_SECRET=секрет OAuth-клиента
 GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_auth.py
 ```
 
-Обязательны на старте бота: `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`, `WIKI_DIR`,
+Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`, `WIKI_DIR`,
 `WIKI_REMOTE_URL`, `ATTACHMENTS_S3_*`. `TODOIST_TOKEN` и `GMAIL_*` в коде бота необязательны (нет — нет инструментов),
 в проде их требует compose. Их же читают `workers.checkup` (`TODOIST_TOKEN` обязателен) и `workers.memory_fill` (`GMAIL_*` необязательны)
 
@@ -229,7 +243,7 @@ GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_
   `claude-agent-sdk` со встроенными инструментами, выключенными managed settings (см. выше); git и openssh-client —
   для вики, ключи хоста github.com — из `deploy/ssh/known_hosts` (системный known_hosts); typst и jq нет.
   Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
-- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token}`,
+- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token}`,
   `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента), собирает из `db` переменную
   `AI_DB_URL` (`options=-csearch_path%3Dai`), разбирает `spaces-attachments` (первая строка — secret key → `ATTACHMENTS_S3_SECRET_KEY`,
   строки `access_key=`, `bucket=`, `region=`, `endpoint=` → остальные `ATTACHMENTS_S3_*`), из `gmail-oauth-client`
@@ -254,7 +268,7 @@ GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_
 - В контейнере uid 1000; монтируются том вики, ключ вики и Dropbox: сессии CLI живут в `$HOME/.claude` контейнера
   и пропадают с ним
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x docker compose -f deploy/compose.yaml build`.
+  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
