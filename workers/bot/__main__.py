@@ -69,6 +69,7 @@ TOKEN_LEAKING_LOGGERS = ["TeleBot", "urllib3", "requests", "httpx", "anthropic"]
 HISTORY_TURNS_LIMIT = 10
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 CARD_LANGUAGE = "ru"
+SUBSCRIPTION_HAS_NO_API_KEY = ""
 
 
 def configure_logging(level: str) -> None:
@@ -187,7 +188,6 @@ def main() -> None:
     db_url = require_env("BOT_DB_URL")
     redis_url = require_env("REDIS_URL")
     ai_db_url = require_env("AI_DB_URL")
-    anthropic_api_key = require_env("ANTHROPIC_API_KEY")
     ai_model = require_env("AI_MODEL")
     owner_timezone = ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty"))
 
@@ -222,8 +222,8 @@ def main() -> None:
         timezone=owner_timezone,
     )
     ai = AIApplication(
-        api_key=anthropic_api_key,
-        provider=Provider.ANTHROPIC,
+        api_key=SUBSCRIPTION_HAS_NO_API_KEY,
+        provider=Provider.CLAUDE_SDK,
         model=ai_model,
         system_prompt=system_prompt_builder.build(),
         database_url=ai_db_url,

@@ -48,7 +48,7 @@ def _ai_application(monkeypatch: pytest.MonkeyPatch, provider: ScriptedProvider)
     )
     return AIApplication(
         api_key="test",
-        provider=Provider.ANTHROPIC,
+        provider=Provider.CLAUDE_SDK,
         system_prompt="initial",
         database_url="postgres://unused",
         tools=[],

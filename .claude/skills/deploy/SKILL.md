@@ -12,7 +12,7 @@ deploy/up.sh
 ```
 
 Скрипт:
-1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,db,anthropic-api-key,voice-recognition-key}`,
+1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,db,claude-oauth-token,voice-recognition-key}`,
    `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента, без пароля), экспортирует
    их только в своё окружение, никуда не пишет и не печатает;
 2. собирает `AI_DB_URL` из `db` (та же БД `personal_assistant`, `options=-csearch_path%3Dai`);

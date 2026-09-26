@@ -1,5 +1,11 @@
 # Образ бота для colima на Mac mini (linux/arm64). Зависимости ставятся uv строго по uv.lock.
 #
+# Движок — ClaudeSdkProvider ai_framework: claude-agent-sdk везёт CLI Claude Code бинарём внутри
+# колеса (claude_agent_sdk/_bundled/claude), Node не нужен. CLI ходит по подписке
+# (CLAUDE_CODE_OAUTH_TOKEN из окружения) и пишет сессии в $HOME/.claude — домашний каталог uid 1000.
+# Встроенные инструменты CLI выключены managed settings в /etc/claude-code: файл root-овый,
+# грузится всегда, независимо от setting_sources, и пользователь контейнера его не перепишет.
+#
 # Двухэтапная сборка: git нужен только чтобы uv склонировал ai-bot-framework (git-зависимость
 # по тегу, tool.uv.sources в pyproject.toml) — в итоговом образе его быть не должно.
 FROM python:3.13-slim AS builder
@@ -26,7 +32,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONPATH=/app \
-    PATH=/app/.venv/bin:$PATH
+    PATH=/app/.venv/bin:$PATH \
+    ENABLE_CLAUDEAI_MCP_SERVERS=false \
+    DISABLE_AUTOUPDATER=1 \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+COPY deploy/claude-code/managed-settings.json /etc/claude-code/managed-settings.json
 
 WORKDIR /app
 
