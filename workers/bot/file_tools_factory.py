@@ -2,7 +2,9 @@ from ai_framework import BaseTool
 
 from src.ai_tools.file_read import FileReadTool, UntrustedFileFrame
 from src.ai_tools.file_take import FileTakeTool
+from src.ai_tools.file_view import FileViewTool
 from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
+from src.files.imaging import FileImageRenderer, ImageFitter, PdfRasterizer
 from src.files.readers.file_text_reader import FileTextReader
 from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
 from src.files.sources.chat_source.chat_file_source import ChatFileSource
@@ -12,6 +14,7 @@ from src.files.work_folder.work_folder import WorkFolder
 from src.gmail.repos.gmail_client import GmailClient
 
 FILE_TAKE_LIMIT_BYTES = 50 * 1024 * 1024
+PDF_RENDER_DPI = 150
 
 
 def build_file_tools(
@@ -20,6 +23,7 @@ def build_file_tools(
     chat_attachments: ChatAttachments,
     dropbox_boundary: DropboxBoundary | None,
     mail: GmailClient | None,
+    max_image_bytes: int,
 ) -> list[BaseTool]:
     return [
         FileTakeTool(
@@ -38,5 +42,12 @@ def build_file_tools(
         ),
         FileReadTool(
             work_files=work_folder, text_reader=text_reader, frame=UntrustedFileFrame()
+        ),
+        FileViewTool(
+            work_files=work_folder,
+            renderer=FileImageRenderer(
+                fitter=ImageFitter(max_image_bytes),
+                rasterizer=PdfRasterizer(PDF_RENDER_DPI),
+            ),
         ),
     ]
