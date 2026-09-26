@@ -27,6 +27,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import http.server
+import io
 import json
 import secrets
 import select
@@ -161,7 +162,8 @@ def store_token(refresh_token: str) -> None:
 
 
 def main() -> None:
-    sys.stdout.reconfigure(line_buffering=True)
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(line_buffering=True)
     client_id, client_secret = load_client()
     port = free_port()
     redirect_uri = f"http://localhost:{port}"

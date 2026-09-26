@@ -6,18 +6,22 @@ from zoneinfo import ZoneInfo
 import httpx
 from ai_framework import AIApplication, BaseTool, Provider
 from ai_framework.attachments.s3_attachment_store import S3AttachmentStore
-from dotenv import load_dotenv
-
 from bot_framework.app import BotApplication
 from bot_framework.features.flows.request_role_flow.handlers import (
     RequestRoleCommandHandler,
 )
+from dotenv import load_dotenv
+
 from src.ai_tools import (
     MemoryCloseCommitmentTool,
     MemoryShowTool,
     MemoryUpsertCommitmentTool,
     MemoryUpsertDeadlineTool,
     MemoryUpsertTripTool,
+    WikiAppendTool,
+    WikiCreatePageTool,
+    WikiReadTool,
+    WikiSearchTool,
 )
 from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
 from src.ai_tools.dropbox_read import DropboxReadTool
@@ -62,6 +66,7 @@ from src.memory.repos import (
     WikiPageStorage,
 )
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
+from src.wiki.search import WikiSearcher
 from workers.bot.gmail_tools_factory import GMAIL_VARIABLES, build_gmail_tools
 from workers.bot.todoist_tools_factory import build_todoist_tools
 from workers.bot.transcriber_factory import build_transcriber
@@ -179,6 +184,17 @@ def build_attachment_store() -> S3AttachmentStore:
     )
 
 
+def build_wiki_tools(wiki_factory: WikiFactory) -> list[BaseTool]:
+    reader = wiki_factory.create_reader()
+    writer = wiki_factory.create_writer()
+    return [
+        WikiSearchTool(searcher=WikiSearcher(reader)),
+        WikiReadTool(reader=reader),
+        WikiCreatePageTool(creator=writer, lister=reader),
+        WikiAppendTool(appender=writer),
+    ]
+
+
 def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[BaseTool]:
     storage = WikiPageStorage(
         reader=wiki_factory.create_reader(),
@@ -237,6 +253,7 @@ def main() -> None:
         tools.extend(build_dropbox_move_tools(Path(dropbox_root), db_url, app))
 
     wiki_factory = build_wiki_factory()
+    tools.extend(build_wiki_tools(wiki_factory))
     tools.extend(build_memory_tools(wiki_factory, owner_timezone))
 
     todoist_token = getenv("TODOIST_TOKEN")
