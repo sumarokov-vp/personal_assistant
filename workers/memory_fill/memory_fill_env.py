@@ -14,7 +14,6 @@ GMAIL_VARIABLES = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKE
 
 @dataclass(frozen=True)
 class MemoryFillEnv:
-    anthropic_api_key: str
     ai_model: str
     ai_db_url: str
     owner_timezone: ZoneInfo
@@ -35,7 +34,6 @@ def read_memory_fill_env() -> MemoryFillEnv:
     dropbox_root = getenv("DROPBOX_ROOT")
     ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
     return MemoryFillEnv(
-        anthropic_api_key=require_env("ANTHROPIC_API_KEY"),
         ai_model=require_env("AI_MODEL"),
         ai_db_url=require_env("AI_DB_URL"),
         owner_timezone=ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty")),

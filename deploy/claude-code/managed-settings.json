@@ -1,0 +1,74 @@
+{
+  "permissions": {
+    "deny": [
+      "Agent",
+      "AskUserQuestion",
+      "Bash",
+      "BashOutput",
+      "Brief",
+      "Config",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "DesignSync",
+      "Edit",
+      "EnterPlanMode",
+      "EnterWorktree",
+      "ExitPlanMode",
+      "ExitWorktree",
+      "Glob",
+      "Grep",
+      "KillShell",
+      "LSP",
+      "ListAgents",
+      "ListMcpResourcesTool",
+      "Monitor",
+      "MultiEdit",
+      "NotebookEdit",
+      "NotebookRead",
+      "PowerShell",
+      "PushNotification",
+      "Read",
+      "ReadMcpResourceTool",
+      "RemoteTrigger",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "SendMessage",
+      "Skill",
+      "SlashCommand",
+      "Task",
+      "TaskCreate",
+      "TaskGet",
+      "TaskList",
+      "TaskOutput",
+      "TaskStop",
+      "TaskUpdate",
+      "TodoWrite",
+      "ToolSearch",
+      "WebFetch",
+      "WebSearch",
+      "Workflow",
+      "Write"
+    ]
+  },
+  "allowManagedPermissionRulesOnly": true,
+  "allowManagedHooksOnly": true,
+  "allowedMcpServers": [
+    {
+      "serverName": "ai-framework-tools"
+    }
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json, sys; name = json.load(sys.stdin).get('tool_name', ''); allowed = name.startswith('mcp__ai-framework-tools__'); allowed or print(f'{name} is not a Personal Assistant tool', file=sys.stderr); sys.exit(0 if allowed else 2)\""
+          }
+        ]
+      }
+    ]
+  }
+}

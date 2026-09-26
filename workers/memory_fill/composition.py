@@ -58,6 +58,7 @@ MEMORY_FILL_PROMPT_PATH = (
     Path(__file__).parent.parent.parent / "data" / "memory_fill_prompt.txt"
 )
 HTTP_TIMEOUT_SECONDS = 30.0
+SUBSCRIPTION_HAS_NO_API_KEY = ""
 DROPBOX_SOURCE = "Dropbox (dropbox_tree, dropbox_search, dropbox_read)"
 MAIL_SOURCE = "почта Gmail (search_mail, read_mail)"
 
@@ -186,8 +187,8 @@ def run_memory_fill(env: MemoryFillEnv, prompt_template: str) -> MemoryFillRepor
     with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as http:
         mail = build_mail_client(http, env.gmail) if env.gmail else None
         ai = AIApplication(
-            api_key=env.anthropic_api_key,
-            provider=Provider.ANTHROPIC,
+            api_key=SUBSCRIPTION_HAS_NO_API_KEY,
+            provider=Provider.CLAUDE_SDK,
             model=env.ai_model,
             system_prompt=build_fill_system_prompt(prompt_template, env.owner_timezone),
             database_url=env.ai_db_url,

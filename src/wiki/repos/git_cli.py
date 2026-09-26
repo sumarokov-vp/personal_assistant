@@ -3,6 +3,7 @@ import logging
 import os
 import shlex
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,18 +31,24 @@ class GitCli:
         self._timeout_seconds = timeout_seconds
 
     def run_checked(self, *args: str, cwd: Path | None = None) -> str:
-        outcome = asyncio.run(self._run(args, cwd or self._repo_dir))
+        outcome = self._run_blocking(args, cwd or self._repo_dir)
         if outcome.returncode != 0:
             raise WikiGitError(_command_name(args), outcome.stderr.strip())
         return outcome.stdout
 
     def succeeds(self, *args: str, cwd: Path | None = None) -> bool:
-        outcome = asyncio.run(self._run(args, cwd or self._repo_dir))
+        outcome = self._run_blocking(args, cwd or self._repo_dir)
         if outcome.returncode != 0:
             logger.warning(
                 "git %s failed: %s", _command_name(args), outcome.stderr.strip()
             )
         return outcome.returncode == 0
+
+    # Инструменты модели вызываются изнутри event loop ClaudeSdkProvider: asyncio.run в том
+    # же потоке там падает, поэтому git идёт своим циклом в отдельном потоке.
+    def _run_blocking(self, args: tuple[str, ...], cwd: Path) -> _GitOutcome:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(asyncio.run, self._run(args, cwd)).result()
 
     async def _run(self, args: tuple[str, ...], cwd: Path) -> _GitOutcome:
         process = await asyncio.create_subprocess_exec(
