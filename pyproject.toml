@@ -8,8 +8,10 @@ dependencies = [
     "ai-bot-framework[claude-sdk,s3]",
     "bot-framework[all]==0.8.2",
     "httpx>=0.28.1",
+    "openpyxl>=3.1.5",
     "pydantic>=2.12.5",
     "pypdf>=6.19.0",
+    "python-docx>=1.2.0",
     "python-dotenv==1.2.1",
 ]
 

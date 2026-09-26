@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from docx import Document
 from ai_framework.entities.tool_context import ToolContext
 
 from src.ai_tools.dropbox_read import DropboxReadTool
@@ -50,6 +51,20 @@ def test_search_and_read_itinerary(boundary: DropboxBoundary) -> None:
     )
     assert "12.11.2026" in read["text"]
     assert "error" not in read
+
+
+def test_read_docx_returns_text(boundary: DropboxBoundary, tmp_path: Path) -> None:
+    document = Document()
+    document.add_paragraph("Договор аренды")
+    document.save(str(tmp_path / "contract.docx"))
+
+    read = json.loads(
+        DropboxReadTool(DropboxReader(boundary)).execute(
+            DropboxReadInput(path="contract.docx"), CONTEXT
+        )
+    )
+
+    assert read["text"] == "Договор аренды"
 
 
 @pytest.mark.parametrize("path", ["Vault", "Vault/secret.md", "photo.heic", "nope.txt"])
