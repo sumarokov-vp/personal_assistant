@@ -1,3 +1,4 @@
+import re
 from types import SimpleNamespace
 
 from unittest.mock import MagicMock
@@ -20,6 +21,8 @@ from src.chat.handlers.document_message_handler import (
     DocumentMessageHandler,
 )
 from src.chat.handlers.photo_message_handler import PhotoMessageHandler
+from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
+from src.files.sources.chat_source.chat_file_source import ChatFileSource
 from tests.test_send_to_agent_action import DatedPromptBuilder, ScriptedProvider
 
 CHAT_ID = 100
@@ -31,6 +34,7 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_OVER_LIMIT_BYTES = 4 * 1024 * 1024
 PDF_BYTES = b"%PDF-1.4 fake"
 JPEG_BYTES = b"\xff\xd8\xff\xe0 fake jpeg"
+PHOTO_LABEL = re.compile(r"^\[вложение: (photo_[0-9a-f]{8}\.jpg)\]$", re.MULTILINE)
 
 
 class SessionTrackingProvider(ScriptedProvider):
@@ -43,7 +47,10 @@ class SessionTrackingProvider(ScriptedProvider):
 
 
 def _ai_application(
-    monkeypatch: pytest.MonkeyPatch, provider: ScriptedProvider
+    monkeypatch: pytest.MonkeyPatch,
+    provider: ScriptedProvider,
+    memory: InMemoryStore | None = None,
+    attachment_store: InMemoryAttachmentStore | None = None,
 ) -> AIApplication:
     monkeypatch.setattr(
         "ai_framework.application.create_provider", lambda *_args: provider
@@ -51,7 +58,7 @@ def _ai_application(
     monkeypatch.setattr(
         "ai_framework.application.open_infrastructure",
         lambda _url: InfrastructureContext(
-            memory=InMemoryStore(), sessions=InMemorySessionStore()
+            memory=memory or InMemoryStore(), sessions=InMemorySessionStore()
         ),
     )
     return AIApplication(
@@ -61,7 +68,7 @@ def _ai_application(
         database_url="postgres://unused",
         tools=[],
         history_turns_limit=10,
-        attachment_store=InMemoryAttachmentStore(),
+        attachment_store=attachment_store or InMemoryAttachmentStore(),
     )
 
 
@@ -139,7 +146,9 @@ def _document_message(
     return message
 
 
-def _photo_message(file_size: int, caption: str | None = None) -> BotMessage:
+def _photo_message(
+    file_size: int, caption: str | None = None, file_id: str = "photo-file"
+) -> BotMessage:
     message = BotMessage(
         chat_id=CHAT_ID, message_id=1, from_user=BotMessageUser(id=USER_ID)
     )
@@ -147,7 +156,7 @@ def _photo_message(file_size: int, caption: str | None = None) -> BotMessage:
         SimpleNamespace(
             photo=[
                 SimpleNamespace(file_id="photo-thumb", file_size=1_000),
-                SimpleNamespace(file_id="photo-file", file_size=file_size),
+                SimpleNamespace(file_id=file_id, file_size=file_size),
             ],
             caption=caption,
             media_group_id=None,
@@ -174,14 +183,42 @@ class TestPhotoAttachment:
 
         mocks["downloader"].download_document.assert_called_once_with("photo-file")
         sent = _last_user_message(provider)
-        assert sent.content == "сколько тут?"
         assert sent.attachments is not None
         assert [(a.media_type, a.data) for a in sent.attachments] == [
             ("image/jpeg", JPEG_BYTES)
         ]
+        photo_name = sent.attachments[0].filename
+        assert PHOTO_LABEL.fullmatch(f"[вложение: {photo_name}]")
+        assert sent.content == f"[вложение: {photo_name}]\n\nсколько тут?"
         mocks["replacer"].replace.assert_called_once_with(
             chat_id=CHAT_ID, message_id=THINKING_MESSAGE_ID, text="Итого 1250"
         )
+
+    def test_earlier_photo_found_by_name_from_its_label(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        provider = ScriptedProvider(
+            [AIResponse(content="Первое"), AIResponse(content="Второе")]
+        )
+        memory = InMemoryStore()
+        store = InMemoryAttachmentStore()
+        mocks = _collaborators(b"")
+        mocks["downloader"].download_document.side_effect = {
+            "first": b"\xff\xd8 first",
+            "second": b"\xff\xd8 second",
+        }.__getitem__
+        with _ai_application(monkeypatch, provider, memory, store) as ai:
+            handler = _photo_handler(ai, mocks)
+            handler.handle(_photo_message(100, file_id="first"))
+            handler.handle(_photo_message(100, file_id="second"))
+
+        first_turn = memory.get_messages(str(USER_ID))[0]
+        label = PHOTO_LABEL.search(first_turn.content)
+        assert label is not None
+        fetched = ChatFileSource(
+            ChatAttachments(history=memory, store=store), max_bytes=MAX_FILE_BYTES
+        ).fetch(str(USER_ID), label.group(1))
+        assert (fetched.name, fetched.content) == (label.group(1), b"\xff\xd8 first")
 
     def test_photo_over_image_limit_refused_without_assistant(
         self, monkeypatch: pytest.MonkeyPatch
@@ -212,7 +249,7 @@ class TestDocumentAttachments:
             )
 
         sent = _last_user_message(provider)
-        assert sent.content == "Что это?\n\nФайл invoice.pdf"
+        assert sent.content == "[вложение: invoice.pdf]\n\nЧто это?"
         assert sent.attachments is not None
         assert [(a.media_type, a.filename, a.data) for a in sent.attachments] == [
             ("application/pdf", "invoice.pdf", PDF_BYTES)

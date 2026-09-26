@@ -1,3 +1,4 @@
+import secrets
 from logging import getLogger
 
 from ai_framework import Attachment
@@ -16,6 +17,7 @@ from src.chat.albums.album_buffer import AlbumBuffer
 from src.chat.albums.album_photo import AlbumPhoto
 from src.chat.albums.protocols.i_timer_factory import ITimerFactory
 from src.chat.albums.threading_timer_factory import ThreadingTimerFactory
+from src.chat.handlers.attachment_labels import text_with_attachment_labels
 from src.chat.handlers.attachment_limits import (
     IMAGE_TOO_LARGE_TEXT,
     image_exceeds_limit,
@@ -26,6 +28,7 @@ logger = getLogger(__name__)
 PHOTO_TOO_LARGE_TEXT = "Фото больше 10 МБ — такое не читаю."
 TELEGRAM_PHOTO_MEDIA_TYPE: AttachmentMediaType = "image/jpeg"
 ALBUM_QUIET_SECONDS = 1.2
+PHOTO_NAME_HEX_BYTES = 4
 
 
 class PhotoMessageHandler:
@@ -100,17 +103,20 @@ class PhotoMessageHandler:
     def _send_photos(
         self, chat_id: int, user_id: int, caption: str, photos: list[bytes]
     ) -> None:
+        names = [_photo_name() for _ in photos]
+        attachments = [
+            Attachment(media_type=TELEGRAM_PHOTO_MEDIA_TYPE, filename=name, data=data)
+            for name, data in zip(names, photos, strict=True)
+        ]
+        text = text_with_attachment_labels(names, caption)
         thinking_msg = self.message_sender.send(chat_id=chat_id, text="Думаю...")
         try:
             self.send_to_agent_action.execute(
                 chat_id=chat_id,
                 user_id=user_id,
-                text=caption,
+                text=text,
                 thinking_message_id=thinking_msg.message_id,
-                attachments=[
-                    Attachment(media_type=TELEGRAM_PHOTO_MEDIA_TYPE, data=data)
-                    for data in photos
-                ],
+                attachments=attachments,
             )
         except Exception as e:
             logger.exception("Agent error on photo")
@@ -128,3 +134,7 @@ class PhotoMessageHandler:
             self.message_sender.send(chat_id=message.chat_id, text=IMAGE_TOO_LARGE_TEXT)
             return True
         return False
+
+
+def _photo_name() -> str:
+    return f"photo_{secrets.token_hex(PHOTO_NAME_HEX_BYTES)}.jpg"

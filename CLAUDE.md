@@ -39,6 +39,7 @@ src/
 │       ├── voice_message_handler.py
 │       ├── photo_message_handler.py, document_message_handler.py  # фото/PDF — вложениями, текстовые — текстом
 │       ├── attachment_limits.py      # лимит Claude на картинку (5 МБ в base64)
+│       ├── attachment_labels.py      # строки «[вложение: имя]» перед подписью владельца
 │       └── protocols/                # IConversationClearer
 ├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete), TodoistTaskService: дела, подзадачи, ссылки-комментарии
 ├── gmail/                   # GmailClient (поиск, чтение, вложения, черновики — без отправки), UntrustedMailFrame
@@ -250,8 +251,14 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   (`ai_messages.attachments`) — только ключи. `AIApplication` сам оборачивает хранилище в `CachedAttachmentStore`.
   Объекты бакета библиотека не удаляет — `/clear` чистит историю, не бакет. Вложение из чата модель берёт в работу
   через `file_take(source=chat)` (см. «Файлы»): `ChatAttachments` читает историю треда `str(user_id)`
-  (`PostgresMemoryStore(AI_DB_URL)`, окно — последние `HISTORY_TURNS_LIMIT` ходов), байты — тот же `S3AttachmentStore`.
+  (`PostgresMemoryStore(AI_DB_URL)`, окно — вся история треда; адрес — имя вложения или ключ S3), байты — тот же
+  `S3AttachmentStore`.
   Текстовые `.txt/.md/.csv` в S3 не попадают — их `file_take(source=chat)` не найдёт
+- Имя вложения — в тексте сообщения: хендлер ставит перед подписью владельца по строке «[вложение: <имя>]» на
+  каждое (`src/chat/handlers/attachment_labels.py`), так модель видит адрес для `file_take`. Фото имени не имеет —
+  `PhotoMessageHandler` сам даёт `photo_<8 hex>.jpg` и кладёт его в `Attachment.filename` (ключ S3 ai_framework
+  назначает позже, при сохранении); документ — исходное имя. Старые фото истории (`filename` null) адресуются по
+  `photo_<ключ8>.jpg` и ключу
 - Альбом Telegram присылает отдельными update с общим `media_group_id`. `PhotoMessageHandler` копит такие фото в
   `AlbumBuffer` (`src/chat/albums/`, ключ — chat_id + media_group_id) и через `ALBUM_QUIET_SECONDS` (1,2 с) тишины
   после последнего фото группы отдаёт их одним запросом: все фото по порядку message_id, подпись альбома (Telegram
