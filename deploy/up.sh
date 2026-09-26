@@ -75,6 +75,11 @@ require_value "$PASS_ROOT/gmail-oauth-client installed.client_id" "$GMAIL_CLIENT
 require_value "$PASS_ROOT/gmail-oauth-client installed.client_secret" "$GMAIL_CLIENT_SECRET"
 require_value "$PASS_ROOT/gmail-refresh-token" "$GMAIL_REFRESH_TOKEN"
 
+# Уведомления рабочих агентов: URL учётки pa-consumer (только чтение pa.notifications в vhost
+# assistant). Запись и учётку заводит deploy/rabbitmq/setup.sh
+RABBITMQ_URL="$(pass_first_line "$PASS_ROOT/rabbitmq")"
+require_value "$PASS_ROOT/rabbitmq" "$RABBITMQ_URL"
+
 # Deploy-ключ вики: ssh читает ключ только из файла. Файл 0600 в каталоге 0700 вне репо и вне
 # тома вики, в контейнер монтируется только на чтение. Пишется целиком (ключ многострочный),
 # через umask — без окна, когда файл уже есть, а права ещё широкие.
@@ -101,6 +106,7 @@ export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN 
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
     ATTACHMENTS_S3_ENDPOINT ATTACHMENTS_S3_BUCKET ATTACHMENTS_S3_REGION \
     ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \
-    TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN
+    TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN \
+    RABBITMQ_URL
 
 docker compose -f deploy/compose.yaml up -d --build
