@@ -1,6 +1,5 @@
 {
   "roles": [
-    {"name": "admin", "description": "Bot owner"},
-    {"name": "voice_recognition", "description": "Доступ к распознаванию голосовых сообщений"}
+    {"name": "admin", "description": "Bot owner"}
   ]
 }

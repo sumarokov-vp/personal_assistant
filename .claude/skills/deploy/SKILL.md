@@ -12,13 +12,13 @@ deploy/up.sh
 ```
 
 Скрипт:
-1. берёт секреты из `pass` (`work/projects/sumarokov/pa/personal_assistant/{bot-token,db,claude-oauth-token}`
-   и ключ `personal_assistant` из `work/projects/internal/infrastructure/voice_recognition/api-keys`),
-   экспортирует их только в своё окружение, никуда не пишет и не печатает;
-2. создаёт `~/docker/personal_assistant/claude-home` (сессии CLI бота), если его нет;
+1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,db,anthropic-api-key,voice-recognition-key}`,
+   `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента, без пароля), экспортирует
+   их только в своё окружение, никуда не пишет и не печатает;
+2. собирает `AI_DB_URL` из `db` (та же БД `personal_assistant`, `options=-csearch_path%3Dai`);
 3. выполняет `docker compose -f deploy/compose.yaml up -d --build`.
 
-Если `pass` просит GPG-пин или касание ключа — это ожидаемо, дождись пользователя.
+Если `pass` просит GPG-пин — это ожидаемо, дождись пользователя.
 
 После запуска проверь, что контейнер жив и бот стартовал:
 
