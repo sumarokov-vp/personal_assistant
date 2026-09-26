@@ -8,11 +8,11 @@ from ai_framework import AIApplication, BaseTool, Provider
 from ai_framework.attachments.s3_attachment_store import S3AttachmentStore
 from ai_framework.memory.postgres_memory_store import PostgresMemoryStore
 from bot_framework.app import BotApplication
-from bot_framework.features.flows.request_role_flow.handlers import (
-    RequestRoleCommandHandler,
-)
+from bot_framework.platform.telegram import TelegramMessageCore
 from dotenv import load_dotenv
 
+from src.access.services.owner_gate import OwnerUpdateGate
+from src.access.services.update_gate_installer import UpdateGateInstaller
 from src.ai_tools import (
     MemoryCloseCommitmentTool,
     MemoryShowTool,
@@ -98,6 +98,19 @@ def require_env(name: str) -> str:
     if not value:
         raise ValueError(f"{name} environment variable is required")
     return value
+
+
+def require_owner_telegram_id() -> int:
+    value = require_env("OWNER_TELEGRAM_ID")
+    if not value.isdecimal():
+        raise ValueError("OWNER_TELEGRAM_ID must be a numeric Telegram user id")
+    return int(value)
+
+
+def admit_only_owner(app: BotApplication, owner_telegram_id: int) -> None:
+    if not isinstance(app.core, TelegramMessageCore):
+        raise TypeError("Owner gate requires TelegramMessageCore")
+    UpdateGateInstaller(OwnerUpdateGate(owner_telegram_id)).install(app.core.bot)
 
 
 def build_dropbox_tools(root: Path) -> list[BaseTool]:
@@ -247,6 +260,7 @@ def main() -> None:
     load_dotenv(dotenv_path=project_root / ".env")
     configure_logging(getenv("LOG_LEVEL", "INFO"))
 
+    owner_telegram_id = require_owner_telegram_id()
     bot_token = require_env("BOT_TOKEN")
     db_url = require_env("BOT_DB_URL")
     redis_url = require_env("REDIS_URL")
@@ -270,6 +284,7 @@ def main() -> None:
         roles_json_path=data_dir / "roles.json",
         use_class_middlewares=True,
     )
+    admit_only_owner(app, owner_telegram_id)
 
     attachment_store = build_attachment_store()
 
@@ -336,11 +351,6 @@ def main() -> None:
         role_repo=app.role_repo,
     )
 
-    request_role_handler = RequestRoleCommandHandler(
-        request_role_flow_router=app.request_role_flow_router,
-        user_repo=app.user_repo,
-    )
-
     transcribe_voice_action = TranscribeVoiceAction(
         document_downloader=app.core.document_downloader,
         transcriber=build_transcriber(
@@ -395,12 +405,6 @@ def main() -> None:
     app.core.message_handler_registry.register(
         handler=clear_handler,
         commands=["clear"],
-        content_types=["text"],
-    )
-
-    app.core.message_handler_registry.register(
-        handler=request_role_handler,
-        commands=["request_role"],
         content_types=["text"],
     )
 

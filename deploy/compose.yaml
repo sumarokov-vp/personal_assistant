@@ -21,6 +21,8 @@
 #    сюда; vault_selftest_* меняют имена — их отсекает код инструментов Dropbox.
 #  * Todoist и Gmail: TODOIST_TOKEN и GMAIL_* из pass. GMAIL_CLIENT_ID/SECRET up.sh достаёт из
 #    JSON OAuth-клиента (installed.client_id/client_secret), refresh token — отдельная запись.
+#  * OWNER_TELEGRAM_ID — из pass owner-telegram-id: бот слышит только владельца в личном чате,
+#    остальные апдейты отбрасывает до базы и обработчиков.
 name: personal_assistant
 
 services:
@@ -33,6 +35,7 @@ services:
     restart: unless-stopped
     environment:
       BOT_TOKEN: ${BOT_TOKEN:?}
+      OWNER_TELEGRAM_ID: ${OWNER_TELEGRAM_ID:?}
       BOT_DB_URL: ${BOT_DB_URL:?}
       AI_DB_URL: ${AI_DB_URL:?}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?}
