@@ -370,7 +370,7 @@ def main() -> None:
 
     mail = build_configured_gmail_client()
     if mail is not None:
-        tools.extend(build_gmail_tools(mail))
+        tools.extend(build_gmail_tools(mail, WorkFolder(work_dir), dropbox_boundary))
 
     tools.extend(
         build_file_tools(

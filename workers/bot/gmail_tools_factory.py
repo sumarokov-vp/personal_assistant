@@ -1,9 +1,13 @@
 import httpx
 from ai_framework import BaseTool
 
+from src.ai_tools.draft_mail import DraftAttachments, DraftMailTool
 from src.ai_tools.draft_reply.tool import DraftReplyTool
 from src.ai_tools.read_mail.tool import ReadMailTool
 from src.ai_tools.search_mail.tool import SearchMailTool
+from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
+from src.files.overflow.overflow_folder import OverflowFolder
+from src.files.work_folder.work_folder import WorkFolder
 from src.gmail.repos.gmail_client import GmailClient
 from src.gmail.repos.oauth_access_token_provider import OAuthAccessTokenProvider
 from src.gmail.services.gmail_message_parser.gmail_message_parser import (
@@ -36,10 +40,23 @@ def build_gmail_client(
     )
 
 
-def build_gmail_tools(mail: GmailClient) -> list[BaseTool]:
+def build_gmail_tools(
+    mail: GmailClient,
+    work_folder: WorkFolder,
+    dropbox_boundary: DropboxBoundary | None,
+) -> list[BaseTool]:
     frame = UntrustedMailFrame()
+    attachments = DraftAttachments(
+        work_files=work_folder,
+        overflow=(
+            OverflowFolder(dropbox_boundary, work_folder)
+            if dropbox_boundary is not None
+            else None
+        ),
+    )
     return [
         SearchMailTool(searcher=mail, frame=frame),
         ReadMailTool(reader=mail, frame=frame),
-        DraftReplyTool(drafter=mail, frame=frame),
+        DraftReplyTool(drafter=mail, frame=frame, attachments=attachments),
+        DraftMailTool(drafter=mail, attachments=attachments),
     ]
