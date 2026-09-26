@@ -104,7 +104,7 @@ layers = ["workers", "src"]
 [[tool.importlinter.contracts]]
 name = "src contexts independence"
 type = "independence"
-modules = ["src.chat", "src.ai_tools", "src.voice_recognition"]
+modules = ["src.chat", "src.ai_tools", "src.voice_recognition", "src.gmail"]
 
 [tool.uv.sources]
 ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.1" }
