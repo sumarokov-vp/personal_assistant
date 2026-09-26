@@ -380,6 +380,8 @@ def main() -> None:
             dropbox_boundary=dropbox_boundary,
             mail=mail,
             max_image_bytes=MAX_IMAGE_BYTES,
+            document_sender=app.document_sender,
+            owner_chat_id=owner_telegram_id,
         )
     )
 
