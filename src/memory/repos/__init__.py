@@ -5,6 +5,7 @@ from src.memory.repos.memory_page_read import MemoryPageRead
 from src.memory.repos.protocols.i_wiki_storage import IWikiStorage
 from src.memory.repos.upsert_outcome import UpsertOutcome
 from src.memory.repos.whereabouts_repository import WhereaboutsRepository
+from src.memory.repos.wiki_page_storage import WikiPageStorage
 
 __all__ = [
     "CommitmentRepository",
@@ -14,4 +15,5 @@ __all__ = [
     "MemoryPageRead",
     "UpsertOutcome",
     "WhereaboutsRepository",
+    "WikiPageStorage",
 ]
