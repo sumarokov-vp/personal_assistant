@@ -55,6 +55,13 @@ deploy/                      # Образ и выкат в colima
 - Провайдер — `Provider.CLAUDE_SDK` в боте, чекапе и наполнении памяти; модель — `AI_MODEL`. Ключа API нет:
   CLI берёт `CLAUDE_CODE_OAUTH_TOKEN` из окружения, а нативно без него — локальный логин Claude Code.
   Ключ Claude API в окружении процесса держать нельзя: CLI предпочтёт его подписке, и счёт пойдёт по API
+- Effort — `CLAUDE_CODE_EFFORT_LEVEL` (`low|medium|high|xhigh`), в проде `low` (умолчание в `up.sh` и `compose.yaml`,
+  как у `AI_MODEL`). `ClaudeSdkProvider` effort/thinking не передаёт, но SDK отдаёт CLI окружение процесса целиком,
+  а CLI читает переменную сам — поэтому env, а не код. При `low` CLI не включает thinking: замер 26.09.2026 на
+  claude-sonnet-5 — ход −30 % времени, −39 % output-токенов к умолчанию CLI. Переменная контейнера действует на всё,
+  что запущено в нём, — и на `workers.checkup`/`workers.memory_fill` через `docker exec`; отдельный `docker run` образа
+  её не получит (compose-сервис один — `bot`). Нужен другой effort одному процессу — задать env этого процесса.
+  Нативно переменной нет — действует умолчание CLI
 - `ClaudeSdkProvider` (с v0.9.3) держит сессию CLI на тред; `clear_context` её сбрасывает. Сессии CLI — в `$HOME/.claude`
 - Память диалога — `AI_DB_URL`: та же БД `personal_assistant`, схема `ai` (`options=-csearch_path%3Dai`).
   Миграции ai_framework применяются при входе в `with ai:`, но саму схему не создают: `CREATE SCHEMA IF NOT EXISTS ai` — один раз руками
@@ -173,6 +180,7 @@ REDIS_URL=redis://localhost:6379/4
 AI_DB_URL=postgres://user:password@localhost:5432/personal_assistant?sslmode=disable&options=-csearch_path%3Dai
 CLAUDE_CODE_OAUTH_TOKEN=токен подписки          # claude setup-token; нативно необязательная — CLI возьмёт локальный логин
 AI_MODEL=claude-sonnet-5
+CLAUDE_CODE_EFFORT_LEVEL=low                    # необязательная; effort CLI (low|medium|high|xhigh), прод — low; без неё — умолчание CLI
 OWNER_TIMEZONE=Asia/Almaty                      # необязательная (дефолт Asia/Almaty); пояс для даты в системном промпте
 VOICE_RECOGNITION_URL=http://localhost:8000     # необязательная (есть дефолт); HTTP-сервис распознавания речи (faster-whisper, GPU)
 VOICE_RECOGNITION_API_KEY=ключ                  # заголовок X-API-Key для сервиса распознавания; без него сервис отвечает 401
