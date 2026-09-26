@@ -1,3 +1,4 @@
+from threading import Event, Thread
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -150,3 +151,51 @@ class TestSendToAgentActionReplies:
 
         replacer.replace.assert_called_once_with(chat_id=100, message_id=42, text="a" * 4000)
         sender.send.assert_called_once_with(chat_id=100, text="b" * 200)
+
+
+class BlockingThreadAI:
+    def __init__(self) -> None:
+        self.first_entered = Event()
+        self.release_first = Event()
+        self.second_entered_before_first_released = False
+
+    def update_system_prompt(self, system_prompt: str) -> None:
+        pass
+
+    def process_message(
+        self,
+        thread_id: str,
+        user_message: str,
+        tool_context: dict[str, Any] | None = None,
+        attachments: list[Any] | None = None,
+    ) -> AIResponse:
+        if user_message == "первый":
+            self.first_entered.set()
+            self.release_first.wait(timeout=5)
+        elif not self.release_first.is_set():
+            self.second_entered_before_first_released = True
+        return AIResponse(content=user_message)
+
+
+class TestThreadQueue:
+    def test_second_request_of_same_thread_waits_for_first(self) -> None:
+        ai = BlockingThreadAI()
+        action, _sender, _replacer, _deleter = _action(ai, DatedPromptBuilder())
+        first = Thread(
+            target=action.execute,
+            kwargs={"chat_id": 100, "user_id": 5, "text": "первый", "thinking_message_id": 1},
+        )
+        second = Thread(
+            target=action.execute,
+            kwargs={"chat_id": 100, "user_id": 5, "text": "второй", "thinking_message_id": 2},
+        )
+
+        first.start()
+        assert ai.first_entered.wait(timeout=5)
+        second.start()
+        second.join(timeout=0.2)
+        ai.release_first.set()
+        first.join(timeout=5)
+        second.join(timeout=5)
+
+        assert not ai.second_entered_before_first_released
