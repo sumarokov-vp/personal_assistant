@@ -20,10 +20,10 @@ from src.gmail.services.untrusted_frame.untrusted_mail_frame import UntrustedMai
 GMAIL_VARIABLES = ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN")
 
 
-def build_gmail_tools(
+def build_gmail_client(
     http: httpx.Client, client_id: str, client_secret: str, refresh_token: str
-) -> list[BaseTool]:
-    mail = GmailClient(
+) -> GmailClient:
+    return GmailClient(
         http=http,
         token_provider=OAuthAccessTokenProvider(
             http=http,
@@ -34,6 +34,9 @@ def build_gmail_tools(
         parser=GmailMessageParser(HtmlToTextConverter()),
         composer=ReplyMimeComposer(),
     )
+
+
+def build_gmail_tools(mail: GmailClient) -> list[BaseTool]:
     frame = UntrustedMailFrame()
     return [
         SearchMailTool(searcher=mail, frame=frame),

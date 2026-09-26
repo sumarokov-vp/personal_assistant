@@ -29,7 +29,7 @@ from src.ai_tools import (
 )
 from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
 from src.ai_tools.dropbox_read import DropboxReadTool
-from src.ai_tools.dropbox_save import ChatAttachments, DropboxSaveTool
+from src.ai_tools.dropbox_save import DropboxSaveTool
 from src.ai_tools.dropbox_search import DropboxSearchTool
 from src.ai_tools.dropbox_tree import DropboxTreeTool
 from src.ai_tools.dropbox_undo_moves import DropboxUndoMovesTool
@@ -58,7 +58,10 @@ from src.dropbox.services.saver.dropbox_file_saver import DropboxFileSaver
 from src.dropbox.services.search.dropbox_search import DropboxSearch
 from src.dropbox.services.tree.dropbox_tree import DropboxTree
 from src.files.overflow.overflow_folder import OVERFLOW_FOLDER_NAME
+from src.files.readers.file_text_reader import FileTextReader
+from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
 from src.files.sweeper.sweeper import Sweeper
+from src.files.work_folder.work_folder import WorkFolder
 from src.flows.dropbox_moves import (
     CancelMovePlanHandler,
     ExecuteMovePlanHandler,
@@ -75,7 +78,13 @@ from src.memory.repos import (
 )
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
-from workers.bot.gmail_tools_factory import GMAIL_VARIABLES, build_gmail_tools
+from src.gmail.repos.gmail_client import GmailClient
+from workers.bot.file_tools_factory import build_file_tools
+from workers.bot.gmail_tools_factory import (
+    GMAIL_VARIABLES,
+    build_gmail_client,
+    build_gmail_tools,
+)
 from workers.bot.todoist_tools_factory import build_todoist_tools
 from workers.bot.transcriber_factory import build_transcriber
 
@@ -120,22 +129,28 @@ def admit_only_owner(app: BotApplication, owner_telegram_id: int) -> None:
     UpdateGateInstaller(OwnerUpdateGate(owner_telegram_id)).install(app.core.bot)
 
 
-def build_dropbox_tools(root: Path) -> list[BaseTool]:
+def build_dropbox_boundary(root: Path) -> DropboxBoundary:
     if not root.is_dir():
         raise ValueError(f"DROPBOX_ROOT={root} is not a directory")
-    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
+    return DropboxBoundary(root=root, policy=DropboxAccessPolicy())
+
+
+def build_dropbox_tools(
+    boundary: DropboxBoundary, text_reader: FileTextReader
+) -> list[BaseTool]:
     return [
         DropboxTreeTool(tree_builder=DropboxTree(boundary=boundary)),
         DropboxSearchTool(finder=DropboxSearch(boundary=boundary)),
-        DropboxReadTool(reader=DropboxReader(boundary=boundary)),
+        DropboxReadTool(
+            reader=DropboxReader(boundary=boundary, text_reader=text_reader)
+        ),
     ]
 
 
 def build_dropbox_move_tools(
-    root: Path, database_url: str, app: BotApplication
+    boundary: DropboxBoundary, database_url: str, app: BotApplication
 ) -> list[BaseTool]:
     apply_migrations(database_url)
-    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
     plans = PostgresMovePlanRepository(database_url=database_url)
     journal = PostgresDropboxJournalRepository(database_url=database_url)
     validator = MovePlanValidator(boundary=boundary)
@@ -185,19 +200,21 @@ def build_dropbox_move_tools(
     ]
 
 
+def build_chat_attachments(
+    ai_database_url: str, attachment_store: S3AttachmentStore
+) -> ChatAttachments:
+    return ChatAttachments(
+        history=PostgresMemoryStore(ai_database_url),
+        store=attachment_store,
+        turns_limit=HISTORY_TURNS_LIMIT,
+    )
+
+
 def build_dropbox_save_tool(
-    root: Path,
-    database_url: str,
-    ai_database_url: str,
-    attachment_store: S3AttachmentStore,
+    boundary: DropboxBoundary, database_url: str, chat_attachments: ChatAttachments
 ) -> BaseTool:
-    boundary = DropboxBoundary(root=root, policy=DropboxAccessPolicy())
     return DropboxSaveTool(
-        attachments=ChatAttachments(
-            history=PostgresMemoryStore(ai_database_url),
-            store=attachment_store,
-            turns_limit=HISTORY_TURNS_LIMIT,
-        ),
+        attachments=chat_attachments,
         saver=DropboxFileSaver(
             boundary=boundary,
             journal=PostgresDropboxJournalRepository(database_url=database_url),
@@ -281,6 +298,17 @@ def gmail_configured() -> bool:
     return any(getenv(name) for name in GMAIL_VARIABLES)
 
 
+def build_configured_gmail_client() -> GmailClient | None:
+    if not gmail_configured():
+        return None
+    return build_gmail_client(
+        http=httpx.Client(timeout=GMAIL_HTTP_TIMEOUT_SECONDS),
+        client_id=require_env("GMAIL_CLIENT_ID"),
+        client_secret=require_env("GMAIL_CLIENT_SECRET"),
+        refresh_token=require_env("GMAIL_REFRESH_TOKEN"),
+    )
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent.parent
     load_dotenv(dotenv_path=project_root / ".env")
@@ -318,14 +346,18 @@ def main() -> None:
     work_dir = Path(getenv("PA_WORK_DIR", str(DEFAULT_WORK_DIR)))
     start_sweeper(work_dir, dropbox_root)
 
+    text_reader = FileTextReader()
+    chat_attachments = build_chat_attachments(ai_db_url, attachment_store)
+    dropbox_boundary = (
+        build_dropbox_boundary(Path(dropbox_root)) if dropbox_root else None
+    )
+
     tools: list[BaseTool] = []
-    if dropbox_root:
-        tools.extend(build_dropbox_tools(Path(dropbox_root)))
-        tools.extend(build_dropbox_move_tools(Path(dropbox_root), db_url, app))
+    if dropbox_boundary is not None:
+        tools.extend(build_dropbox_tools(dropbox_boundary, text_reader))
+        tools.extend(build_dropbox_move_tools(dropbox_boundary, db_url, app))
         tools.append(
-            build_dropbox_save_tool(
-                Path(dropbox_root), db_url, ai_db_url, attachment_store
-            )
+            build_dropbox_save_tool(dropbox_boundary, db_url, chat_attachments)
         )
 
     wiki_factory = build_wiki_factory()
@@ -336,15 +368,19 @@ def main() -> None:
     if todoist_token:
         tools.extend(build_todoist_tools(todoist_token))
 
-    if gmail_configured():
-        tools.extend(
-            build_gmail_tools(
-                http=httpx.Client(timeout=GMAIL_HTTP_TIMEOUT_SECONDS),
-                client_id=require_env("GMAIL_CLIENT_ID"),
-                client_secret=require_env("GMAIL_CLIENT_SECRET"),
-                refresh_token=require_env("GMAIL_REFRESH_TOKEN"),
-            )
+    mail = build_configured_gmail_client()
+    if mail is not None:
+        tools.extend(build_gmail_tools(mail))
+
+    tools.extend(
+        build_file_tools(
+            work_folder=WorkFolder(work_dir),
+            text_reader=text_reader,
+            chat_attachments=chat_attachments,
+            dropbox_boundary=dropbox_boundary,
+            mail=mail,
         )
+    )
 
     logger.info("AI tools: %s", ", ".join(tool.name for tool in tools))
 
