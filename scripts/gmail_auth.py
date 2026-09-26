@@ -2,6 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
+# ruff: noqa: S101, S105, S310, S603, S607, T201 — standalone CLI: печать в терминал, pass через subprocess, HTTPS к Google
 """Получить refresh token Gmail владельца и положить его в pass.
 
 Запуск (из корня репы personal_assistant, на машине с ключом pass ассистента):
