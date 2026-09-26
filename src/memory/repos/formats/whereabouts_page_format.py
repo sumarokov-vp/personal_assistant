@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import date
 
 from src.memory.models.whereabouts import Whereabouts
 from src.memory.repos.formats.cell_reader import (
@@ -24,7 +25,10 @@ class WhereaboutsPageFormat:
     columns = (SINCE, UNTIL, PLACE, PURPOSE, SOURCE)
 
     def key(self, entry: Whereabouts) -> tuple[str, ...]:
-        return (entry.since.isoformat(), fold(entry.place))
+        return self.key_of(entry.since, entry.place)
+
+    def key_of(self, since: date, place: str) -> tuple[str, ...]:
+        return (since.isoformat(), fold(place))
 
     def describe(self, entry: Whereabouts) -> str:
         return f"{format_memory_date(entry.since)} · {entry.place}"

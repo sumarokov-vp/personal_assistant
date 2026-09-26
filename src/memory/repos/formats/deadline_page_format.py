@@ -26,7 +26,10 @@ class DeadlinePageFormat:
     columns = (WHAT, WHOSE, EXPIRES, RENEWAL, DURATION, SOURCE, UPDATED)
 
     def key(self, entry: Deadline) -> tuple[str, ...]:
-        return (fold(entry.what), fold(entry.whose))
+        return self.key_of(entry.what, entry.whose)
+
+    def key_of(self, what: str, whose: str) -> tuple[str, ...]:
+        return (fold(what), fold(whose))
 
     def describe(self, entry: Deadline) -> str:
         return f"{entry.what} · {entry.whose}"

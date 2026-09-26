@@ -10,6 +10,13 @@ from dotenv import load_dotenv
 
 from bot_framework.app import BotApplication
 from bot_framework.features.flows.request_role_flow.handlers import RequestRoleCommandHandler
+from src.ai_tools import (
+    MemoryCloseCommitmentTool,
+    MemoryShowTool,
+    MemoryUpsertCommitmentTool,
+    MemoryUpsertDeadlineTool,
+    MemoryUpsertTripTool,
+)
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
@@ -18,7 +25,14 @@ from src.chat.handlers.document_message_handler import DocumentMessageHandler
 from src.chat.handlers.photo_message_handler import PhotoMessageHandler
 from src.chat.handlers.text_message_handler import TextMessageHandler
 from src.chat.handlers.voice_message_handler import VoiceMessageHandler
+from src.memory.repos import (
+    CommitmentRepository,
+    DeadlineRepository,
+    WhereaboutsRepository,
+    WikiPageStorage,
+)
 from src.voice_recognition.transcript_cleaner import TranscriptCleaner
+from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from workers.bot.transcriber_factory import build_transcriber
 
 logger = getLogger(__name__)
@@ -40,6 +54,35 @@ def require_env(name: str) -> str:
     if not value:
         raise ValueError(f"{name} environment variable is required")
     return value
+
+
+def build_wiki_factory() -> WikiFactory:
+    ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
+    return WikiFactory(
+        WikiSettings(
+            wiki_dir=Path(require_env("WIKI_DIR")),
+            remote_url=require_env("WIKI_REMOTE_URL"),
+            ssh_key_path=Path(ssh_key_path) if ssh_key_path else None,
+        )
+    )
+
+
+def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[BaseTool]:
+    storage = WikiPageStorage(
+        reader=wiki_factory.create_reader(),
+        writer=wiki_factory.create_writer(),
+        page_not_found_error=WikiPageNotFoundError,
+    )
+    deadlines = DeadlineRepository(storage)
+    whereabouts = WhereaboutsRepository(storage)
+    commitments = CommitmentRepository(storage)
+    return [
+        MemoryShowTool(deadlines=deadlines, whereabouts=whereabouts, commitments=commitments),
+        MemoryUpsertDeadlineTool(deadlines=deadlines, timezone=timezone),
+        MemoryUpsertTripTool(whereabouts=whereabouts),
+        MemoryUpsertCommitmentTool(commitments=commitments),
+        MemoryCloseCommitmentTool(commitments=commitments),
+    ]
 
 
 def main() -> None:
@@ -74,7 +117,11 @@ def main() -> None:
         use_class_middlewares=True,
     )
 
-    tools: list[BaseTool] = []
+    wiki_factory = build_wiki_factory()
+
+    tools: list[BaseTool] = [
+        *build_memory_tools(wiki_factory, owner_timezone),
+    ]
 
     system_prompt_builder = SystemPromptBuilder(
         template=(data_dir / "system_prompt.txt").read_text(encoding="utf-8"),
