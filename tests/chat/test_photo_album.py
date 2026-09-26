@@ -79,9 +79,14 @@ class TestPhotoAlbum:
         assert len(provider.calls) == 1
         messages, _system = provider.calls[0]
         sent = messages[-1]
-        assert sent.content == "Согласованный дизайн"
         assert sent.attachments is not None
         assert [a.data for a in sent.attachments] == [FIRST_JPEG, SECOND_JPEG]
+        first_name, second_name = (a.filename for a in sent.attachments)
+        assert first_name != second_name
+        assert sent.content == (
+            f"[вложение: {first_name}]\n[вложение: {second_name}]\n\n"
+            "Согласованный дизайн"
+        )
         mocks["sender"].send.assert_called_once_with(chat_id=CHAT_ID, text="Думаю...")
         mocks["replacer"].replace.assert_called_once_with(
             chat_id=CHAT_ID, message_id=THINKING_MESSAGE_ID, text="Две джерси"
