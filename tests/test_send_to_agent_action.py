@@ -26,6 +26,7 @@ class ScriptedProvider:
         system: str | None = None,
         tools: list[BaseTool] | None = None,
         tool_context: dict[str, Any] | None = None,
+        thread_id: str | None = None,
     ) -> AIResponse:
         self.calls.append((list(messages), system))
         return self.replies.pop(0)
