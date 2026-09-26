@@ -2,7 +2,8 @@ import pytest
 
 from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
 from src.dropbox.services.reader.dropbox_reader import DropboxReader
-from src.dropbox.services.reader.unreadable_format_error import UnreadableFormatError
+from src.files.readers.file_text_reader import FileTextReader
+from src.files.readers.unreadable_format_error import UnreadableFormatError
 
 
 def test_pdf_text_is_read(boundary: DropboxBoundary):
@@ -27,7 +28,7 @@ def test_text_formats_are_read(boundary: DropboxBoundary, path: str, expected: s
 
 
 def test_long_text_is_cut_at_ceiling(boundary: DropboxBoundary):
-    text = DropboxReader(boundary, max_text_chars=6).read(
+    text = DropboxReader(boundary, FileTextReader(max_text_chars=6)).read(
         "03_home/01_personal_docs/passport.txt"
     )
 
@@ -46,7 +47,7 @@ def test_unreadable_format_is_refused(boundary: DropboxBoundary, path: str):
 
 def test_oversized_pdf_is_refused(boundary: DropboxBoundary):
     with pytest.raises(UnreadableFormatError):
-        DropboxReader(boundary, max_pdf_bytes=10).read(
+        DropboxReader(boundary, FileTextReader(max_document_bytes=10)).read(
             "Itinerary_ALA_CNX_12-11-2026_000000000000.pdf"
         )
 
