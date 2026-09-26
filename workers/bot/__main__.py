@@ -1,15 +1,15 @@
-import tempfile
 from logging import WARNING, basicConfig, getLogger
 from os import getenv
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from ai_framework import AIApplication, BaseTool, Provider
-from ai_framework.providers.anthropic_provider import AnthropicProvider
 from dotenv import load_dotenv
 
 from bot_framework.app import BotApplication
-from bot_framework.features.flows.request_role_flow.handlers import RequestRoleCommandHandler
+from bot_framework.features.flows.request_role_flow.handlers import (
+    RequestRoleCommandHandler,
+)
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
@@ -18,7 +18,6 @@ from src.chat.handlers.document_message_handler import DocumentMessageHandler
 from src.chat.handlers.photo_message_handler import PhotoMessageHandler
 from src.chat.handlers.text_message_handler import TextMessageHandler
 from src.chat.handlers.voice_message_handler import VoiceMessageHandler
-from src.voice_recognition.transcript_cleaner import TranscriptCleaner
 from workers.bot.transcriber_factory import build_transcriber
 
 logger = getLogger(__name__)
@@ -26,7 +25,7 @@ logger = getLogger(__name__)
 TOKEN_LEAKING_LOGGERS = ["TeleBot", "urllib3", "requests", "httpx", "anthropic"]
 
 HISTORY_TURNS_LIMIT = 10
-TRANSCRIPT_CLEANER_MODEL = "claude-haiku-4-5-20251001"
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
 def configure_logging(level: str) -> None:
@@ -61,8 +60,6 @@ def main() -> None:
     whisper_model = getenv("WHISPER_MODEL", "small")
 
     data_dir = project_root / "data"
-    inbox_dir = Path(tempfile.gettempdir()) / "personal_assistant_inbox"
-    inbox_dir.mkdir(parents=True, exist_ok=True)
 
     app = BotApplication(
         bot_token=bot_token,
@@ -113,23 +110,21 @@ def main() -> None:
     )
 
     transcribe_voice_action = TranscribeVoiceAction(
+        document_downloader=app.core.document_downloader,
         transcriber=build_transcriber(
             mode=voice_recognition_mode,
             http_base_url=voice_recognition_url,
             http_api_key=voice_recognition_api_key,
             whisper_model=whisper_model,
         ),
-        transcript_cleaner=TranscriptCleaner(
-            ai_provider=AnthropicProvider(api_key=anthropic_api_key, model=TRANSCRIPT_CLEANER_MODEL),
-        ),
-        document_sender=app.document_sender,
-        message_replacer=app.message_replacer,
     )
 
     voice_message_handler = VoiceMessageHandler(
-        document_downloader=app.core.document_downloader,
         transcribe_voice_action=transcribe_voice_action,
-        message_sender=app.message_sender,
+        send_to_agent_action=send_to_agent_action,
+        message_sender=message_sender,
+        message_replacer=message_replacer,
+        message_deleter=app.message_deleter,
         role_repo=app.role_repo,
     )
 
@@ -141,12 +136,9 @@ def main() -> None:
     )
 
     photo_handler = PhotoMessageHandler(
-        document_downloader=app.core.document_downloader,
-        send_to_agent_action=send_to_agent_action,
         message_sender=message_sender,
-        message_replacer=message_replacer,
         role_repo=app.role_repo,
-        inbox_dir=inbox_dir,
+        max_file_bytes=MAX_ATTACHMENT_BYTES,
     )
 
     document_handler = DocumentMessageHandler(
@@ -155,7 +147,7 @@ def main() -> None:
         message_sender=message_sender,
         message_replacer=message_replacer,
         role_repo=app.role_repo,
-        inbox_dir=inbox_dir,
+        max_file_bytes=MAX_ATTACHMENT_BYTES,
     )
 
     app.core.message_handler_registry.register(

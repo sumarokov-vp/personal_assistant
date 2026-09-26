@@ -1,13 +1,8 @@
-import tempfile
-from logging import getLogger
-from pathlib import Path
-
-from bot_framework import BotMessage, IDocumentDownloader, IMessageReplacer, IMessageSender, check_message_roles
+from bot_framework import BotMessage, IMessageSender, check_message_roles
 from bot_framework.domain.role_management.repos import RoleRepo
 
-from src.chat.actions.send_to_agent_action import SendToAgentAction
-
-logger = getLogger(__name__)
+PHOTO_TOO_LARGE_TEXT = "Фото больше 10 МБ — такое не читаю."
+PHOTO_NOT_READY_TEXT = "Фото пока не читаю — скоро научусь."
 
 
 class PhotoMessageHandler:
@@ -15,19 +10,13 @@ class PhotoMessageHandler:
 
     def __init__(
         self,
-        document_downloader: IDocumentDownloader,
-        send_to_agent_action: SendToAgentAction,
         message_sender: IMessageSender,
-        message_replacer: IMessageReplacer,
         role_repo: RoleRepo,
-        inbox_dir: Path,
+        max_file_bytes: int,
     ) -> None:
-        self.document_downloader = document_downloader
-        self.send_to_agent_action = send_to_agent_action
         self.message_sender = message_sender
-        self.message_replacer = message_replacer
         self.role_repo = role_repo
-        self.inbox_dir = inbox_dir
+        self.max_file_bytes = max_file_bytes
 
     @check_message_roles
     def handle(self, message: BotMessage) -> None:
@@ -38,39 +27,12 @@ class PhotoMessageHandler:
         if not original.photo:
             return
 
-        file_id = original.photo[-1].file_id
-        file_bytes = self.document_downloader.download_document(file_id)
+        largest_photo = original.photo[-1]
+        if (largest_photo.file_size or 0) > self.max_file_bytes:
+            self.message_sender.send(chat_id=message.chat_id, text=PHOTO_TOO_LARGE_TEXT)
+            return
 
-        suffix = ".jpg"
-        tmp_file = tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix,
-            prefix="photo_",
-            dir=self.inbox_dir,
-        )
-        tmp_file.write(file_bytes)
-        tmp_file.close()
+        self._send_image(message)
 
-        photo_path = Path(tmp_file.name)
-        caption = original.caption or "Фото без подписи"
-        agent_text = f"Пользователь отправил фото: {photo_path}\nПодпись: {caption}"
-
-        thinking_msg = self.message_sender.send(
-            chat_id=message.chat_id,
-            text="Думаю...",
-        )
-
-        try:
-            self.send_to_agent_action.execute(
-                chat_id=message.chat_id,
-                user_id=message.from_user.id,
-                text=agent_text,
-                thinking_message_id=thinking_msg.message_id,
-            )
-        except Exception as e:
-            logger.exception("Agent error on photo")
-            self.message_replacer.replace(
-                chat_id=message.chat_id,
-                message_id=thinking_msg.message_id,
-                text=f"Ошибка: {e}",
-            )
+    def _send_image(self, message: BotMessage) -> None:
+        self.message_sender.send(chat_id=message.chat_id, text=PHOTO_NOT_READY_TEXT)

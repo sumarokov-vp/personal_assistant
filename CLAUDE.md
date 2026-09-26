@@ -31,7 +31,7 @@ src/
 │       ├── clear_command_handler.py  # /clear — AIApplication.clear_context(thread_id)
 │       ├── voice_message_handler.py, photo_message_handler.py, document_message_handler.py
 │       └── protocols/                # IConversationClearer
-└── voice_recognition/       # HttpTranscriber, NativeTranscriber, TranscriptCleaner
+└── voice_recognition/       # HttpTranscriber, NativeTranscriber
 data/
 ├── system_prompt.txt        # Системный промпт ассистента; {today}, {now}, {timezone} подставляются на каждый запрос
 ├── phrases.json, roles.json, languages.json
@@ -110,18 +110,18 @@ LOG_LEVEL=INFO                                  # необязательная (
 
 ## Deploy
 
-> Раздел описывает прежний выкат с Claude Code (`claude-oauth-token`, `workspace/`, `claude-home`) и будет
-> переписан таском выката 01a0dc64-2b1d: добавятся `ANTHROPIC_API_KEY`, `AI_MODEL`, `AI_DB_URL`.
-
-- Бот работает контейнером в colima на Mac mini (linux/arm64). Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
-- `up.sh` берёт секреты из pass (`work/projects/sumarokov/pa/personal_assistant/{bot-token,db,claude-oauth-token}`,
-  ключ `personal_assistant` из первой строки `work/projects/internal/infrastructure/voice_recognition/api-keys`),
-  экспортирует их и запускает `docker compose -f deploy/compose.yaml up -d --build`. В файлы секреты не пишутся
+- Бот работает контейнером в colima на Mac mini (linux/arm64), без Claude Code: образ не содержит
+  `claude_agent_sdk`, typst, git, jq — только рантайм бота. Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
+- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,db,anthropic-api-key,voice-recognition-key}`,
+  `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента), собирает из `db` переменную
+  `AI_DB_URL` (`options=-csearch_path%3Dai`) и запускает `docker compose -f deploy/compose.yaml up -d --build`.
+  В файлы секреты не пишутся
+- Схему `ai` в БД `personal_assistant` `up.sh` не создаёт — `CREATE SCHEMA IF NOT EXISTS ai` делается один раз
+  руками (`docker exec -u postgres postgres psql -U sumarokov -d personal_assistant`), миграции ai_framework её не создают
 - Сеть — внешняя `infra`: `postgres`, `redis` по именам. `network_mode: host` в colima указывал бы на Linux-VM, а не на mac
 - Распознавание речи — GPU-сервер по mesh `http://10.72.0.199:8000`, из контейнера достижим
-- Монтирования: `workspace/` → `/app/workspace`, `~/docker/personal_assistant/claude-home` → `/home/sumarokov/.claude`.
-  В контейнере uid 1000; virtiofs colima пишет на хост под uid владельца, права на хосте не нужны
+- В контейнере uid 1000, монтирований нет — `workspace/` и `claude-home` из выката убраны вместе с Claude Code
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `BOT_TOKEN=x BOT_DB_URL=x VOICE_RECOGNITION_API_KEY=x CLAUDE_CODE_OAUTH_TOKEN=x docker compose -f deploy/compose.yaml build`
+  `BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x ANTHROPIC_API_KEY=x VOICE_RECOGNITION_API_KEY=x docker compose -f deploy/compose.yaml build`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
