@@ -1,4 +1,8 @@
 from src.ai_tools.add_task_link import AddTaskLinkTool
+from src.ai_tools.agent_notifications import (
+    AgentNotificationsTool,
+    UntrustedNotificationFrame,
+)
 from src.ai_tools.create_task import CreateTaskTool
 from src.ai_tools.draft_mail import DraftAttachments, DraftMailTool
 from src.ai_tools.file_read import FileReadTool
@@ -20,6 +24,7 @@ from src.ai_tools.wiki_search import WikiSearchTool
 
 __all__ = [
     "AddTaskLinkTool",
+    "AgentNotificationsTool",
     "CreateTaskTool",
     "DraftAttachments",
     "DraftMailTool",
@@ -34,6 +39,7 @@ __all__ = [
     "MemoryUpsertDeadlineTool",
     "MemoryUpsertTripTool",
     "ReadTaskTool",
+    "UntrustedNotificationFrame",
     "UpdateTaskTool",
     "WikiAppendTool",
     "WikiCreatePageTool",
