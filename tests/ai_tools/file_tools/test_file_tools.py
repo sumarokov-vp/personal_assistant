@@ -101,7 +101,7 @@ def _chat(content: bytes) -> ChatAttachments:
             ],
         )
     )
-    return ChatAttachments(history, store, turns_limit=10)
+    return ChatAttachments(history, store)
 
 
 def _take_tool(

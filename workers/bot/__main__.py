@@ -212,9 +212,7 @@ def build_chat_attachments(
     ai_database_url: str, attachment_store: S3AttachmentStore
 ) -> ChatAttachments:
     return ChatAttachments(
-        history=PostgresMemoryStore(ai_database_url),
-        store=attachment_store,
-        turns_limit=HISTORY_TURNS_LIMIT,
+        history=PostgresMemoryStore(ai_database_url), store=attachment_store
     )
 
 
