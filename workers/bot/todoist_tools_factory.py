@@ -1,7 +1,12 @@
 from ai_framework import BaseTool
 
-from src.ai_tools.create_task import CreateTaskTool
-from src.ai_tools.find_tasks import FindTasksTool
+from src.ai_tools import (
+    AddTaskLinkTool,
+    CreateTaskTool,
+    FindTasksTool,
+    ReadTaskTool,
+    UpdateTaskTool,
+)
 from src.todoist.repos import TodoistHttpClient
 from src.todoist.services.todoist_task_service import TodoistTaskService
 
@@ -11,4 +16,7 @@ def build_todoist_tools(token: str) -> list[BaseTool]:
     return [
         FindTasksTool(finder=tasks),
         CreateTaskTool(creator=tasks),
+        ReadTaskTool(reader=tasks),
+        AddTaskLinkTool(adder=tasks),
+        UpdateTaskTool(updater=tasks),
     ]
