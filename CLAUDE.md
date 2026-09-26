@@ -150,6 +150,10 @@ ATTACHMENTS_S3_SECRET_KEY=секрет Spaces
 - Байты вложений — в DO Spaces (`S3AttachmentStore`, бакет `sumarokov-pa-attachments`, fra1), в истории ai_framework
   (`ai_messages.attachments`) — только ключи. `AIApplication` сам оборачивает хранилище в `CachedAttachmentStore`.
   На диск бота ничего не пишется. Объекты бакета библиотека не удаляет — `/clear` чистит историю, не бакет
+- `dropbox_save` (`src/ai_tools/dropbox_save/`) берёт вложение из истории треда `str(user_id)`: `PostgresMemoryStore(AI_DB_URL)`
+  читает `ai_messages`, байты — тот же `S3AttachmentStore`, что у `AIApplication`. Окно — последние `HISTORY_TURNS_LIMIT`
+  ходов. Пишет `DropboxFileSaver` (граница `DropboxBoundary` + журнал `dropbox_journal`, action `added`); перезаписи нет —
+  « (2)». Регистрируется при `DROPBOX_ROOT`. Текстовые `.txt/.md/.csv` в S3 не попадают — их `dropbox_save` не сохранит
 
 ## Технологический стек
 
