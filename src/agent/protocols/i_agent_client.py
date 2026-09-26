@@ -1,9 +1,0 @@
-from typing import Protocol
-
-
-class IAgentClient(Protocol):
-    def send_message(self, user_id: int, chat_id: int, text: str) -> str: ...
-
-    def get_context(self, user_id: int) -> str: ...
-
-    def reset_client(self, user_id: int) -> None: ...
