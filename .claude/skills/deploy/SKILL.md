@@ -12,11 +12,14 @@ deploy/up.sh
 ```
 
 Скрипт:
-1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,db,claude-oauth-token,voice-recognition-key}`,
+1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key}`,
    `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента, без пароля), экспортирует
-   их только в своё окружение, никуда не пишет и не печатает;
+   их только в своё окружение и не печатает;
 2. собирает `AI_DB_URL` из `db` (та же БД `personal_assistant`, `options=-csearch_path%3Dai`);
-3. выполняет `docker compose -f deploy/compose.yaml up -d --build`.
+3. кладёт deploy-ключ вики файлом 0600 в `~/docker/personal_assistant/secrets/wiki_deploy_key` (ssh берёт
+   ключ только из файла; в контейнер он монтируется read-only) и заводит том вики
+   `~/docker/personal_assistant/wiki` — первый clone `obsidian_wiki` на пустом томе делает сам бот;
+4. выполняет `docker compose -f deploy/compose.yaml up -d --build`.
 
 Если `pass` просит GPG-пин — это ожидаемо, дождись пользователя.
 

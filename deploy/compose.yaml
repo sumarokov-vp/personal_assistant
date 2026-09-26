@@ -5,8 +5,12 @@
 #    postgres и redis достижимы по именам в общей внешней сети infra.
 #  * Движок — ClaudeSdkProvider ai_framework (Provider.CLAUDE_SDK) по подписке:
 #    CLAUDE_CODE_OAUTH_TOKEN, ключа Claude API нет. Встроенные инструменты CLI выключены
-#    managed settings в образе, у модели только инструменты бота. Монтирований нет:
-#    сессии CLI живут в $HOME контейнера и пропадают с ним.
+#    managed settings в образе, у модели только инструменты бота. Сессии CLI живут в $HOME
+#    контейнера и пропадают с ним.
+#  * Вики: копия obsidian_wiki — том ~/docker/personal_assistant/wiki (первый clone на пустом
+#    томе делает сам бот). Deploy-ключ вики up.sh кладёт файлом 0600 в
+#    ~/docker/personal_assistant/secrets/ (вне тома вики и вне репо), сюда он монтируется
+#    только на чтение.
 name: personal_assistant
 
 services:
@@ -28,6 +32,12 @@ services:
       VOICE_RECOGNITION_URL: http://10.72.0.199:8000
       OWNER_TIMEZONE: ${OWNER_TIMEZONE:-Asia/Almaty}
       LOG_LEVEL: INFO
+      WIKI_DIR: /wiki/obsidian_wiki
+      WIKI_REMOTE_URL: ${WIKI_REMOTE_URL:-git@github.com:sumarokov-vp/obsidian_wiki.git}
+      WIKI_SSH_KEY_PATH: /run/secrets/wiki_deploy_key
+    volumes:
+      - ${PA_DATA_DIR:?}/wiki:/wiki
+      - ${WIKI_DEPLOY_KEY_FILE:?}:/run/secrets/wiki_deploy_key:ro
 
 networks:
   default:

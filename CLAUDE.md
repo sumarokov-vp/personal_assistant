@@ -110,7 +110,14 @@ VOICE_RECOGNITION_API_KEY=ключ                  # заголовок X-API-K
 VOICE_RECOGNITION_MODE=http                     # необязательная (дефолт http); http | native
 WHISPER_MODEL=small                             # необязательная (дефолт small); модель для native-режима
 LOG_LEVEL=INFO                                  # необязательная (дефолт INFO); логгеры TeleBot/urllib3/requests/httpx/anthropic всегда не ниже WARNING; DEBUG у ai_framework пишет вызовы инструментов
+WIKI_DIR=/path/to/obsidian_wiki                 # локальная копия вики; пустой каталог — бот сам сделает clone
+WIKI_REMOTE_URL=git@github.com:sumarokov-vp/obsidian_wiki.git
+WIKI_SSH_KEY_PATH=/path/to/deploy_key           # необязательная; без неё git берёт ssh-ключи/агент пользователя
+DROPBOX_ROOT=/path/to/Dropbox                   # необязательная; без неё инструменты Dropbox не регистрируются
 ```
+
+Обязательны на старте бота: `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`, `WIKI_DIR`,
+`WIKI_REMOTE_URL`. Gmail бот не использует: `GMAIL_*` читает только `workers.memory_fill`, и там они необязательны
 
 ## Распознавание речи
 
@@ -141,18 +148,24 @@ LOG_LEVEL=INFO                                  # необязательная (
 ## Deploy
 
 - Бот работает контейнером в colima на Mac mini (linux/arm64). В образе CLI Claude Code из колеса
-  `claude-agent-sdk` со встроенными инструментами, выключенными managed settings (см. выше); typst, git, jq нет.
+  `claude-agent-sdk` со встроенными инструментами, выключенными managed settings (см. выше); git и openssh-client —
+  для вики, ключи хоста github.com — из `deploy/ssh/known_hosts` (системный known_hosts); typst и jq нет.
   Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
-- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,db,claude-oauth-token,voice-recognition-key}`,
+- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key}`,
   `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента), собирает из `db` переменную
   `AI_DB_URL` (`options=-csearch_path%3Dai`) и запускает `docker compose -f deploy/compose.yaml up -d --build`.
-  В файлы секреты не пишутся
+  Секреты идут переменными окружения, в файлы не пишутся — кроме deploy-ключа вики: ssh читает ключ только из
+  файла, `up.sh` кладёт его в `~/docker/personal_assistant/secrets/wiki_deploy_key` (0600, каталог 0700), в
+  контейнер он монтируется read-only как `/run/secrets/wiki_deploy_key` (`WIKI_SSH_KEY_PATH`)
+- Вики: том `~/docker/personal_assistant/wiki` → `/wiki`, `WIKI_DIR=/wiki/obsidian_wiki`; первый clone на пустом
+  томе делает сам бот. `WIKI_REMOTE_URL` — `git@github.com:sumarokov-vp/obsidian_wiki.git` (дефолт в compose/up.sh)
 - Схему `ai` в БД `personal_assistant` `up.sh` не создаёт — `CREATE SCHEMA IF NOT EXISTS ai` делается один раз
   руками (`docker exec -u postgres postgres psql -U sumarokov -d personal_assistant`), миграции ai_framework её не создают
 - Сеть — внешняя `infra`: `postgres`, `redis` по именам. `network_mode: host` в colima указывал бы на Linux-VM, а не на mac
 - Распознавание речи — GPU-сервер по mesh `http://10.72.0.199:8000`, из контейнера достижим
-- В контейнере uid 1000, монтирований нет: сессии CLI живут в `$HOME/.claude` контейнера и пропадают с ним
+- В контейнере uid 1000; монтируются только том вики и ключ вики: сессии CLI живут в `$HOME/.claude` контейнера
+  и пропадают с ним
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x docker compose -f deploy/compose.yaml build`
+  `BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x docker compose -f deploy/compose.yaml build`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
