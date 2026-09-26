@@ -14,8 +14,9 @@ from bot_framework.core.entities.parse_mode import ParseMode
 from src.checkup.repos import CheckupJournalRepository
 from src.gmail.models.mail_message import MailMessage
 from src.gmail.models.mail_summary import MailSummary
-from src.todoist.models import TodoistDue, TodoistProject, TodoistTask
+from src.todoist.models import TodoistTask
 from src.todoist.services.todoist_task_service import TodoistTaskService
+from tests.checkup.fakes import FakeTodoistClient
 from tests.memory.in_memory_wiki_storage import InMemoryWikiStorage
 from workers.checkup.checkup_pass import CheckupPass
 from workers.checkup.composition import (
@@ -167,37 +168,16 @@ class FakeMailbox:
         )
 
 
-class FakeTodoist:
-    def __init__(self) -> None:
-        self.tasks: list[TodoistTask] = []
+class FakeTodoist(FakeTodoistClient):
+    @property
+    def tasks(self) -> list[TodoistTask]:
+        return self.added
 
     def filter_tasks(self, query: str, limit: int) -> list[TodoistTask]:
         if query == "@pa":
             return [task for task in self.tasks if "pa" in task.labels][:limit]
         text = query.removeprefix("search:").strip().casefold()
         return [task for task in self.tasks if text in task.content.casefold()][:limit]
-
-    def list_projects(self) -> list[TodoistProject]:
-        return [TodoistProject(id="inbox", name="Inbox")]
-
-    def add_task(
-        self,
-        content: str,
-        due_string: str,
-        due_lang: str,
-        labels: list[str],
-        description: str | None = None,
-    ) -> TodoistTask:
-        task = TodoistTask(
-            id=f"task-{len(self.tasks) + 1}",
-            content=content,
-            description=description or "",
-            project_id="inbox",
-            labels=labels,
-            due=TodoistDue(date=due_string, string=due_string),
-        )
-        self.tasks.append(task)
-        return task
 
 
 class FakeTelegram:
