@@ -131,6 +131,7 @@ from workers.bot.todoist_tools_factory import (
 from workers.bot.transcriber_factory import build_transcriber
 from workers.bot.whatsapp_tools_factory import (
     WHATSAPP_MACOS_SNAPSHOT_VARIABLE,
+    WHATSAPP_WEB_URL_VARIABLE,
     build_whatsapp_source,
     build_whatsapp_tools,
 )
@@ -357,6 +358,8 @@ def start_todoist_mirror(mirror_pass: TodoistMirrorPass | None) -> None:
         name="todoist-mirror",
         daemon=True,
     ).start()
+
+
 def read_colleague_mail_settings() -> ColleagueMailSettings | None:
     mail_url = getenv("ASSISTANT_MAIL_URL")
     key = getenv("ASSISTANT_KEY")
@@ -655,9 +658,15 @@ def main() -> None:
         macos_snapshot_dir=getenv(WHATSAPP_MACOS_SNAPSHOT_VARIABLE),
         timezone=owner_timezone,
         work_dir=work_dir,
+        web_url=getenv(WHATSAPP_WEB_URL_VARIABLE),
+        web_token=getenv("WHATSAPP_WEB_TOKEN"),
     )
     if whatsapp is not None:
         tools.extend(build_whatsapp_tools(whatsapp, owner_timezone))
+        logger.info(
+            "WhatsApp Web fallback: %s",
+            "on" if getenv(WHATSAPP_WEB_URL_VARIABLE) else "off",
+        )
 
     tools.extend(
         build_file_tools(

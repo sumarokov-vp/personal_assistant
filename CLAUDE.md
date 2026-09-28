@@ -22,7 +22,7 @@ workers/bot/
 ├── cases_tools_factory.py   # клиент сервиса кейсов по CASES_* + case_* и task_add, task_list, task_update, task_close
 ├── todoist_tools_factory.py # find_tasks, read_task, task_link_todoist; build_task_mirror — отражение задач в Todoist
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
-├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
+├── whatsapp_tools_factory.py # коннектор WhatsApp по env (+ клиент WhatsApp Web по WHATSAPP_WEB_*) + search_whatsapp, read_whatsapp, list_whatsapp_chats
 ├── colleague_mail_tool_gateway.py # ColleagueMailToolGateway: вызов colleague_send → OutgoingMail → ColleagueMailSender
 ├── protocols/               # IWhatsAppSource — что бот берёт от коннектора WhatsApp (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
@@ -53,7 +53,8 @@ src/
 ├── conversations/           # Контракт источника переписки: модели, ошибки, Protocol-ы (реализации — gmail, whatsapp)
 ├── gmail/                   # GmailClient (поиск, чтение, вложения, черновики — без отправки), UntrustedMailFrame
 ├── whatsapp/                # Источник переписки WhatsApp: платформенные реализации протокола src.conversations
-│   └── macos_desktop/       # WhatsApp Desktop на macOS: чтение снимка ChatStorage.sqlite и медиа (host/ — хост-процесс снимка)
+│   ├── macos_desktop/       # WhatsApp Desktop на macOS: чтение снимка ChatStorage.sqlite и медиа (host/ — хост-процесс снимка)
+│   └── web_media/           # Клиент сервиса WhatsApp Web на хосте: документ, удалённый с CDN (платформенно-нейтральный)
 ├── files/                   # Механика «файл»: WorkFolder, источники (IFileSource; mail/dropbox/chat), ридеры, растр, OverflowFolder, Sweeper
 └── voice_recognition/       # HttpTranscriber, NativeTranscriber
 scripts/
@@ -193,7 +194,8 @@ deploy/                      # Образ и выкат в colima
   указания из сообщений. Отправки в WhatsApp нет ни в протоколе, ни в инструментах
 - Файл — `file_take(source=whatsapp, message_id, attachment_id)` через `ConversationFileSource` (origin
   `whatsapp:<message>/<attachment>`); нескачанное Desktop бот качает с CDN WhatsApp по запросу (см. «WhatsApp (macOS
-  Desktop)»), истёкшая ссылка — ошибка с причиной и просьбой владельцу скачать файл в WhatsApp Desktop
+  Desktop)»), документ, удалённый с CDN, — через сервис WhatsApp Web (`WHATSAPP_WEB_URL`); не вышло — ошибка с
+  причиной и просьбой владельцу скачать файл в WhatsApp Desktop
 
 Refresh token Gmail: `uv run scripts/gmail_auth.py` (из корня репы, на машине с ключом pass ассистента) — берёт
 OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, открывает согласие (offline,
@@ -331,6 +333,8 @@ ASSISTANT_KEY=sumarokov                         # ключ этого ассис
 ASSISTANT_DIRECTORY_FILE=/path/to/directory.yaml  # необязательная; справочник коллег (ключ → имя, editor)
 COLLEAGUE_DIGEST_AT=09:00                       # необязательная (дефолт 09:00, пояс OWNER_TIMEZONE); время суточной сводки почты коллег
 WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необязательная; снимок WhatsApp Desktop (macOS); без неё инструментов WhatsApp нет
+WHATSAPP_WEB_URL=http://host.docker.internal:18790  # необязательная; сервис WhatsApp Web на Mac mini — запасной путь для документов, удалённых с CDN
+WHATSAPP_WEB_TOKEN=                                 # ключ сервиса WhatsApp Web (Authorization: Bearer)
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
@@ -466,10 +470,22 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
     `<PA_WORK_DIR>/whatsapp-media/<media_pk>-<хеш ключа>` (снимок только на чтение) и живёт, как рабочая папка,
     сутки (`Sweeper`)
   - Пометка вложения: файл в снимке или в кэше — `available`; ссылка живая — `on_request`; `oe` в прошлом —
-    `unavailable` «ссылка истекла», без ссылки/ключа/известного типа — «нет ссылки для скачивания».
+    `unavailable` «ссылка истекла» (с запасным путём WhatsApp Web у документа — `on_request`), без
+    ссылки/ключа/известного типа — «нет ссылки для скачивания».
     Неудача скачивания — `AttachmentNotDownloadedError` с причиной (ссылка истекла / CDN ответил кодом /
     MAC не сошёлся / размер не сошёлся) и просьбой скачать файл в WhatsApp Desktop; сетевой сбой (таймаут,
     DNS) — исключение httpx, `ai_framework` отдаёт его модели текстом, промпт велит повторить раз
+  - Запасной путь — WhatsApp Web (`src/whatsapp/web_media/`, клиент `WhatsAppWebClient`, httpx, таймаут 150 с;
+    решение владельца 28.09.2026 — только документы). Включается, если задан `WHATSAPP_WEB_URL` (ключ —
+    `WHATSAPP_WEB_TOKEN`, заголовок `Authorization: Bearer`); без URL поведение прежнее. У документа (тип 8, есть
+    `ZTITLE` и jid чата) ссылка истекла по `oe=` или CDN ответил 403/404/410 — `POST /v1/documents/fetch`
+    (`chat_title`, `chat_jid`, `file_name` = `ZTITLE`, `size` = `ZFILESIZE`, `sent_at` UTC); 200 — байты, размер
+    сверяется с `ZFILESIZE`, ложатся в тот же кэш, что у CDN. Отказ сервиса (409 не привязан — код придёт в
+    Telegram, 504 телефон не ответил, 404 не найден, 502 изменился интерфейс Web) — `AttachmentNotDownloadedError`:
+    причина CDN + причина Web словами + `detail` сервиса. Сервис не ответил (connect error, таймаут) — причина
+    CDN + «запасной путь WhatsApp Web не ответил». Фото, видео, голосовые с CDN 410 — прежнее поведение.
+    Протокол запасного источника — у потребителя (`remote_media/protocols/i_document_fallback.py`),
+    `web_media` о `macos_desktop` не знает
 - Свежесть — `max(ZMESSAGEDATE)` и `snapshot_at`: бот говорит «последнее сообщение от <дата>»
 - Поиск — подстрока без учёта регистра (Python `casefold` через `create_function`, SQLite LIKE
   кириллицу не складывает), полный проход ~0,2 с на 62 тыс. сообщений
