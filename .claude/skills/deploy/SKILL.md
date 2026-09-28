@@ -19,9 +19,9 @@ deploy/up.sh
    из `spaces-attachments` (хранилище фото и PDF в DO Spaces) — `ATTACHMENTS_S3_SECRET_KEY` из первой строки и
    `ATTACHMENTS_S3_{ACCESS_KEY,BUCKET,REGION,ENDPOINT}` из строк `access_key=`, `bucket=`, `region=`, `endpoint=`;
    нет какого-то поля — скрипт останавливается до сборки;
-   `CASES_API_KEY` — первая строка `cases-api-key`, ключ ассистента к сервису дел `assistant_cases` (контейнер
+   `CASES_API_KEY` — первая строка `cases-api-key`, ключ ассистента к сервису кейсов `assistant_cases` (контейнер
    в сети `infra`, `CASES_API_URL` по умолчанию `http://assistant_cases:8000`); тот же ключ должен быть строкой
-   `user:ключ` в `API_KEYS` сервиса дел, иначе инструменты дел получат 401;
+   `user:ключ` в `API_KEYS` сервиса кейсов, иначе инструменты кейсов получат 401;
 3. кладёт deploy-ключ вики файлом 0600 в `~/docker/personal_assistant/secrets/wiki_deploy_key` (ssh берёт
    ключ только из файла; в контейнер он монтируется read-only) и заводит том вики
    `~/docker/personal_assistant/wiki` — первый clone `obsidian_wiki` на пустом томе делает сам бот;
