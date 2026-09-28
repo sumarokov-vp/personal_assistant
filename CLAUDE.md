@@ -425,29 +425,38 @@ WhatsApp Desktop на Mac mini держит переписку в `~/Library/Gro
 (`ChatStorage.sqlite` в WAL). **VM colima к этой папке не обращается никогда** — ни `ls`, ни mount в compose:
 28.09.2026 одно обращение VM к ней повесило virtiofs целиком (postgres, redis, rabbitmq, `limactl shell`).
 Живую WAL-базу через virtiofs читать тоже нельзя: `-shm` и блокировки между macOS и Linux не согласованы.
-Бот читает только снимок, который делает хост:
+Бот читает только снимок, который делает хост. Это хостовая часть коннектора «WhatsApp (macOS Desktop)» —
+`src/whatsapp/macos_desktop/host/` (не Python-пакет, просто файлы); Linux-вариант для серверов будет отдельной
+реализацией того же протокола:
 
-- `deploy/whatsapp/whatsapp_snapshot.c` — исполняемый файл `~/docker/personal_assistant/bin/whatsapp_snapshot`,
+- `src/whatsapp/macos_desktop/host/whatsapp_snapshot.c` + `Info.plist` — бандл
+  `~/docker/personal_assistant/bin/WhatsAppSnapshot.app` (исполняемый файл `Contents/MacOS/whatsapp_snapshot`,
+  `CFBundleIdentifier` `com.sumarokov.personal-assistant.whatsapp-snapshot`, `LSBackgroundOnly`),
   launchd-агент `com.sumarokov.personal-assistant.whatsapp-snapshot` (`StartInterval` 120, `RunAtLoad`).
   Каждый запуск: открывает базу только на чтение (нет доступа — ошибка в лог, снимок не трогается, метка стареет);
   если mtime/размер `ChatStorage.sqlite` или `-wal` изменились — копия через SQLite backup API во временный файл,
   `journal_mode=delete`, `quick_check`, атомарный `rename`; затем `rsync` `Message/Media/` без `*.thumb`,
-  `*.mmsthumb` и `Profile/`; в конце метка `snapshot_at`
+  `*.mmsthumb` и `Profile/`; в конце метка `snapshot_at`. Бандл, а не голый бинарь: голому ad-hoc бинарю TCC не
+  запоминает решение «данные других приложений» (`auth_value` 5 — диалог на каждый процесс). Прежний голый бинарь
+  `~/docker/personal_assistant/bin/whatsapp_snapshot` больше не используется (install.sh его не удаляет)
 - Снимок — `~/docker/personal_assistant/whatsapp/`: `ChatStorage.sqlite` (журнал delete, читается `mode=ro` и
   `immutable=1` из каталога без записи), `Message/Media/...` (путь от `Message/` — как в `ZWAMEDIAITEM.ZMEDIALOCALPATH`),
   `snapshot_at` (ISO-8601 UTC — на это время снимок сверен с источником), служебный `.source_stamp`
 - Лог — `~/Library/Logs/personal_assistant/whatsapp_snapshot.log`: ошибки и строка на каждую копию базы. Сторож
   `alarm` 100 с: не уложившийся запуск пишет строку «сторож: запуск не завершился за 100 с — вероятно, ждёт
   разрешения macOS (TCC)…» и выходит с кодом 2 (раньше гиб от SIGALRM молча — так выглядит висящий диалог TCC)
-- Установка — `deploy/whatsapp/install.sh` (вызывает `up.sh`, идемпотентно): собирает файл системным `cc`,
-  подписывает ad-hoc со стабильным идентификатором `com.sumarokov.personal-assistant.whatsapp-snapshot`,
-  кладёт plist в `~/Library/LaunchAgents/`, `launchctl bootstrap gui/<uid>`. Нужна GUI-сессия владельца
-- **«Полный доступ к диску»** выдаётся вручную файлу `~/docker/personal_assistant/bin/whatsapp_snapshot` (не `/bin/sh`,
-  не терминалу): Системные настройки → Конфиденциальность и безопасность → Полный доступ к диску → «+» →
-  Cmd+Shift+G → путь. `rsync` запускается им дочерним процессом и доступ наследует. Разрешение привязано к подписи
-  файла: `install.sh` пересобирает его только при изменении исходника и тогда печатает, что доступ надо выдать заново
-  Правка `whatsapp_snapshot.c` = пересборка = владелец заново разрешает доступ (FDA и диалог TCC), поэтому такую
-  правку перед выкатом согласовывать с владельцем через главный диалог
+- Установка — `src/whatsapp/macos_desktop/host/install.sh` (вызывает `up.sh`, идемпотентно): собирает бандл
+  системным `cc` во временный каталог, подписывает ad-hoc весь бандл (`--identifier` = bundle id), подменяет
+  прежний; пересборка только при смене хеша исходника, `Info.plist` и флагов сборки/подписи. Кладёт plist в
+  `~/Library/LaunchAgents/`, `launchctl bootstrap gui/<uid>`. Нужна GUI-сессия владельца. `--no-load` — собрать и
+  положить plist, но launchctl не трогать (установка до выдачи доступа)
+- **«Полный доступ к диску»** выдаётся вручную бандлу `~/docker/personal_assistant/bin/WhatsAppSnapshot.app` (не
+  `/bin/sh`, не терминалу): Системные настройки → Конфиденциальность и безопасность → Полный доступ к диску → «+» →
+  Cmd+Shift+G → путь. `rsync` запускается им дочерним процессом и доступ наследует. Проверка выдачи — запись
+  `kTCCServiceSystemPolicyAllFiles` с `auth_value` 2 в `/Library/Application Support/com.apple.TCC/TCC.db`
+  (системная база, читается только процессом с FDA). Разрешение привязано к подписи: правка `whatsapp_snapshot.c`
+  или `Info.plist` = пересборка = владелец заново выдаёт доступ, поэтому такую правку перед выкатом согласовывать
+  с владельцем через главный диалог
 - Проверить: `tail ~/Library/Logs/personal_assistant/whatsapp_snapshot.log`, `cat ~/docker/personal_assistant/whatsapp/snapshot_at`,
   `sqlite3 'file:<снимок>?mode=ro' 'pragma integrity_check'`, `max(ZMESSAGEDATE)` (секунды от 01.01.2001).
   Ручной прогон в свой каталог: `~/docker/personal_assistant/bin/whatsapp_snapshot <каталог>`
