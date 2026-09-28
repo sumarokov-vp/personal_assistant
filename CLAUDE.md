@@ -478,8 +478,9 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   - Запасной путь — WhatsApp Web (`src/whatsapp/web_media/`, клиент `WhatsAppWebClient`, httpx, таймаут 150 с;
     решение владельца 28.09.2026 — только документы). Включается, если задан `WHATSAPP_WEB_URL` (ключ —
     `WHATSAPP_WEB_TOKEN`, заголовок `Authorization: Bearer`); без URL поведение прежнее. У документа (тип 8, есть
-    `ZTITLE` и jid чата) ссылка истекла по `oe=` или CDN ответил 403/404/410 — `POST /v1/documents/fetch`
-    (`chat_title`, `chat_jid`, `file_name` = `ZTITLE`, `size` = `ZFILESIZE`, `sent_at` UTC); 200 — байты, размер
+    имя и jid чата; имя — `ZTITLE`, иначе однострочный `ZWAMESSAGE.ZTEXT`: Desktop кладёт имя документа туда,
+    часто без расширения — сервис сопоставляет его с показанным «имя.расширение») ссылка истекла по `oe=` или
+    CDN ответил 403/404/410 — `POST /v1/documents/fetch` (`chat_title`, `chat_jid`, `file_name` = это имя, `size` = `ZFILESIZE`, `sent_at` UTC); 200 — байты, размер
     сверяется с `ZFILESIZE`, ложатся в тот же кэш, что у CDN. Отказ сервиса (409 не привязан — код придёт в
     Telegram, 504 телефон не ответил, 404 не найден, 502 изменился интерфейс Web) — `AttachmentNotDownloadedError`:
     причина CDN + причина Web словами + `detail` сервиса. Сервис не ответил (connect error, таймаут) — причина
