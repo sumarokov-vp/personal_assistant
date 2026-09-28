@@ -6,6 +6,7 @@ from src.files.sources.chat_source.protocols.i_chat_attachments import (
     IChatAttachments,
 )
 from src.files.sources.entities.fetched_file import FetchedFile
+from src.files.sources.entities.file_request import FileRequest
 from src.files.sources.entities.source_file_not_found_error import (
     SourceFileNotFoundError,
 )
@@ -14,6 +15,7 @@ from src.files.sources.entities.source_file_too_large_error import (
 )
 
 LISTED_NAMES_LIMIT = 30
+CHAT_ORIGIN = "chat"
 
 
 class ChatFileSource:
@@ -21,14 +23,19 @@ class ChatFileSource:
         self._attachments = attachments
         self._max_bytes = max_bytes
 
-    def fetch(self, thread_id: str, filename: str | None) -> FetchedFile:
-        newest_first = self._attachments.in_thread(thread_id)
-        attachment = _pick(newest_first, filename)
+    def fetch(self, request: FileRequest) -> FetchedFile:
+        newest_first = self._attachments.in_thread(request.thread_id)
+        attachment = _pick(newest_first, request.name)
         name = chat_file_name(attachment)
         content = self._attachments.content(attachment)
         if len(content) > self._max_bytes:
             raise SourceFileTooLargeError(name, self._max_bytes)
-        return FetchedFile(content=content, name=name, media_type=attachment.media_type)
+        return FetchedFile(
+            content=content,
+            name=name,
+            media_type=attachment.media_type,
+            origin=CHAT_ORIGIN,
+        )
 
 
 def _pick(newest_first: list[Attachment], filename: str | None) -> Attachment:

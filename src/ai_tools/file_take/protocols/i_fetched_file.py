@@ -10,3 +10,6 @@ class IFetchedFile(Protocol):
 
     @property
     def media_type(self) -> str: ...
+
+    @property
+    def origin(self) -> str: ...

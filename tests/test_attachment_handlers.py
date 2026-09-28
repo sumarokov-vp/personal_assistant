@@ -23,6 +23,7 @@ from src.chat.handlers.document_message_handler import (
 from src.chat.handlers.photo_message_handler import PhotoMessageHandler
 from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
 from src.files.sources.chat_source.chat_file_source import ChatFileSource
+from src.files.sources.entities.file_request import FileRequest
 from tests.test_send_to_agent_action import DatedPromptBuilder, ScriptedProvider
 
 CHAT_ID = 100
@@ -217,7 +218,7 @@ class TestPhotoAttachment:
         assert label is not None
         fetched = ChatFileSource(
             ChatAttachments(history=memory, store=store), max_bytes=MAX_FILE_BYTES
-        ).fetch(str(USER_ID), label.group(1))
+        ).fetch(FileRequest(thread_id=str(USER_ID), name=label.group(1)))
         assert (fetched.name, fetched.content) == (label.group(1), b"\xff\xd8 first")
 
     def test_photo_over_image_limit_refused_without_assistant(
