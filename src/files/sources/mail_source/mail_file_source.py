@@ -1,4 +1,8 @@
 from src.files.sources.entities.fetched_file import FetchedFile
+from src.files.sources.entities.file_request import FileRequest
+from src.files.sources.entities.file_request_incomplete_error import (
+    FileRequestIncompleteError,
+)
 from src.files.sources.entities.source_file_not_found_error import (
     SourceFileNotFoundError,
 )
@@ -16,7 +20,12 @@ class MailFileSource:
         self._mail = mail
         self._max_bytes = max_bytes
 
-    def fetch(self, message_id: str, attachment_id: str) -> FetchedFile:
+    def fetch(self, request: FileRequest) -> FetchedFile:
+        message_id, attachment_id = request.message_id, request.attachment_id
+        if not message_id or not attachment_id:
+            raise FileRequestIncompleteError(
+                "Для вложения письма нужны message_id и attachment_id из read_mail"
+            )
         attachment = self._find(message_id, attachment_id)
         if attachment.size > self._max_bytes:
             raise SourceFileTooLargeError(attachment.filename, self._max_bytes)
@@ -24,7 +33,10 @@ class MailFileSource:
         if len(content) > self._max_bytes:
             raise SourceFileTooLargeError(attachment.filename, self._max_bytes)
         return FetchedFile(
-            content=content, name=attachment.filename, media_type=attachment.media_type
+            content=content,
+            name=attachment.filename,
+            media_type=attachment.media_type,
+            origin=f"mail:{message_id}/{attachment_id}",
         )
 
     def _find(self, message_id: str, attachment_id: str) -> IMailAttachment:

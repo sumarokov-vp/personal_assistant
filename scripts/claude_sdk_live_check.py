@@ -41,7 +41,6 @@ from src.ai_tools import (
     DraftMailTool,
     FileReadTool,
     FileSendTool,
-    FileTakeTool,
     FileViewTool,
     FindTasksTool,
     ReadTaskTool,
@@ -63,9 +62,6 @@ from src.files.imaging import FileImageRenderer, ImageFitter, PdfRasterizer
 from src.files.overflow.overflow_folder import OverflowFolder
 from src.files.readers.file_text_reader import FileTextReader
 from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
-from src.files.sources.chat_source.chat_file_source import ChatFileSource
-from src.files.sources.dropbox_source.dropbox_file_source import DropboxFileSource
-from src.files.sources.mail_source.mail_file_source import MailFileSource
 from src.files.work_folder.work_folder import WorkFolder
 from src.gmail.models.mail_attachment import MailAttachment
 from src.gmail.models.mail_draft import MailDraft
@@ -83,9 +79,9 @@ from workers.bot.__main__ import (
     build_memory_tools,
 )
 from workers.bot.file_tools_factory import (
-    FILE_TAKE_LIMIT_BYTES,
     PDF_RENDER_DPI,
     TELEGRAM_BOT_UPLOAD_LIMIT_BYTES,
+    build_file_take_tool,
 )
 from workers.checkup.composition import (
     build_checkup_actions,
@@ -282,12 +278,7 @@ def file_tools(
     overflow = OverflowFolder(boundary, work_folder)
     return [
         ReadMailTool(reader=mail, frame=UntrustedMailFrame()),
-        FileTakeTool(
-            work_files=work_folder,
-            chat=ChatFileSource(chat_with_photo(scan), FILE_TAKE_LIMIT_BYTES),
-            dropbox=DropboxFileSource(boundary, FILE_TAKE_LIMIT_BYTES),
-            mail=MailFileSource(mail, FILE_TAKE_LIMIT_BYTES),
-        ),
+        build_file_take_tool(work_folder, chat_with_photo(scan), boundary, mail),
         FileReadTool(
             work_files=work_folder,
             text_reader=FileTextReader(),
