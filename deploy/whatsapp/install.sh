@@ -21,15 +21,20 @@ LOG_DIR="$HOME/Library/Logs/personal_assistant"
 LOG_FILE="$LOG_DIR/whatsapp_snapshot.log"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 BUILD_FLAGS="-O2 -Wall -Wextra -Wpedantic -Werror"
+# Ad-hoc подпись со стабильным идентификатором: без -i линкер ставит имя выходного файла
+# (whatsapp_snapshot.tmp), и в диалогах macOS и TCC агент выглядит временным файлом.
+SIGN_FLAGS="-s - -f -i $LABEL"
 DOMAIN="gui/$(id -u)"
 
 mkdir -p "$BIN_DIR" "$SNAPSHOT_DIR" "$LOG_DIR" "$(dirname "$PLIST")"
 
-source_hash="$( { cat "$SOURCE_FILE"; echo "$BUILD_FLAGS"; } | shasum -a 256 | awk '{print $1}')"
+source_hash="$( { cat "$SOURCE_FILE"; echo "$BUILD_FLAGS"; echo "$SIGN_FLAGS"; } | shasum -a 256 | awk '{print $1}')"
 binary_rebuilt=0
 if [ ! -x "$BINARY" ] || [ "$(cat "$BINARY_SOURCE_HASH" 2>/dev/null)" != "$source_hash" ]; then
     # shellcheck disable=SC2086  # флаги сборки — список слов
     cc $BUILD_FLAGS -o "$BINARY.tmp" "$SOURCE_FILE" -lsqlite3
+    # shellcheck disable=SC2086  # флаги подписи — список слов
+    codesign $SIGN_FLAGS "$BINARY.tmp"
     mv -f "$BINARY.tmp" "$BINARY"
     echo "$source_hash" > "$BINARY_SOURCE_HASH"
     binary_rebuilt=1

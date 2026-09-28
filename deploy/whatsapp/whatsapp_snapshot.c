@@ -17,6 +17,7 @@
  */
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <spawn.h>
 #include <sqlite3.h>
 #include <stdarg.h>
@@ -29,6 +30,8 @@
 #include <unistd.h>
 
 #define WATCHDOG_SECONDS 100
+#define STRINGIFY_VALUE(value) #value
+#define STRINGIFY(value) STRINGIFY_VALUE(value)
 #define SOURCE_RELATIVE "Library/Group Containers/group.net.whatsapp.WhatsApp.shared"
 #define DEFAULT_DEST_RELATIVE "docker/personal_assistant/whatsapp"
 #define DB_NAME "ChatStorage.sqlite"
@@ -48,6 +51,58 @@ static void log_line(const char *level, const char *format, ...) {
     vfprintf(stderr, format, args);
     va_end(args);
     fputc('\n', stderr);
+}
+
+/*
+ * Сторож: запуск, не уложившийся в WATCHDOG_SECONDS, завершается с кодом 2 и строкой в лог.
+ * Обработчик пишет только write(2) в stderr (launchd направляет его в лог агента) — без stdio и
+ * gmtime_r, которые в обработчике сигнала небезопасны; дата UTC считается целочисленно.
+ */
+static void put_digits(char *out, long long value, int width) {
+    for (int index = width - 1; index >= 0; index--) {
+        out[index] = (char)('0' + value % 10);
+        value /= 10;
+    }
+}
+
+static void on_watchdog(int signal_number) {
+    (void)signal_number;
+    static const char message[] =
+        " whatsapp_snapshot error: сторож: запуск не завершился за " STRINGIFY(WATCHDOG_SECONDS)
+        " с — вероятно, ждёт разрешения macOS (TCC) на данные WhatsApp\n";
+    char stamp[] = "0000-00-00T00:00:00Z";
+    long long now = (long long)time(NULL);
+    long long days = now / 86400;
+    long long seconds = now % 86400;
+    /* civil_from_days (H. Hinnant): дни от 1970-01-01 → год, месяц, день */
+    long long shifted = days + 719468;
+    long long era = shifted / 146097;
+    long long day_of_era = shifted - era * 146097;
+    long long year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+    long long day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    long long month_index = (5 * day_of_year + 2) / 153;
+    long long day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    long long month = month_index < 10 ? month_index + 3 : month_index - 9;
+    long long year = year_of_era + era * 400 + (month <= 2);
+    put_digits(stamp, year, 4);
+    put_digits(stamp + 5, month, 2);
+    put_digits(stamp + 8, day, 2);
+    put_digits(stamp + 11, seconds / 3600, 2);
+    put_digits(stamp + 14, seconds / 60 % 60, 2);
+    put_digits(stamp + 17, seconds % 60, 2);
+    ssize_t ignored = write(STDERR_FILENO, stamp, sizeof stamp - 1);
+    ignored = write(STDERR_FILENO, message, sizeof message - 1);
+    (void)ignored;
+    _exit(2);
+}
+
+static void arm_watchdog(void) {
+    struct sigaction action;
+    memset(&action, 0, sizeof action);
+    action.sa_handler = on_watchdog;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGALRM, &action, NULL);
+    alarm(WATCHDOG_SECONDS);
 }
 
 static void join(char *out, size_t size, const char *left, const char *right) {
@@ -256,7 +311,7 @@ static int sync_media(const char *source_root, const char *dest) {
 }
 
 int main(int argc, char **argv) {
-    alarm(WATCHDOG_SECONDS);
+    arm_watchdog();
     umask(022);
 
     const char *home = getenv("HOME");

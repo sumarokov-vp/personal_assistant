@@ -436,8 +436,11 @@ WhatsApp Desktop на Mac mini держит переписку в `~/Library/Gro
 - Снимок — `~/docker/personal_assistant/whatsapp/`: `ChatStorage.sqlite` (журнал delete, читается `mode=ro` и
   `immutable=1` из каталога без записи), `Message/Media/...` (путь от `Message/` — как в `ZWAMEDIAITEM.ZMEDIALOCALPATH`),
   `snapshot_at` (ISO-8601 UTC — на это время снимок сверен с источником), служебный `.source_stamp`
-- Лог — `~/Library/Logs/personal_assistant/whatsapp_snapshot.log`: ошибки и строка на каждую копию базы
+- Лог — `~/Library/Logs/personal_assistant/whatsapp_snapshot.log`: ошибки и строка на каждую копию базы. Сторож
+  `alarm` 100 с: не уложившийся запуск пишет строку «сторож: запуск не завершился за 100 с — вероятно, ждёт
+  разрешения macOS (TCC)…» и выходит с кодом 2 (раньше гиб от SIGALRM молча — так выглядит висящий диалог TCC)
 - Установка — `deploy/whatsapp/install.sh` (вызывает `up.sh`, идемпотентно): собирает файл системным `cc`,
+  подписывает ad-hoc со стабильным идентификатором `com.sumarokov.personal-assistant.whatsapp-snapshot`,
   кладёт plist в `~/Library/LaunchAgents/`, `launchctl bootstrap gui/<uid>`. Нужна GUI-сессия владельца
 - **«Полный доступ к диску»** выдаётся вручную файлу `~/docker/personal_assistant/bin/whatsapp_snapshot` (не `/bin/sh`,
   не терминалу): Системные настройки → Конфиденциальность и безопасность → Полный доступ к диску → «+» →
