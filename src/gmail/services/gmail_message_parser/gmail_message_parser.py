@@ -1,6 +1,7 @@
 import base64
 import encodings
 import html
+from datetime import UTC, datetime
 from email.message import Message
 from typing import Any
 
@@ -16,6 +17,9 @@ from src.gmail.services.gmail_message_parser.mail_attachment_source import (
 )
 
 ROOT_PART_ID = "0"
+SENT_LABEL = "SENT"
+ATTACHMENTS_MIME_TYPE = "multipart/mixed"
+MILLISECONDS_IN_SECOND = 1000
 
 
 class GmailMessageParser:
@@ -23,7 +27,8 @@ class GmailMessageParser:
         self._html_converter = html_converter
 
     def parse_summary(self, raw_message: dict[str, Any]) -> MailSummary:
-        headers = _headers(raw_message.get("payload", {}))
+        payload = raw_message.get("payload", {})
+        headers = _headers(payload)
         return MailSummary(
             id=raw_message["id"],
             thread_id=raw_message["threadId"],
@@ -31,6 +36,8 @@ class GmailMessageParser:
             subject=headers.get("subject", ""),
             date=headers.get("date", ""),
             snippet=html.unescape(raw_message.get("snippet", "")),
+            has_attachments=payload.get("mimeType", "").lower()
+            == ATTACHMENTS_MIME_TYPE,
         )
 
     def parse_message(self, raw_message: dict[str, Any]) -> MailMessage:
@@ -46,7 +53,13 @@ class GmailMessageParser:
             date=headers.get("date", ""),
             body=self._body_text(parts),
             attachments=[_attachment(part) for part in parts if part.get("filename")],
+            snippet=html.unescape(raw_message.get("snippet", "")),
+            received_at=_received_at(raw_message),
+            sent_by_owner=SENT_LABEL in raw_message.get("labelIds", []),
         )
+
+    def parse_thread(self, raw_thread: dict[str, Any]) -> list[MailMessage]:
+        return [self.parse_message(raw) for raw in raw_thread.get("messages", [])]
 
     def parse_attachment_source(
         self, raw_message: dict[str, Any], attachment_id: str
@@ -91,6 +104,13 @@ def _headers(part: dict[str, Any]) -> dict[str, str]:
     return {
         header["name"].lower(): header["value"] for header in part.get("headers", [])
     }
+
+
+def _received_at(raw_message: dict[str, Any]) -> datetime | None:
+    internal_date = raw_message.get("internalDate")
+    if not internal_date:
+        return None
+    return datetime.fromtimestamp(int(internal_date) / MILLISECONDS_IN_SECOND, UTC)
 
 
 def _walk_parts(part: dict[str, Any]) -> list[dict[str, Any]]:

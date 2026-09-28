@@ -7,6 +7,13 @@ from urllib.parse import quote
 
 import httpx
 
+from src.conversations.errors.conversation_not_found_error import (
+    ConversationNotFoundError,
+)
+from src.conversations.errors.conversation_source_error import (
+    ConversationSourceError,
+)
+from src.conversations.errors.message_not_found_error import MessageNotFoundError
 from src.gmail.errors.gmail_attachment_not_found_error import (
     GmailAttachmentNotFoundError,
 )
@@ -14,6 +21,7 @@ from src.gmail.errors.gmail_attachment_too_large_error import (
     GmailAttachmentTooLargeError,
 )
 from src.gmail.models.composed_mail import ComposedMail
+from src.gmail.models.mail_attachment_file import MailAttachmentFile
 from src.gmail.models.mail_draft import MailDraft
 from src.gmail.models.mail_message import MailMessage
 from src.gmail.models.mail_summary import MailSummary
@@ -28,6 +36,8 @@ SUMMARY_HEADERS = ("From", "Subject", "Date")
 REPLY_HEADERS = ("From", "Reply-To", "Subject", "Message-ID", "References")
 GMAIL_DRAFT_URL = "https://mail.google.com/mail/#drafts?compose={message_id}"
 ATTACHMENT_LIMIT_BYTES = 50 * 1024 * 1024
+THREAD_SEARCH_SCAN_LIMIT = 500
+NOT_FOUND_STATUS = 404
 
 
 class GmailClient:
@@ -68,16 +78,36 @@ class GmailClient:
         ]
 
     def get_message(self, message_id: str) -> MailMessage:
-        raw_message = self._request(
-            "GET", f"/messages/{quote(message_id, safe='')}", params={"format": "full"}
+        return self._parser.parse_message(self._full_message(message_id))
+
+    def get_thread(self, thread_id: str) -> list[MailMessage]:
+        raw_thread = self._request_existing(
+            f"/threads/{quote(thread_id, safe='')}",
+            {"format": "full"},
+            ConversationNotFoundError(thread_id),
         )
-        return self._parser.parse_message(raw_message)
+        return self._parser.parse_thread(raw_thread)
+
+    def search_thread_message_ids(self, thread_id: str, query: str) -> set[str]:
+        listing = self._request(
+            "GET",
+            "/messages",
+            params={"q": query, "maxResults": THREAD_SEARCH_SCAN_LIMIT},
+        )
+        return {
+            item["id"]
+            for item in listing.get("messages", [])
+            if item.get("threadId") == thread_id
+        }
 
     def get_attachment(self, message_id: str, attachment_id: str) -> bytes:
-        message_path = f"/messages/{quote(message_id, safe='')}"
+        return self.get_attachment_file(message_id, attachment_id).content
+
+    def get_attachment_file(
+        self, message_id: str, attachment_id: str
+    ) -> MailAttachmentFile:
         source = self._parser.parse_attachment_source(
-            self._request("GET", message_path, params={"format": "full"}),
-            attachment_id,
+            self._full_message(message_id), attachment_id
         )
         if source is None:
             raise GmailAttachmentNotFoundError(message_id, attachment_id)
@@ -87,16 +117,36 @@ class GmailClient:
                 source.attachment.size,
                 self._attachment_limit_bytes,
             )
-        if source.inline_bytes is not None:
-            return source.inline_bytes
-        if source.gmail_attachment_id is None:
+        return MailAttachmentFile(
+            attachment=source.attachment,
+            content=self._attachment_bytes(
+                message_id, source.gmail_attachment_id, source.inline_bytes
+            ),
+        )
+
+    def _attachment_bytes(
+        self,
+        message_id: str,
+        gmail_attachment_id: str | None,
+        inline_bytes: bytes | None,
+    ) -> bytes:
+        if inline_bytes is not None:
+            return inline_bytes
+        if gmail_attachment_id is None:
             return b""
         return self._parser.parse_attachment_bytes(
             self._request(
                 "GET",
-                f"{message_path}/attachments/"
-                f"{quote(source.gmail_attachment_id, safe='')}",
+                f"/messages/{quote(message_id, safe='')}/attachments/"
+                f"{quote(gmail_attachment_id, safe='')}",
             )
+        )
+
+    def _full_message(self, message_id: str) -> dict[str, Any]:
+        return self._request_existing(
+            f"/messages/{quote(message_id, safe='')}",
+            {"format": "full"},
+            MessageNotFoundError(message_id),
         )
 
     def create_reply_draft(
@@ -197,6 +247,23 @@ class GmailClient:
 
     def _authorization(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token_provider.access_token()}"}
+
+    def _request_existing(
+        self,
+        path: str,
+        params: dict[str, Any],
+        missing: ConversationSourceError,
+    ) -> dict[str, Any]:
+        response = self._http.request(
+            "GET",
+            f"{self._api_url}{path}",
+            params=params,
+            headers=self._authorization(),
+        )
+        if response.status_code == NOT_FOUND_STATUS:
+            raise missing
+        response.raise_for_status()
+        return response.json()
 
     def _request(
         self,

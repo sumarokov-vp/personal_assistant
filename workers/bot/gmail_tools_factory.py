@@ -10,6 +10,9 @@ from src.files.overflow.overflow_folder import OverflowFolder
 from src.files.work_folder.work_folder import WorkFolder
 from src.gmail.repos.gmail_client import GmailClient
 from src.gmail.repos.oauth_access_token_provider import OAuthAccessTokenProvider
+from src.gmail.services.conversation_source.gmail_conversation_source import (
+    GmailConversationSource,
+)
 from src.gmail.services.gmail_message_parser.gmail_message_parser import (
     GmailMessageParser,
 )
@@ -46,6 +49,7 @@ def build_gmail_tools(
     dropbox_boundary: DropboxBoundary | None,
 ) -> list[BaseTool]:
     frame = UntrustedMailFrame()
+    conversations = GmailConversationSource(mail)
     attachments = DraftAttachments(
         work_files=work_folder,
         overflow=(
@@ -55,8 +59,8 @@ def build_gmail_tools(
         ),
     )
     return [
-        SearchMailTool(searcher=mail, frame=frame),
-        ReadMailTool(reader=mail, frame=frame),
+        SearchMailTool(searcher=conversations, frame=frame),
+        ReadMailTool(reader=conversations, frame=frame),
         DraftReplyTool(drafter=mail, frame=frame, attachments=attachments),
         DraftMailTool(drafter=mail, attachments=attachments),
     ]
