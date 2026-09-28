@@ -21,7 +21,7 @@ def _prompt(connectors: tuple[str, ...]) -> str:
 def test_prompt_without_connectors_keeps_cases_and_drops_connector_sections() -> None:
     prompt = _prompt(())
 
-    assert "## Дела" in prompt
+    assert "## Кейсы" in prompt
     assert "task_add" in prompt
     for absent in (
         "Todoist",

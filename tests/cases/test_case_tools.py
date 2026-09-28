@@ -90,7 +90,7 @@ def test_case_read_of_missing_case_is_model_error(
         read_tool(client).execute(CaseReadInput(case_id=CASE_ID), CONTEXT)
     )
 
-    assert result["error"].startswith("Дело не найдено")
+    assert result["error"].startswith("Кейс не найден")
 
 
 def test_unreachable_service_is_model_error_not_exception(
