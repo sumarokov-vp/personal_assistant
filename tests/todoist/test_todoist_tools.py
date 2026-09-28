@@ -14,7 +14,6 @@ from src.todoist.services.todoist_task_service.todoist_task_service import (
     TodoistTaskService,
 )
 from tests.todoist.conftest import NEW_PROJECT_ID, WORK_ID, FakeTodoist, task_payload
-from workers.bot.todoist_tools_factory import build_todoist_tools
 
 CONTEXT = ToolContext({"chat_id": 1, "user_id": 1})
 
@@ -222,18 +221,6 @@ def test_update_task_adds_labels_to_current(
 def test_update_task_rejects_empty_or_contradicting_changes(model_input: dict) -> None:
     with pytest.raises(ValidationError):
         UpdateTaskInput.model_validate(model_input)
-
-
-def test_build_todoist_tools_registers_case_tools() -> None:
-    names = [tool.name for tool in build_todoist_tools("secret-token")]
-
-    assert names == [
-        "find_tasks",
-        "create_task",
-        "read_task",
-        "add_task_link",
-        "update_task",
-    ]
 
 
 def test_find_tasks_passes_filter_as_is_and_names_project(

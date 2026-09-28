@@ -23,6 +23,7 @@ from src.ai_tools.memory_upsert_trip import MemoryUpsertTripTool
 from src.ai_tools.read_task import ReadTaskTool
 from src.ai_tools.task_add import TaskAddTool
 from src.ai_tools.task_close import TaskCloseTool
+from src.ai_tools.task_link_todoist import TaskLinkTodoistTool
 from src.ai_tools.task_list import TaskListTool
 from src.ai_tools.task_update import TaskUpdateTool
 from src.ai_tools.update_task import UpdateTaskTool
@@ -55,6 +56,7 @@ __all__ = [
     "ReadTaskTool",
     "TaskAddTool",
     "TaskCloseTool",
+    "TaskLinkTodoistTool",
     "TaskListTool",
     "TaskUpdateTool",
     "UntrustedNotificationFrame",
