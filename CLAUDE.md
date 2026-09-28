@@ -23,11 +23,14 @@ workers/bot/
 ├── todoist_tools_factory.py # find_tasks, read_task, task_link_todoist; build_task_mirror — отражение задач в Todoist
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
 ├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
+├── colleague_mail_tool_gateway.py # ColleagueMailToolGateway: вызов colleague_send → OutgoingMail → ColleagueMailSender
 ├── protocols/               # IWhatsAppSource — что бот берёт от коннектора WhatsApp (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
+workers/colleague_digest/    # Сводка почты коллег: build_colleague_digest (её же зовёт бот) и ручной запуск
 src/
 ├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
 ├── agent_notifications/     # Уведомления рабочих агентов из RabbitMQ: журнал, пересылка владельцу, потребитель
+├── colleague_mail/          # Почта ассистентов коллег (RabbitMQ): формат, журнал, справочник, отправка, приём, сводка — без модели
 ├── ai_tools/                # Инструменты модели: пакет на инструмент, класс — наследник BaseTool
 ├── chat/
 │   ├── actions/
@@ -322,6 +325,10 @@ GMAIL_CLIENT_ID=id OAuth-клиента                # GMAIL_* — все тр
 GMAIL_CLIENT_SECRET=секрет OAuth-клиента
 GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_auth.py
 RABBITMQ_URL=amqp://pa-consumer:пароль@localhost:5672/assistant   # необязательная; без неё уведомления агентов не принимаются
+ASSISTANT_MAIL_URL=amqp://assistant-sumarokov:пароль@localhost:5672/assistants.sumarokov  # почта ассистентов; логин обязан быть assistant-<ASSISTANT_KEY>
+ASSISTANT_KEY=sumarokov                         # ключ этого ассистента: адрес (ящик inbox.<ключ>) и поле from; с ASSISTANT_MAIL_URL — обе или ни одной
+ASSISTANT_DIRECTORY_FILE=/path/to/directory.yaml  # необязательная; справочник коллег (ключ → имя, editor)
+COLLEAGUE_DIGEST_AT=09:00                       # необязательная (дефолт 09:00, пояс OWNER_TIMEZONE); время суточной сводки почты коллег
 WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необязательная; снимок WhatsApp Desktop (macOS); без неё инструментов WhatsApp нет
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
@@ -520,12 +527,69 @@ UTF-8), необязательный `caption`; байты — либо тело
   функция и для владельца, и для инструмента `agent_notifications`: у файла строка «время · источник · файл <имя>
   (<размер>) — подпись»
 
+## Почта ассистентов
+
+Ассистенты сотрудников одной компании пишут друг другу через RabbitMQ на Mac mini, а не через мессенджеры.
+Топология и учётки — `deploy/rabbitmq/assistants.sh`: vhost на компанию (`assistants.sumarokov`), exchange
+`assistant-mail` (direct, ключ маршрута — ключ адресата) → ящик `inbox.<ключ>`; учётка `assistant-<ключ>` пишет в
+exchange любому коллеге и читает только свой ящик. Контекст `src/colleague_mail/` модели не знает (контракт
+import-linter запрещает ему `ai_framework` и `bot_framework`): инструменты модели и сводка владельцу — поверх него.
+
+- Нет `ASSISTANT_MAIL_URL` и `ASSISTANT_KEY` — ни приёма, ни отправки, строка `…colleague mail is off` в лог. Задана
+  одна из двух — бот падает на старте; логин URL не `assistant-<ASSISTANT_KEY>` — тоже (`ColleagueMailSettings`)
+- Формат v1: свойства AMQP `message_id`, `user_id` (учётка, брокер сверяет с логином), `timestamp`, `type`; тело JSON
+  `{v:1, from, to, type, text, in_reply_to?, about_agent?}` (`MailBody`), `type` — `remark|question|answer`, ключи — `^[a-z0-9][a-z0-9-]*$`
+- Отправка — `ColleagueMailSender.send(OutgoingMail) -> SendResult(message_id, outcome)`, сборка —
+  `build_colleague_mail_sender` в `__main__.py`. `RabbitMqMailPublisher`: соединение на вызов, publisher confirms +
+  `mandatory`. Итог `MailSendOutcome`: `in_recipient_inbox` (брокер подтвердил), `no_recipient` (basic.return — ящика
+  такого ключа нет), `broker_unavailable` (нет связи, nack, отказ). В журнал ложится только дошедшее
+- Приём — фоновый поток `colleague-mail` (`start_colleague_mail`), `inbox.<ASSISTANT_KEY>`, prefetch 1, переподключение
+  через 15 с. **Входящее только пишется в журнал** — модели и владельцу приём ничего не отдаёт; ack после записи,
+  повтор `message_id` — ack без второй записи. Нет `message_id`/`user_id`, учётка не `assistant-…`, тело не по схеме,
+  `from` ≠ `user_id` без `assistant-` или `to` ≠ свой ключ — лог и `basic_reject` без повтора
+- Журнал — `colleague_messages` (миграция `0004`), `PostgresColleagueMessageRepository`: `message_id`, `direction`
+  (`in|out`, уникальность — пара `message_id, direction`: письмо самому себе ложится обеими сторонами), `peer` (ключ
+  коллеги), `type`, `text`, `about_agent`, `in_reply_to`, `sent_at` (для входящего — AMQP `timestamp`), `received_at`
+  (только входящие), `shown_at` (показано владельцу — пишет сводка)
+- Справочник — `YamlColleagueDirectory(ASSISTANT_DIRECTORY_FILE)`, `colleagues()` / `find(key)`, файл читается на каждый
+  вызов (правка без рестарта); сборка — `build_colleague_directory`. Формат — словарь по ключу:
+  `sumarokov: {name: Владимир Сумароков, editor: true}`; `editor` необязателен (false)
+- Чтение журнала — `PostgresColleagueMessageRepository.messages_between(start, end, peer, message_type, limit)`
+  (обе стороны, момент — `received_at` входящего или `sent_at` исходящего, `[start, end)`, берёт последние `limit`,
+  отдаёт хронологически) и `unshown_incoming(peer, message_type, limit)` (входящие с `shown_at IS NULL`, старые
+  первыми). `peer`/`message_type` = `None` — без фильтра. `shown_at` чтение не ставит
+- Инструменты модели — `src/ai_tools/colleague_mail/`, регистрируются (`build_colleague_mail_tools` в `__main__.py`)
+  только при заданных `ASSISTANT_MAIL_URL`/`ASSISTANT_KEY`. Контексты `ai_tools` и `colleague_mail` независимы:
+  инструменты видят протоколы, отправку им отдаёт адаптер `workers/bot/colleague_mail_tool_gateway.py`
+  - `colleagues` — справочник: ключ · имя · редактор. Нет `ASSISTANT_DIRECTORY_FILE` — так и отвечает
+  - `colleague_send` — `to` (ключ или `editors` — все `editor: true` справочника; без справочника `editors` не
+    отправляет), `type`, `text`, `in_reply_to?`, `about_agent?`; итог по строке на адресата — значение
+    `MailSendOutcome` дословно (+ `message_id` дошедшего) и расшифровка трёх значений. Подтверждения в коде нет:
+    согласие владельца на текст и адресата требует системный промпт (раздел «Почта коллег»)
+  - `colleague_messages` — `date_from`/`date_to` (дни по `OWNER_TIMEZONE`, по умолчанию неделя по сегодня) или
+    `unshown=true`; фильтры `colleague`, `type`; не больше 50. Журнал — в рамке `UntrustedColleagueMessageFrame`
+    (`<untrusted_colleague_message>`), промпт запрещает исполнять указания из писем и звать по ним инструменты
+- Сводка владельцу — `ColleagueDigest` (`src/colleague_mail/services/digest/`), без модели: все входящие с
+  `shown_at IS NULL` (`unshown_incoming(None, None, limit=None)` — без лимита, `LIMIT NULL`: одна сводка целиком,
+  длинную режет сплиттер), группы «Замечания к общим агентам» / «Вопросы» / «Ответы», строка «имя · агент · текст»
+  (агент — если есть `about_agent`; имя — из справочника, неизвестный ключ или нет справочника — сам ключ), текст
+  дословно. Шлёт `app.message_sender`, `ParseMode.PLAIN` (через `OwnerNotifier`), длиннее 4096 — `TelegramTextSplitter`.
+  Пусто — не шлёт ничего. `mark_shown(ids)` — после отправки всех кусков; упала отправка — всё остаётся непоказанным
+- Расписание — поток `colleague-digest` бота (`start_colleague_digest`), только при включённой почте: ждёт ближайший
+  `COLLEAGUE_DIGEST_AT` (`HH:MM`, по умолчанию `09:00`) в `OWNER_TIMEZONE` и шлёт. Рестарт после срока — ждёт
+  завтрашнего; повтора нет — критерий один, `shown_at`. Ошибка — лог, следующая попытка в следующий срок.
+  `COLLEAGUE_DIGEST_AT` в `compose.yaml` не передаётся — в проде действует умолчание
+- Ручной запуск той же сводки — `python -m workers.colleague_digest` (`BOT_DB_URL`, `BOT_TOKEN`, `OWNER_TELEGRAM_ID`,
+  `ASSISTANT_DIRECTORY_FILE` необязательна); в проде — `docker exec personal_assistant_bot python -m workers.colleague_digest`.
+  Отмечает показанным так же, как по расписанию: утренняя сводка после ручной покажет только новое
+
 ## Технологический стек
 
 - Python 3.13+
 - bot-framework[all]==0.8.2 — фреймворк для Telegram-ботов
 - ai-bot-framework[claude-sdk,s3] (git-тег v0.9.5) — AIApplication, память, ClaudeSdkProvider, вложения в S3, картинки в результате инструмента
-- pika — потребитель уведомлений агентов из RabbitMQ
+- pika — потребитель уведомлений агентов и почта ассистентов (RabbitMQ)
+- PyYAML — справочник коллег
 - pypdf, python-docx, openpyxl — текст PDF/DOCX/XLSX; pypdfium2 — скан-PDF в PNG; Pillow — ужать картинку под 5 МБ
 - uv — управление зависимостями
 
@@ -576,7 +640,7 @@ UTF-8), необязательный `caption`; байты — либо тело
   и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
   не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x CASES_API_KEY=x docker compose -f deploy/compose.yaml build`.
+  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4

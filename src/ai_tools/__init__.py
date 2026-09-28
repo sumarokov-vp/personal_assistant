@@ -7,6 +7,12 @@ from src.ai_tools.case_find import CaseFindTool
 from src.ai_tools.case_open import CaseOpenTool
 from src.ai_tools.case_read import CaseReadTool
 from src.ai_tools.case_update import CaseUpdateTool
+from src.ai_tools.colleague_mail import (
+    ColleagueMessagesTool,
+    ColleagueSendTool,
+    ColleaguesTool,
+    UntrustedColleagueMessageFrame,
+)
 from src.ai_tools.draft_mail import DraftAttachments, DraftMailTool
 from src.ai_tools.file_read import FileReadTool
 from src.ai_tools.file_send import FileSendTool
@@ -36,6 +42,9 @@ __all__ = [
     "CaseOpenTool",
     "CaseReadTool",
     "CaseUpdateTool",
+    "ColleagueMessagesTool",
+    "ColleagueSendTool",
+    "ColleaguesTool",
     "DraftAttachments",
     "DraftMailTool",
     "FileReadTool",
@@ -54,6 +63,7 @@ __all__ = [
     "TaskLinkTodoistTool",
     "TaskListTool",
     "TaskUpdateTool",
+    "UntrustedColleagueMessageFrame",
     "UntrustedNotificationFrame",
     "WikiAppendTool",
     "WikiCreatePageTool",

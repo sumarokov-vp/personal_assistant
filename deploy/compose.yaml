@@ -30,6 +30,10 @@
 #  * Уведомления рабочих агентов: RABBITMQ_URL из pass rabbitmq — учётка pa-consumer в общем
 #    брокере rabbitmq (~/docker/rabbitmq, сеть infra), vhost assistant, только чтение очереди
 #    pa.notifications. vhost, топологию и учётки заводит deploy/rabbitmq/setup.sh.
+#  * Почта ассистентов: ASSISTANT_MAIL_URL из pass assistant-mail — учётка assistant-sumarokov,
+#    vhost assistants.sumarokov (пишет в exchange assistant-mail, читает только inbox.sumarokov);
+#    заводит deploy/rabbitmq/assistants.sh. Справочник коллег ~/docker/personal_assistant/directory.yaml
+#    (создаёт up.sh) — файлом только на чтение, ASSISTANT_DIRECTORY_FILE.
 #  * WhatsApp: только снимок ~/docker/personal_assistant/whatsapp (его делает launchd-агент хоста,
 #    src/whatsapp/macos_desktop/host/install.sh из up.sh) — том /whatsapp только на чтение.
 #    Папку WhatsApp (~/Library/Group Containers/...) сюда не монтировать никогда: обращение VM
@@ -75,6 +79,9 @@ services:
       GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:?}
       GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN:?}
       RABBITMQ_URL: ${RABBITMQ_URL:?}
+      ASSISTANT_MAIL_URL: ${ASSISTANT_MAIL_URL:?}
+      ASSISTANT_KEY: ${ASSISTANT_KEY:-sumarokov}
+      ASSISTANT_DIRECTORY_FILE: /run/config/directory.yaml
       WHATSAPP_MACOS_SNAPSHOT_DIR: /whatsapp
       CASES_API_URL: ${CASES_API_URL:-http://assistant_cases:8000}
       CASES_API_KEY: ${CASES_API_KEY:?}
@@ -83,6 +90,7 @@ services:
       - ${WIKI_DEPLOY_KEY_FILE:?}:/run/secrets/wiki_deploy_key:ro
       - ${DROPBOX_DIR:?}:/dropbox
       - ${PA_DATA_DIR:?}/whatsapp:/whatsapp:ro
+      - ${ASSISTANT_DIRECTORY_FILE:?}:/run/config/directory.yaml:ro
       # Пустые заглушки поверх закрытых папок; docker монтирует родителя раньше вложенных
       - ${PA_DATA_DIR:?}/empty:/dropbox/Vault:ro
       - ${PA_DATA_DIR:?}/empty:/dropbox/03_home/07_ecp/egov.kz:ro
