@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Host service on Mac mini: WhatsApp Web under Playwright fetches a chat document removed from WhatsApp CDN (HTTP on 127.0.0.1)"
 requires-python = ">=3.13"
 dependencies = [
+    "aio-pika>=10.1.0",
     # Версия совпадает с пробным прогоном: сборка Chromium 1243 уже лежит в ~/Library/Caches/ms-playwright
     "playwright==1.63.0",
     "pydantic>=2.12.5",
