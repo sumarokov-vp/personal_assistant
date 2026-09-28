@@ -105,6 +105,10 @@ fi
 # $PA_DATA_DIR/whatsapp. VM colima к папке WhatsApp не обращается никогда — только к снимку
 src/whatsapp/macos_desktop/host/install.sh
 
+# Каталог агентов: корпоративный слой (git-клон репозитория компании, когда он появится) и
+# личный. Монтируются только на чтение; без каталогов docker создал бы их сам от root
+mkdir -p "$PA_DATA_DIR/corporate_agents" "$PA_DATA_DIR/personal_agents"
+
 export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
     CLAUDE_CODE_EFFORT_LEVEL \
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
