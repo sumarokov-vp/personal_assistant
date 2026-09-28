@@ -443,6 +443,8 @@ WhatsApp Desktop на Mac mini держит переписку в `~/Library/Gro
   не терминалу): Системные настройки → Конфиденциальность и безопасность → Полный доступ к диску → «+» →
   Cmd+Shift+G → путь. `rsync` запускается им дочерним процессом и доступ наследует. Разрешение привязано к подписи
   файла: `install.sh` пересобирает его только при изменении исходника и тогда печатает, что доступ надо выдать заново
+  Правка `whatsapp_snapshot.c` = пересборка = владелец заново разрешает доступ (FDA и диалог TCC), поэтому такую
+  правку перед выкатом согласовывать с владельцем через главный диалог
 - Проверить: `tail ~/Library/Logs/personal_assistant/whatsapp_snapshot.log`, `cat ~/docker/personal_assistant/whatsapp/snapshot_at`,
   `sqlite3 'file:<снимок>?mode=ro' 'pragma integrity_check'`, `max(ZMESSAGEDATE)` (секунды от 01.01.2001).
   Ручной прогон в свой каталог: `~/docker/personal_assistant/bin/whatsapp_snapshot <каталог>`
