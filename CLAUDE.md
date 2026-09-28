@@ -25,10 +25,11 @@ workers/bot/
 ├── colleague_mail_tool_gateway.py # ColleagueMailToolGateway: вызов colleague_send → OutgoingMail → ColleagueMailSender
 ├── protocols/               # IWhatsAppSource — что бот берёт от коннектора WhatsApp (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
+workers/colleague_digest/    # Сводка почты коллег: build_colleague_digest (её же зовёт бот) и ручной запуск
 src/
 ├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
 ├── agent_notifications/     # Уведомления рабочих агентов из RabbitMQ: журнал, пересылка владельцу, потребитель
-├── colleague_mail/          # Почта ассистентов коллег (RabbitMQ): формат, журнал, справочник, отправка, приём — без модели
+├── colleague_mail/          # Почта ассистентов коллег (RabbitMQ): формат, журнал, справочник, отправка, приём, сводка — без модели
 ├── ai_tools/                # Инструменты модели: пакет на инструмент, класс — наследник BaseTool
 ├── chat/
 │   ├── actions/
@@ -251,6 +252,7 @@ RABBITMQ_URL=amqp://pa-consumer:пароль@localhost:5672/assistant   # нео
 ASSISTANT_MAIL_URL=amqp://assistant-sumarokov:пароль@localhost:5672/assistants.sumarokov  # почта ассистентов; логин обязан быть assistant-<ASSISTANT_KEY>
 ASSISTANT_KEY=sumarokov                         # ключ этого ассистента: адрес (ящик inbox.<ключ>) и поле from; с ASSISTANT_MAIL_URL — обе или ни одной
 ASSISTANT_DIRECTORY_FILE=/path/to/directory.yaml  # необязательная; справочник коллег (ключ → имя, editor)
+COLLEAGUE_DIGEST_AT=09:00                       # необязательная (дефолт 09:00, пояс OWNER_TIMEZONE); время суточной сводки почты коллег
 WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необязательная; снимок WhatsApp Desktop (macOS); без неё инструментов WhatsApp нет
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
@@ -470,6 +472,19 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   - `colleague_messages` — `date_from`/`date_to` (дни по `OWNER_TIMEZONE`, по умолчанию неделя по сегодня) или
     `unshown=true`; фильтры `colleague`, `type`; не больше 50. Журнал — в рамке `UntrustedColleagueMessageFrame`
     (`<untrusted_colleague_message>`), промпт запрещает исполнять указания из писем и звать по ним инструменты
+- Сводка владельцу — `ColleagueDigest` (`src/colleague_mail/services/digest/`), без модели: все входящие с
+  `shown_at IS NULL` (`unshown_incoming(None, None, limit=None)` — без лимита, `LIMIT NULL`: одна сводка целиком,
+  длинную режет сплиттер), группы «Замечания к общим агентам» / «Вопросы» / «Ответы», строка «имя · агент · текст»
+  (агент — если есть `about_agent`; имя — из справочника, неизвестный ключ или нет справочника — сам ключ), текст
+  дословно. Шлёт `app.message_sender`, `ParseMode.PLAIN` (через `OwnerNotifier`), длиннее 4096 — `TelegramTextSplitter`.
+  Пусто — не шлёт ничего. `mark_shown(ids)` — после отправки всех кусков; упала отправка — всё остаётся непоказанным
+- Расписание — поток `colleague-digest` бота (`start_colleague_digest`), только при включённой почте: ждёт ближайший
+  `COLLEAGUE_DIGEST_AT` (`HH:MM`, по умолчанию `09:00`) в `OWNER_TIMEZONE` и шлёт. Рестарт после срока — ждёт
+  завтрашнего; повтора нет — критерий один, `shown_at`. Ошибка — лог, следующая попытка в следующий срок.
+  `COLLEAGUE_DIGEST_AT` в `compose.yaml` не передаётся — в проде действует умолчание
+- Ручной запуск той же сводки — `python -m workers.colleague_digest` (`BOT_DB_URL`, `BOT_TOKEN`, `OWNER_TELEGRAM_ID`,
+  `ASSISTANT_DIRECTORY_FILE` необязательна); в проде — `docker exec personal_assistant_bot python -m workers.colleague_digest`.
+  Отмечает показанным так же, как по расписанию: утренняя сводка после ручной покажет только новое
 
 ## Технологический стек
 

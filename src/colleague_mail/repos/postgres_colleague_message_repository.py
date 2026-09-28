@@ -101,7 +101,7 @@ class PostgresColleagueMessageRepository:
             ).fetchall()
 
     def unshown_incoming(
-        self, peer: str | None, message_type: str | None, limit: int
+        self, peer: str | None, message_type: str | None, limit: int | None
     ) -> list[ColleagueMessage]:
         with (
             psycopg.connect(self._database_url) as connection,
@@ -111,6 +111,16 @@ class PostgresColleagueMessageRepository:
                 UNSHOWN_INCOMING_QUERY,
                 {"peer": peer, "type": message_type, "limit": limit},
             ).fetchall()
+
+    def mark_shown(self, ids: list[int]) -> None:
+        with psycopg.connect(self._database_url) as connection:
+            connection.execute(
+                """
+                UPDATE colleague_messages SET shown_at = NOW()
+                WHERE id = ANY(%(ids)s) AND shown_at IS NULL
+                """,
+                {"ids": ids},
+            )
 
     def _insert(
         self,
