@@ -6,6 +6,11 @@ from zoneinfo import ZoneInfo
 
 from src.wiki import WikiSettings
 from workers.memory_fill.gmail_credentials import GmailCredentials
+from workers.memory_fill.memory_storage_kind import MemoryStorageKind
+from workers.memory_fill.memory_storage_settings import (
+    MemoryStorageSettings,
+    read_memory_storage_settings,
+)
 
 DEFAULT_MAX_TOOL_ROUNDS = 120
 DEFAULT_WIKI_DIR = Path(tempfile.gettempdir()) / "memory_fill_wiki"
@@ -17,7 +22,8 @@ class MemoryFillEnv:
     ai_model: str
     ai_db_url: str
     owner_timezone: ZoneInfo
-    wiki: WikiSettings
+    memory_storage: MemoryStorageSettings
+    wiki: WikiSettings | None
     dropbox_root: Path | None
     gmail: GmailCredentials | None
     max_tool_rounds: int
@@ -32,21 +38,31 @@ def require_env(name: str) -> str:
 
 def read_memory_fill_env() -> MemoryFillEnv:
     dropbox_root = getenv("DROPBOX_ROOT")
-    ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
+    memory_storage = read_memory_storage_settings()
     return MemoryFillEnv(
         ai_model=require_env("AI_MODEL"),
         ai_db_url=require_env("AI_DB_URL"),
         owner_timezone=ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty")),
-        wiki=WikiSettings(
-            wiki_dir=Path(getenv("MEMORY_FILL_WIKI_DIR", str(DEFAULT_WIKI_DIR))),
-            remote_url=require_env("WIKI_REMOTE_URL"),
-            ssh_key_path=Path(ssh_key_path) if ssh_key_path else None,
+        memory_storage=memory_storage,
+        wiki=(
+            _read_wiki_settings()
+            if memory_storage.kind is MemoryStorageKind.WIKI
+            else None
         ),
         dropbox_root=Path(dropbox_root) if dropbox_root else None,
         gmail=_read_gmail_credentials(),
         max_tool_rounds=int(
             getenv("MEMORY_FILL_MAX_TOOL_ROUNDS", str(DEFAULT_MAX_TOOL_ROUNDS))
         ),
+    )
+
+
+def _read_wiki_settings() -> WikiSettings:
+    ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
+    return WikiSettings(
+        wiki_dir=Path(getenv("MEMORY_FILL_WIKI_DIR", str(DEFAULT_WIKI_DIR))),
+        remote_url=require_env("WIKI_REMOTE_URL"),
+        ssh_key_path=Path(ssh_key_path) if ssh_key_path else None,
     )
 
 

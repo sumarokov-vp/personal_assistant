@@ -26,7 +26,7 @@ from workers.checkup.checkup_report import CheckupReport
 from workers.checkup.memory_fill_step import MemoryFillStep
 from workers.memory_fill.composition import (
     SUBSCRIPTION_HAS_NO_API_KEY,
-    build_wiki_storage,
+    build_memory_storage,
 )
 
 CHECKUP_PROMPT_PATH = (
@@ -73,7 +73,7 @@ def run_checkup(
     env: CheckupEnv, fill_prompt_template: str, checkup_prompt_template: str
 ) -> CheckupReport:
     fill_env = env.memory_fill
-    storage = build_wiki_storage(fill_env.wiki)
+    storage = build_memory_storage(fill_env)
     tasks = TodoistTaskService(TodoistHttpClient(env.todoist_token))
     actions = build_checkup_actions(
         storage, tasks, owner_today(fill_env.owner_timezone)

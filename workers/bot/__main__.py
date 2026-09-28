@@ -100,6 +100,8 @@ from src.flows.dropbox_moves import (
 from src.memory.repos import (
     CommitmentRepository,
     DeadlineRepository,
+    IWikiStorage,
+    LocalFolderStorage,
     WhereaboutsRepository,
     WikiPageStorage,
 )
@@ -116,6 +118,11 @@ from workers.bot.cases_tools_factory import (
 )
 from workers.bot.colleague_mail_tool_gateway import ColleagueMailToolGateway
 from workers.colleague_digest.composition import build_colleague_digest
+from workers.memory_fill.memory_storage_kind import MemoryStorageKind
+from workers.memory_fill.memory_storage_settings import (
+    MemoryStorageSettings,
+    read_memory_storage_settings,
+)
 from workers.memory_fill.owner_notifier import OwnerNotifier
 from workers.bot.file_tools_factory import build_file_tools
 from workers.bot.gmail_tools_factory import (
@@ -489,7 +496,9 @@ def build_colleague_mail_tools(
     ]
 
 
-def build_wiki_factory() -> WikiFactory:
+def build_configured_wiki_factory() -> WikiFactory | None:
+    if not getenv("WIKI_DIR"):
+        return None
     ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
     return WikiFactory(
         WikiSettings(
@@ -522,12 +531,22 @@ def build_wiki_tools(wiki_factory: WikiFactory) -> list[BaseTool]:
     ]
 
 
-def build_memory_tools(wiki_factory: WikiFactory, timezone: ZoneInfo) -> list[BaseTool]:
-    storage = WikiPageStorage(
+def build_memory_storage(
+    settings: MemoryStorageSettings, wiki_factory: WikiFactory | None
+) -> IWikiStorage:
+    if settings.kind is MemoryStorageKind.LOCAL:
+        return LocalFolderStorage(settings.local_dir)
+    if wiki_factory is None:
+        raise ValueError("MEMORY_STORAGE=wiki requires WIKI_DIR")
+    # тот же WikiFactory, что у wiki_*: общий замок на git-копию
+    return WikiPageStorage(
         reader=wiki_factory.create_reader(),
         writer=wiki_factory.create_writer(),
         page_not_found_error=WikiPageNotFoundError,
     )
+
+
+def build_memory_tools(storage: IWikiStorage, timezone: ZoneInfo) -> list[BaseTool]:
     deadlines = DeadlineRepository(storage)
     whereabouts = WhereaboutsRepository(storage)
     commitments = CommitmentRepository(storage)
@@ -618,9 +637,11 @@ def main() -> None:
             build_dropbox_save_tool(dropbox_boundary, db_url, WorkFolder(work_dir))
         )
 
-    wiki_factory = build_wiki_factory()
-    tools.extend(build_wiki_tools(wiki_factory))
-    tools.extend(build_memory_tools(wiki_factory, owner_timezone))
+    wiki_factory = build_configured_wiki_factory()
+    if wiki_factory is not None:
+        tools.extend(build_wiki_tools(wiki_factory))
+    memory_storage = build_memory_storage(read_memory_storage_settings(), wiki_factory)
+    tools.extend(build_memory_tools(memory_storage, owner_timezone))
     tools.append(
         AgentNotificationsTool(
             journal=PostgresAgentNotificationRepository(database_url=db_url),
