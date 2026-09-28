@@ -11,6 +11,7 @@ PA_DATA_DIR="$HOME/docker/personal_assistant"
 SECRETS_DIR="$PA_DATA_DIR/secrets"
 DROPBOX_DIR="$HOME/Dropbox"
 EMPTY_DIR="$PA_DATA_DIR/empty"
+ASSISTANT_DIRECTORY_FILE="$PA_DATA_DIR/directory.yaml"
 WIKI_DEPLOY_KEY_FILE="$SECRETS_DIR/wiki_deploy_key"
 
 cd "$(dirname "$0")/.."
@@ -80,6 +81,27 @@ require_value "$PASS_ROOT/gmail-refresh-token" "$GMAIL_REFRESH_TOKEN"
 RABBITMQ_URL="$(pass_first_line "$PASS_ROOT/rabbitmq")"
 require_value "$PASS_ROOT/rabbitmq" "$RABBITMQ_URL"
 
+# Почта ассистентов: URL учётки assistant-sumarokov в vhost assistants.sumarokov (пишет в
+# exchange assistant-mail, читает только inbox.sumarokov). Запись, ящик и учётку заводит
+# deploy/rabbitmq/assistants.sh add-assistant sumarokov
+ASSISTANT_MAIL_URL="$(pass_first_line "$PASS_ROOT/assistant-mail")"
+require_value "$PASS_ROOT/assistant-mail" "$ASSISTANT_MAIL_URL"
+ASSISTANT_KEY="${ASSISTANT_KEY:-sumarokov}"
+
+# Справочник коллег (ключ ассистента → имя, editor) — на хосте, в контейнер только на чтение.
+# Нет файла — заготовка с одной записью владельца; существующий не трогается
+if [ ! -f "$ASSISTANT_DIRECTORY_FILE" ]; then
+    mkdir -p "$PA_DATA_DIR"
+    cat > "$ASSISTANT_DIRECTORY_FILE" <<'YAML'
+# Справочник коллег для почты ассистентов: ключ ассистента → имя сотрудника и флаг editor
+# (редактор общего агента — получает замечания). Ключ — тот же, что в assistant-<ключ> брокера.
+sumarokov:
+  name: Сумароков Владимир
+  editor: true
+YAML
+    echo "up.sh: справочник коллег создан — $ASSISTANT_DIRECTORY_FILE"
+fi
+
 # Deploy-ключ вики: ssh читает ключ только из файла. Файл 0600 в каталоге 0700 вне репо и вне
 # тома вики, в контейнер монтируется только на чтение. Пишется целиком (ключ многострочный),
 # через umask — без окна, когда файл уже есть, а права ещё широкие.
@@ -111,6 +133,6 @@ export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN 
     ATTACHMENTS_S3_ENDPOINT ATTACHMENTS_S3_BUCKET ATTACHMENTS_S3_REGION \
     ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \
     TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN \
-    RABBITMQ_URL
+    RABBITMQ_URL ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE
 
 docker compose -f deploy/compose.yaml up -d --build
