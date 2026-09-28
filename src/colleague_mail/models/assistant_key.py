@@ -1,0 +1,2 @@
+ASSISTANT_KEY_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
+ASSISTANT_ACCOUNT_PREFIX = "assistant-"
