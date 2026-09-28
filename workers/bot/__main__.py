@@ -42,6 +42,18 @@ from src.ai_tools.dropbox_search import DropboxSearchTool
 from src.ai_tools.dropbox_tree import DropboxTreeTool
 from src.ai_tools.dropbox_undo_moves import DropboxUndoMovesTool
 from src.app_migrations import apply_migrations
+from src.colleague_mail.repos import (
+    PostgresColleagueMessageRepository,
+    YamlColleagueDirectory,
+)
+from src.colleague_mail.services.body_parser import MailBodyParser
+from src.colleague_mail.services.entities import ColleagueMailSettings
+from src.colleague_mail.services.publisher import RabbitMqMailPublisher
+from src.colleague_mail.services.rabbitmq_consumer import (
+    RabbitMqColleagueMailConsumer,
+)
+from src.colleague_mail.services.receiver import ColleagueMailReceiver
+from src.colleague_mail.services.sender import ColleagueMailSender
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
@@ -115,6 +127,7 @@ GMAIL_HTTP_TIMEOUT_SECONDS = 30.0
 DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
 SWEEP_INTERVAL_SECONDS = 60 * 60
 AGENT_NOTIFICATIONS_RECONNECT_SECONDS = 15
+COLLEAGUE_MAIL_RECONNECT_SECONDS = 15
 
 
 def configure_logging(level: str) -> None:
@@ -291,6 +304,78 @@ def start_agent_notifications(
     return thread
 
 
+def read_colleague_mail_settings() -> ColleagueMailSettings | None:
+    mail_url = getenv("ASSISTANT_MAIL_URL")
+    key = getenv("ASSISTANT_KEY")
+    if not mail_url and not key:
+        logger.info(
+            "ASSISTANT_MAIL_URL and ASSISTANT_KEY are not set, colleague mail is off"
+        )
+        return None
+    if not mail_url or not key:
+        raise ValueError("ASSISTANT_MAIL_URL and ASSISTANT_KEY are required together")
+    directory_file = getenv("ASSISTANT_DIRECTORY_FILE")
+    return ColleagueMailSettings(
+        mail_url=mail_url,
+        key=key,
+        directory_file=Path(directory_file) if directory_file else None,
+    )
+
+
+def consume_colleague_mail_forever(consumer: RabbitMqColleagueMailConsumer) -> None:
+    while True:
+        try:
+            consumer.consume()
+        except Exception:
+            logger.exception("Colleague mail consumer failed, reconnecting")
+        sleep(COLLEAGUE_MAIL_RECONNECT_SECONDS)
+
+
+def start_colleague_mail(
+    settings: ColleagueMailSettings | None, database_url: str
+) -> Thread | None:
+    if settings is None:
+        return None
+    consumer = RabbitMqColleagueMailConsumer(
+        mail_url=settings.mail_url,
+        inbox=settings.inbox,
+        receiver=ColleagueMailReceiver(
+            journal=PostgresColleagueMessageRepository(database_url=database_url),
+            parser=MailBodyParser(),
+            own_key=settings.key,
+        ),
+    )
+    thread = Thread(
+        target=consume_colleague_mail_forever,
+        args=(consumer,),
+        name="colleague-mail",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def build_colleague_mail_sender(
+    settings: ColleagueMailSettings, database_url: str
+) -> ColleagueMailSender:
+    return ColleagueMailSender(
+        publisher=RabbitMqMailPublisher(
+            mail_url=settings.mail_url, account=settings.account
+        ),
+        journal=PostgresColleagueMessageRepository(database_url=database_url),
+        own_key=settings.key,
+    )
+
+
+def build_colleague_directory(
+    settings: ColleagueMailSettings,
+) -> YamlColleagueDirectory | None:
+    if settings.directory_file is None:
+        logger.info("ASSISTANT_DIRECTORY_FILE is not set, colleague directory is empty")
+        return None
+    return YamlColleagueDirectory(settings.directory_file)
+
+
 def build_wiki_factory() -> WikiFactory:
     ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
     return WikiFactory(
@@ -371,6 +456,7 @@ def main() -> None:
     ai_db_url = require_env("AI_DB_URL")
     ai_model = require_env("AI_MODEL")
     owner_timezone = ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty"))
+    colleague_mail = read_colleague_mail_settings()
 
     voice_recognition_url = getenv("VOICE_RECOGNITION_URL", "http://localhost:8000")
     voice_recognition_api_key = getenv("VOICE_RECOGNITION_API_KEY")
@@ -563,6 +649,7 @@ def main() -> None:
         app=app,
         owner_telegram_id=owner_telegram_id,
     )
+    start_colleague_mail(colleague_mail, db_url)
 
     with ai:
         logger.info("Starting polling...")
