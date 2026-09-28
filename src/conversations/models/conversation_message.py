@@ -15,3 +15,4 @@ class ConversationMessage(BaseModel):
     date: str
     text: str
     attachments: list[ConversationAttachment]
+    link: str | None = None
