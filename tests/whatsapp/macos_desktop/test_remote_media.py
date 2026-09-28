@@ -214,6 +214,16 @@ class DocumentFixture:
             message_type=DOCUMENT_MESSAGE_TYPE,
             media_pk=self.expired_media,
         )
+        self.untitled_media = s.media(
+            len(WEB_DOCUMENT), url=cdn_url(LIVE_EXPIRY), media_key=VECTOR_KEY_BLOB
+        )
+        self.untitled = s.message(
+            chat,
+            at,
+            "Договор 0003",
+            message_type=DOCUMENT_MESSAGE_TYPE,
+            media_pk=self.untitled_media,
+        )
         s.mark_captured("2026-09-20T09:10:00Z")
         self.cdn = cdn
         self.web = web
@@ -259,6 +269,16 @@ def test_cdn_gone_document_comes_from_web_into_the_cache(tmp_path: Path):
     assert '"file_name":"Счёт 0001.pdf"' in body
     assert '"chat_title":"Бухгалтерия Тест"' in body
     assert fx.availability(fx.live) == (AttachmentAvailability.AVAILABLE, None)
+
+
+def test_document_without_ztitle_asks_web_by_name_from_ztext(tmp_path: Path):
+    fx = DocumentFixture(tmp_path, served(b"", status=410), web_serving())
+
+    fetched = fx.source.fetch_attachment(str(fx.untitled), str(fx.untitled_media))
+
+    assert fetched.content == WEB_DOCUMENT
+    assert len(fx.web_requests()) == 1
+    assert '"file_name":"Договор 0003"' in fx.web_requests()[0].read().decode()
 
 
 def test_expired_link_goes_straight_to_web(tmp_path: Path):
