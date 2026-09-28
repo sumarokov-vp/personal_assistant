@@ -1,0 +1,2 @@
+class FileSourceUnavailableError(LookupError):
+    pass

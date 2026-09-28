@@ -3,9 +3,9 @@ from collections.abc import Sequence
 from ai_framework import BaseTool, ToolContext
 from pydantic import BaseModel, Field
 
-from src.ai_tools.read_mail.protocols.i_mail_attachment import IMailAttachment
-from src.ai_tools.read_mail.protocols.i_mail_reader import IMailReader
+from src.ai_tools.read_mail.protocols.i_message_reader import IMessageReader
 from src.ai_tools.read_mail.protocols.i_untrusted_frame import IUntrustedFrame
+from src.conversations.models.conversation_attachment import ConversationAttachment
 
 DEFAULT_BODY_LIMIT = 20_000
 DEFAULT_DOWNLOAD_LIMIT_BYTES = 50 * 1024 * 1024
@@ -32,7 +32,7 @@ class ReadMailTool(BaseTool):
 
     def __init__(
         self,
-        reader: IMailReader,
+        reader: IMessageReader,
         frame: IUntrustedFrame,
         body_limit: int = DEFAULT_BODY_LIMIT,
         download_limit_bytes: int = DEFAULT_DOWNLOAD_LIMIT_BYTES,
@@ -43,34 +43,40 @@ class ReadMailTool(BaseTool):
         self._download_limit_bytes = download_limit_bytes
 
     def execute(self, input: ReadMailInput, context: ToolContext) -> str:
-        mail = self._reader.get_message(input.message_id)
-        body = mail.body[: self._body_limit]
+        mail = self._reader.read_message(input.message_id)
+        body = mail.text[: self._body_limit]
         content = (
-            f"от: {mail.sender}\nкому: {mail.recipients}\nтема: {mail.subject}\n"
+            f"от: {mail.sender}\nкому: {mail.recipients}\nтема: {mail.title}\n"
             f"дата: {mail.date}\n{self._attachments_block(mail.attachments)}\n\n"
             f"{body or '(текста нет)'}"
         )
-        header = f"Письмо {mail.id}, тред {mail.thread_id}."
+        header = f"Письмо {mail.message_id}, тред {mail.conversation_id}."
         framed = f"{header}\n{self._frame.wrap(content)}"
-        if len(mail.body) > self._body_limit:
-            framed += f"\nТекст обрезан: показано {self._body_limit} из {len(mail.body)} символов."
+        if len(mail.text) > self._body_limit:
+            framed += f"\nТекст обрезан: показано {self._body_limit} из {len(mail.text)} символов."
         return framed
 
-    def _attachments_block(self, attachments: Sequence[IMailAttachment]) -> str:
+    def _attachments_block(self, attachments: Sequence[ConversationAttachment]) -> str:
         if not attachments:
             return "вложения: нет"
         lines = [self._attachment_line(attachment) for attachment in attachments]
         return "вложения:\n" + "\n".join(lines)
 
-    def _attachment_line(self, attachment: IMailAttachment) -> str:
+    def _attachment_line(self, attachment: ConversationAttachment) -> str:
         line = (
-            f"- {attachment.filename} ({attachment.media_type}, "
-            f"{_human_size(attachment.size)}), attachment_id: {attachment.attachment_id}"
+            f"- {attachment.name} ({_kind(attachment)}), "
+            f"attachment_id: {attachment.attachment_id}"
         )
-        if attachment.size > self._download_limit_bytes:
+        if attachment.size is not None and attachment.size > self._download_limit_bytes:
             limit_mb = self._download_limit_bytes // BYTES_IN_MB
             line += f" — больше {limit_mb} МБ, не скачать: только открыть в Gmail"
         return line
+
+
+def _kind(attachment: ConversationAttachment) -> str:
+    if attachment.size is None:
+        return attachment.media_type
+    return f"{attachment.media_type}, {_human_size(attachment.size)}"
 
 
 def _human_size(size: int) -> str:

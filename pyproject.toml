@@ -119,5 +119,19 @@ type = "forbidden"
 source_modules = ["src.files.work_folder", "src.files.overflow", "src.files.sweeper"]
 forbidden_modules = ["src.dropbox", "src.gmail", "src.chat", "src.ai_tools"]
 
+# Контракт источника переписки не знает ни реализаций, ни потребителей
+[[tool.importlinter.contracts]]
+name = "conversations contract stands alone"
+type = "forbidden"
+source_modules = ["src.conversations"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+
+# Коннекторы WhatsApp из соседей знают только контракт src.conversations
+[[tool.importlinter.contracts]]
+name = "whatsapp depends only on conversations contract"
+type = "forbidden"
+source_modules = ["src.whatsapp"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.wiki"]
+
 [tool.uv.sources]
 ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.5" }

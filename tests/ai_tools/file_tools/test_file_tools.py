@@ -10,19 +10,19 @@ from ai_framework.entities.message import Message
 
 from src.ai_tools.file_read import FileReadTool, UntrustedFileFrame
 from src.ai_tools.file_read.tool import FileReadInput
-from src.ai_tools.file_take import FileTakeTool
+from src.ai_tools.file_take import FileTakeTool, RegisteredFileSource
 from src.ai_tools.file_take.tool import FileTakeInput
 from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
 from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
 from src.files.readers.file_text_reader import FileTextReader
 from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
-from src.files.sources.chat_source.chat_file_source import ChatFileSource
-from src.files.sources.dropbox_source.dropbox_file_source import DropboxFileSource
-from src.files.sources.mail_source.mail_file_source import MailFileSource
+from src.files.sources.entities.fetched_file import FetchedFile
+from src.files.sources.entities.file_request import FileRequest
 from src.files.work_folder.work_folder import WorkFolder
 from src.gmail.models.mail_attachment import MailAttachment
 from src.gmail.models.mail_message import MailMessage
 from workers.bot import __main__ as bot_main
+from workers.bot.file_tools_factory import build_file_take_tool
 
 OWNER_ID = 7
 CONTEXT = ToolContext({"chat_id": 1, "user_id": OWNER_ID})
@@ -107,11 +107,11 @@ def _chat(content: bytes) -> ChatAttachments:
 def _take_tool(
     work_folder: WorkFolder, tmp_path: Path, mail: FakeMail | None = None
 ) -> FileTakeTool:
-    return FileTakeTool(
-        work_files=work_folder,
-        chat=ChatFileSource(_chat(b"\xff\xd8photo"), LIMIT),
-        dropbox=DropboxFileSource(_dropbox(tmp_path), LIMIT),
-        mail=MailFileSource(mail or FakeMail(_ticket_attachment(), TICKET), LIMIT),
+    return build_file_take_tool(
+        work_folder,
+        _chat(b"\xff\xd8photo"),
+        _dropbox(tmp_path),
+        mail or FakeMail(_ticket_attachment(), TICKET),
     )
 
 
@@ -141,6 +141,7 @@ def test_take_mail_attachment_puts_same_bytes(
     assert taken["media_type"] == "application/pdf"
     assert taken["size"] == len(TICKET)
     assert work_folder.read(str(taken["file_id"])) == TICKET
+    assert work_folder.get(str(taken["file_id"])).source == "mail:18c1a/1"
 
 
 def test_take_dropbox_file_puts_same_bytes(
@@ -193,16 +194,52 @@ def test_take_mail_attachment_over_limit_is_refused_without_download(
 def test_take_from_unconnected_mail_is_refused(
     work_folder: WorkFolder, tmp_path: Path
 ) -> None:
-    tool = FileTakeTool(
-        work_files=work_folder,
-        chat=ChatFileSource(_chat(b"x"), LIMIT),
-        dropbox=None,
-        mail=None,
-    )
+    tool = build_file_take_tool(work_folder, _chat(b"x"), None, None)
 
     taken = _take(tool, source="mail", message_id="18c1a", attachment_id="1")
 
     assert "Почта не подключена" in str(taken["error"])
+
+
+def test_take_mail_without_attachment_id_names_missing_fields(
+    work_folder: WorkFolder, tmp_path: Path
+) -> None:
+    taken = _take(_take_tool(work_folder, tmp_path), source="mail", message_id="18c1a")
+
+    assert "message_id и attachment_id" in str(taken["error"])
+
+
+def test_take_from_unknown_source_lists_registered(
+    work_folder: WorkFolder, tmp_path: Path
+) -> None:
+    taken = _take(_take_tool(work_folder, tmp_path), source="fax")
+
+    assert taken["error"] == "Источника «fax» нет. Есть: mail, dropbox, chat"
+
+
+class MemoSource:
+    def fetch(self, request: FileRequest) -> FetchedFile:
+        return FetchedFile(
+            content=f"заметка {request.message_id}".encode(),
+            name="memo.txt",
+            media_type="text/plain",
+            origin=f"memo:{request.message_id}",
+        )
+
+
+def test_new_source_is_taken_by_registration(work_folder: WorkFolder) -> None:
+    tool = FileTakeTool(
+        work_files=work_folder,
+        sources=[RegisteredFileSource("memo", "заметка по message_id", MemoSource())],
+    )
+
+    taken = _take(tool, source="memo", message_id="m1")
+
+    assert work_folder.read(str(taken["file_id"])) == "заметка m1".encode()
+    assert work_folder.get(str(taken["file_id"])).source == "memo:m1"
+    source_schema = tool.input_schema["properties"]["source"]
+    assert source_schema["enum"] == ["memo"]
+    assert "memo — заметка по message_id" in source_schema["description"]
 
 
 def _read_tool(work_folder: WorkFolder) -> FileReadTool:

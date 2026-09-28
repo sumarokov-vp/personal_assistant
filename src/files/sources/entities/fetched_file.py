@@ -7,3 +7,4 @@ class FetchedFile(BaseModel):
     content: bytes
     name: str
     media_type: str
+    origin: str

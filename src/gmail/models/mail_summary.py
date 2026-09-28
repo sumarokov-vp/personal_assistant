@@ -8,3 +8,4 @@ class MailSummary(BaseModel):
     subject: str
     date: str
     snippet: str
+    has_attachments: bool = False

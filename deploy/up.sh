@@ -101,6 +101,10 @@ if [ -n "$(ls -A "$EMPTY_DIR")" ]; then
     exit 1
 fi
 
+# Снимок WhatsApp: launchd-агент хоста копирует базу и медиа WhatsApp Desktop в
+# $PA_DATA_DIR/whatsapp. VM colima к папке WhatsApp не обращается никогда — только к снимку
+src/whatsapp/macos_desktop/host/install.sh
+
 export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
     CLAUDE_CODE_EFFORT_LEVEL \
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \

@@ -1,19 +1,23 @@
 import json
-from typing import ClassVar, Literal
+from collections.abc import Sequence
+from typing import Any, ClassVar
 
 from ai_framework import BaseTool, ToolContext
 from pydantic import BaseModel, Field
 
 from src.ai_tools.file_take.file_take_refused_error import FileTakeRefusedError
-from src.ai_tools.file_take.protocols.i_chat_file_source import IChatFileSource
-from src.ai_tools.file_take.protocols.i_dropbox_file_source import (
-    IDropboxFileSource,
-)
 from src.ai_tools.file_take.protocols.i_fetched_file import IFetchedFile
-from src.ai_tools.file_take.protocols.i_mail_file_source import IMailFileSource
 from src.ai_tools.file_take.protocols.i_work_file_writer import IWorkFileWriter
-from src.dropbox.services.boundary.dropbox_access_denied_error import (
-    DropboxAccessDeniedError,
+from src.ai_tools.file_take.registered_file_source import RegisteredFileSource
+from src.conversations.errors.conversation_source_error import (
+    ConversationSourceError,
+)
+from src.files.sources.entities.file_request import FileRequest
+from src.files.sources.entities.file_request_incomplete_error import (
+    FileRequestIncompleteError,
+)
+from src.files.sources.entities.file_source_unavailable_error import (
+    FileSourceUnavailableError,
 )
 from src.files.sources.entities.source_file_not_found_error import (
     SourceFileNotFoundError,
@@ -22,31 +26,32 @@ from src.files.sources.entities.source_file_too_large_error import (
     SourceFileTooLargeError,
 )
 
-FileSource = Literal["mail", "dropbox", "chat"]
+SOURCE_KEY_PATTERN = r"^[a-z][a-z0-9_]*$"
+SOURCE_ITEM_ID_PATTERN = r"^[A-Za-z0-9._:@-]+$"
 
 
 class FileTakeInput(BaseModel):
-    source: FileSource = Field(description="откуда взять файл: mail, dropbox или chat")
+    source: str = Field(pattern=SOURCE_KEY_PATTERN, description="откуда взять файл")
     message_id: str | None = Field(
         default=None,
-        pattern=r"^[A-Za-z0-9]+$",
-        description="source=mail: id письма из search_mail или read_mail",
+        pattern=SOURCE_ITEM_ID_PATTERN,
+        description="id сообщения, к которому приложен файл (письмо, сообщение переписки)",
     )
     attachment_id: str | None = Field(
         default=None,
-        pattern=r"^[0-9.]+$",
-        description="source=mail: attachment_id вложения из read_mail",
+        pattern=SOURCE_ITEM_ID_PATTERN,
+        description="attachment_id вложения этого сообщения",
     )
     path: str | None = Field(
         default=None,
-        description="source=dropbox: путь к файлу относительно корня Dropbox",
+        description="путь к файлу в хранилище источника",
     )
     attachment_filename: str | None = Field(
         default=None,
         description=(
-            "source=chat: имя вложения из метки «[вложение: …]» в сообщении "
-            "владельца (photo_xxxxxxxx.jpg или исходное имя документа) или ключ "
-            "S3; не указано — последнее присланное"
+            "имя вложения из метки «[вложение: …]» в сообщении владельца "
+            "(photo_xxxxxxxx.jpg или исходное имя документа) или ключ S3; "
+            "не указано — последнее присланное"
         ),
     )
 
@@ -55,46 +60,52 @@ class FileTakeTool(BaseTool):
     name: ClassVar[str] = "file_take"
     description: ClassVar[str] = (
         "Забирает файл в рабочую папку бота и возвращает file_id — с ним работают "
-        "остальные файловые инструменты (file_read — прочитать текст). Источники: "
-        "mail — вложение письма (message_id и attachment_id из read_mail); dropbox — "
-        "файл по path относительно корня Dropbox; chat — вложение, которое владелец "
-        "прислал в чат за всю историю треда: attachment_filename — имя из метки "
-        "«[вложение: …]» его сообщения или ключ S3, не указано — последнее. Отвечает {file_id, name, media_type, size}. Файл живёт в рабочей "
-        "папке сутки. Больше 50 МБ, ключевые файлы и закрытые части Dropbox — error."
+        "остальные файловые инструменты (file_read — прочитать текст). Источник — "
+        "source; какие поля нужны каждому источнику, сказано в описании source. "
+        "Отвечает {file_id, name, media_type, size}. Файл живёт в рабочей папке "
+        "сутки. Больше 50 МБ, ключевые файлы и закрытые части Dropbox — error."
     )
 
     Input: ClassVar[type[BaseModel]] = FileTakeInput
 
     def __init__(
-        self,
-        work_files: IWorkFileWriter,
-        chat: IChatFileSource,
-        dropbox: IDropboxFileSource | None,
-        mail: IMailFileSource | None,
+        self, work_files: IWorkFileWriter, sources: Sequence[RegisteredFileSource]
     ) -> None:
         self._work_files = work_files
-        self._chat = chat
-        self._dropbox = dropbox
-        self._mail = mail
+        self._sources = {registered.key: registered for registered in sources}
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        schema = super().input_schema
+        source = schema["properties"]["source"]
+        source["enum"] = list(self._sources)
+        source["description"] = "откуда взять файл: " + "; ".join(
+            f"{registered.key} — {registered.hint}"
+            for registered in self._sources.values()
+        )
+        return schema
 
     def execute(self, input: FileTakeInput, context: ToolContext) -> str:  # noqa: A002
         try:
-            fetched, source = self._fetch(input, str(context.user_id))
+            fetched = self._fetch(input, str(context.user_id))
         except KeyError:
             return _error(
                 "Вложения больше нет в хранилище — попроси прислать файл заново"
             )
         except (
             FileTakeRefusedError,
+            FileSourceUnavailableError,
+            FileRequestIncompleteError,
             SourceFileNotFoundError,
             SourceFileTooLargeError,
-            DropboxAccessDeniedError,
+            ConversationSourceError,
+            PermissionError,
             FileNotFoundError,
             IsADirectoryError,
         ) as error:
             return _error(str(error))
         work_file = self._work_files.put(
-            fetched.content, fetched.name, fetched.media_type, source
+            fetched.content, fetched.name, fetched.media_type, fetched.origin
         )
         return json.dumps(
             {
@@ -106,42 +117,21 @@ class FileTakeTool(BaseTool):
             ensure_ascii=False,
         )
 
-    def _fetch(
-        self,
-        input: FileTakeInput,
-        thread_id: str,  # noqa: A002
-    ) -> tuple[IFetchedFile, str]:
-        if input.source == "mail":
-            return self._fetch_mail(input)
-        if input.source == "dropbox":
-            return self._fetch_dropbox(input)
-        return (
-            self._chat.fetch(thread_id, input.attachment_filename),
-            "chat",
+    def _fetch(self, input: FileTakeInput, thread_id: str) -> IFetchedFile:  # noqa: A002
+        registered = self._sources.get(input.source)
+        if registered is None:
+            raise FileTakeRefusedError(
+                f"Источника «{input.source}» нет. Есть: {', '.join(self._sources)}"
+            )
+        return registered.source.fetch(
+            FileRequest(
+                thread_id=thread_id,
+                message_id=input.message_id,
+                attachment_id=input.attachment_id,
+                path=input.path,
+                name=input.attachment_filename,
+            )
         )
-
-    def _fetch_mail(self, input: FileTakeInput) -> tuple[IFetchedFile, str]:  # noqa: A002
-        if self._mail is None:
-            raise FileTakeRefusedError(
-                "Почта не подключена — вложения писем не достать"
-            )
-        if not input.message_id or not input.attachment_id:
-            raise FileTakeRefusedError(
-                "Для source=mail нужны message_id и attachment_id из read_mail"
-            )
-        return (
-            self._mail.fetch(input.message_id, input.attachment_id),
-            f"mail:{input.message_id}/{input.attachment_id}",
-        )
-
-    def _fetch_dropbox(self, input: FileTakeInput) -> tuple[IFetchedFile, str]:  # noqa: A002
-        if self._dropbox is None:
-            raise FileTakeRefusedError(
-                "Dropbox не подключён — файлы из него не достать"
-            )
-        if not input.path or not input.path.strip():
-            raise FileTakeRefusedError("Для source=dropbox нужен path")
-        return self._dropbox.fetch(input.path), f"dropbox:{input.path.strip()}"
 
 
 def _error(message: str) -> str:

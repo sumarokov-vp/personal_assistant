@@ -1,7 +1,11 @@
+from collections.abc import Sequence
 from typing import Protocol
 
-from src.ai_tools.read_mail.protocols.i_mail_reader import IMailReader
-from src.ai_tools.search_mail.protocols.i_mail_searcher import IMailSearcher
+from src.gmail.models.mail_message import MailMessage
+from src.gmail.models.mail_summary import MailSummary
 
 
-class IMailSource(IMailSearcher, IMailReader, Protocol): ...
+class IMailSource(Protocol):
+    def search_messages(self, query: str, limit: int) -> Sequence[MailSummary]: ...
+
+    def get_message(self, message_id: str) -> MailMessage: ...

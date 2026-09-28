@@ -5,6 +5,7 @@ from ai_framework.entities.message import Message
 
 from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
 from src.files.sources.chat_source.chat_file_source import ChatFileSource
+from src.files.sources.entities.file_request import FileRequest
 from src.files.sources.entities.source_file_not_found_error import (
     SourceFileNotFoundError,
 )
@@ -69,21 +70,21 @@ def _source() -> ChatFileSource:
 def test_unnamed_photo_older_than_ten_turns_is_found_by_name_or_key(
     address: str,
 ) -> None:
-    fetched = _source().fetch(THREAD, address)
+    fetched = _source().fetch(FileRequest(thread_id=THREAD, name=address))
 
     assert fetched.content == b"old"
     assert fetched.name == "photo_dc1f3dd8.jpg"
 
 
 def test_without_name_takes_newest() -> None:
-    assert _source().fetch(THREAD, None).content == b"new"
+    assert _source().fetch(FileRequest(thread_id=THREAD, name=None)).content == b"new"
 
 
 def test_miss_lists_addressable_names() -> None:
     with pytest.raises(
         SourceFileNotFoundError, match="photo_d69eed2c.jpg, photo_dc1f3dd8.jpg"
     ):
-        _source().fetch(THREAD, "1.jpg")
+        _source().fetch(FileRequest(thread_id=THREAD, name="1.jpg"))
 
 
 def test_named_document_found_by_original_name() -> None:
@@ -104,7 +105,7 @@ def test_named_document_found_by_original_name() -> None:
     )
 
     fetched = ChatFileSource(ChatAttachments(history, store), 1024).fetch(
-        THREAD, "акт.pdf"
+        FileRequest(thread_id=THREAD, name="акт.pdf")
     )
 
     assert fetched.content == b"pdf"

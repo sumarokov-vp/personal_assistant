@@ -1,0 +1,2 @@
+class FileRequestIncompleteError(ValueError):
+    pass

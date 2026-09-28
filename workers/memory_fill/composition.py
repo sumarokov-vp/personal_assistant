@@ -25,6 +25,12 @@ from src.dropbox.services.search.dropbox_search import DropboxSearch
 from src.dropbox.services.tree.dropbox_tree import DropboxTree
 from src.gmail.repos.gmail_client import GmailClient
 from src.gmail.repos.oauth_access_token_provider import OAuthAccessTokenProvider
+from src.gmail.services.conversation_source.gmail_message_reader import (
+    GmailMessageReader,
+)
+from src.gmail.services.conversation_source.gmail_message_search import (
+    GmailMessageSearch,
+)
 from src.gmail.services.gmail_message_parser.gmail_message_parser import (
     GmailMessageParser,
 )
@@ -113,8 +119,8 @@ def build_memory_fill_tools(
         frame = UntrustedMailFrame()
         tools.extend(
             [
-                SearchMailTool(searcher=mail, frame=frame),
-                ReadMailTool(reader=mail, frame=frame),
+                SearchMailTool(searcher=GmailMessageSearch(mail), frame=frame),
+                ReadMailTool(reader=GmailMessageReader(mail), frame=frame),
             ]
         )
     deadlines = DeadlineRepository(storage)
