@@ -8,6 +8,8 @@
 #    managed settings в образе, у модели только инструменты бота. Сессии CLI живут в $HOME
 #    контейнера и пропадают с ним. Effort CLI — CLAUDE_CODE_EFFORT_LEVEL (умолчание low):
 #    ai_framework его не передаёт, SDK отдаёт CLI окружение процесса целиком.
+#  * Память ассистента (memory_*) на проде владельца — вики: MEMORY_STORAGE=wiki задан явно
+#    (умолчание кода — локальная папка MEMORY_DIR, здесь она не используется и не монтируется).
 #  * Вики: копия obsidian_wiki — том ~/docker/personal_assistant/wiki (первый clone на пустом
 #    томе делает сам бот). Deploy-ключ вики up.sh кладёт файлом 0600 в
 #    ~/docker/personal_assistant/secrets/ (вне тома вики и вне репо), сюда он монтируется
@@ -69,6 +71,7 @@ services:
       VOICE_RECOGNITION_URL: http://10.72.0.199:8000
       OWNER_TIMEZONE: ${OWNER_TIMEZONE:-Asia/Almaty}
       LOG_LEVEL: INFO
+      MEMORY_STORAGE: wiki
       WIKI_DIR: /wiki/obsidian_wiki
       WIKI_REMOTE_URL: ${WIKI_REMOTE_URL:-git@github.com:sumarokov-vp/obsidian_wiki.git}
       WIKI_SSH_KEY_PATH: /run/secrets/wiki_deploy_key

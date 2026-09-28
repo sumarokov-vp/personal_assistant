@@ -282,7 +282,7 @@ def test_bot_start_registers_file_tools(
     for name in ("load_dotenv", "BotApplication", "admit_only_owner", "start_sweeper"):
         monkeypatch.setattr(bot_main, name, Mock())
     monkeypatch.setattr(bot_main, "build_attachment_store", Mock())
-    monkeypatch.setattr(bot_main, "build_wiki_factory", Mock())
+    monkeypatch.setattr(bot_main, "build_configured_wiki_factory", Mock())
     monkeypatch.setattr(bot_main, "build_wiki_tools", Mock(return_value=[]))
     monkeypatch.setattr(bot_main, "build_memory_tools", Mock(return_value=[]))
     monkeypatch.setattr(bot_main, "AIApplication", Mock(side_effect=RuntimeError))
