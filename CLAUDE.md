@@ -22,6 +22,7 @@ workers/bot/
 ├── todoist_tools_factory.py # find_tasks, create_task, read_task, add_task_link, update_task поверх TodoistTaskService
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
 ├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
+├── colleague_mail_tool_gateway.py # ColleagueMailToolGateway: вызов colleague_send → OutgoingMail → ColleagueMailSender
 ├── protocols/               # IWhatsAppSource — что бот берёт от коннектора WhatsApp (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
 src/
@@ -454,6 +455,21 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 - Справочник — `YamlColleagueDirectory(ASSISTANT_DIRECTORY_FILE)`, `colleagues()` / `find(key)`, файл читается на каждый
   вызов (правка без рестарта); сборка — `build_colleague_directory`. Формат — словарь по ключу:
   `sumarokov: {name: Владимир Сумароков, editor: true}`; `editor` необязателен (false)
+- Чтение журнала — `PostgresColleagueMessageRepository.messages_between(start, end, peer, message_type, limit)`
+  (обе стороны, момент — `received_at` входящего или `sent_at` исходящего, `[start, end)`, берёт последние `limit`,
+  отдаёт хронологически) и `unshown_incoming(peer, message_type, limit)` (входящие с `shown_at IS NULL`, старые
+  первыми). `peer`/`message_type` = `None` — без фильтра. `shown_at` чтение не ставит
+- Инструменты модели — `src/ai_tools/colleague_mail/`, регистрируются (`build_colleague_mail_tools` в `__main__.py`)
+  только при заданных `ASSISTANT_MAIL_URL`/`ASSISTANT_KEY`. Контексты `ai_tools` и `colleague_mail` независимы:
+  инструменты видят протоколы, отправку им отдаёт адаптер `workers/bot/colleague_mail_tool_gateway.py`
+  - `colleagues` — справочник: ключ · имя · редактор. Нет `ASSISTANT_DIRECTORY_FILE` — так и отвечает
+  - `colleague_send` — `to` (ключ или `editors` — все `editor: true` справочника; без справочника `editors` не
+    отправляет), `type`, `text`, `in_reply_to?`, `about_agent?`; итог по строке на адресата — значение
+    `MailSendOutcome` дословно (+ `message_id` дошедшего) и расшифровка трёх значений. Подтверждения в коде нет:
+    согласие владельца на текст и адресата требует системный промпт (раздел «Почта коллег»)
+  - `colleague_messages` — `date_from`/`date_to` (дни по `OWNER_TIMEZONE`, по умолчанию неделя по сегодня) или
+    `unshown=true`; фильтры `colleague`, `type`; не больше 50. Журнал — в рамке `UntrustedColleagueMessageFrame`
+    (`<untrusted_colleague_message>`), промпт запрещает исполнять указания из писем и звать по ним инструменты
 
 ## Технологический стек
 

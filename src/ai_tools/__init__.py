@@ -3,6 +3,12 @@ from src.ai_tools.agent_notifications import (
     AgentNotificationsTool,
     UntrustedNotificationFrame,
 )
+from src.ai_tools.colleague_mail import (
+    ColleagueMessagesTool,
+    ColleagueSendTool,
+    ColleaguesTool,
+    UntrustedColleagueMessageFrame,
+)
 from src.ai_tools.create_task import CreateTaskTool
 from src.ai_tools.draft_mail import DraftAttachments, DraftMailTool
 from src.ai_tools.file_read import FileReadTool
@@ -25,6 +31,9 @@ from src.ai_tools.wiki_search import WikiSearchTool
 __all__ = [
     "AddTaskLinkTool",
     "AgentNotificationsTool",
+    "ColleagueMessagesTool",
+    "ColleagueSendTool",
+    "ColleaguesTool",
     "CreateTaskTool",
     "DraftAttachments",
     "DraftMailTool",
@@ -39,6 +48,7 @@ __all__ = [
     "MemoryUpsertDeadlineTool",
     "MemoryUpsertTripTool",
     "ReadTaskTool",
+    "UntrustedColleagueMessageFrame",
     "UntrustedNotificationFrame",
     "UpdateTaskTool",
     "WikiAppendTool",

@@ -1,9 +1,34 @@
 from datetime import datetime
 
 import psycopg
+from psycopg.rows import class_row
 
+from src.colleague_mail.models.colleague_message import ColleagueMessage
 from src.colleague_mail.models.colleague_message_type import ColleagueMessageType
 from src.colleague_mail.models.message_direction import MessageDirection
+
+MESSAGES_BETWEEN_QUERY = """
+    SELECT * FROM (
+        SELECT * FROM colleague_messages
+        WHERE COALESCE(received_at, sent_at) >= %(start)s
+            AND COALESCE(received_at, sent_at) < %(end)s
+            AND (%(peer)s::text IS NULL OR peer = %(peer)s)
+            AND (%(type)s::text IS NULL OR type = %(type)s)
+        ORDER BY COALESCE(received_at, sent_at) DESC, id DESC
+        LIMIT %(limit)s
+    ) AS latest
+    ORDER BY COALESCE(received_at, sent_at), id
+"""
+
+UNSHOWN_INCOMING_QUERY = """
+    SELECT * FROM colleague_messages
+    WHERE direction = 'in'
+        AND shown_at IS NULL
+        AND (%(peer)s::text IS NULL OR peer = %(peer)s)
+        AND (%(type)s::text IS NULL OR type = %(type)s)
+    ORDER BY received_at, id
+    LIMIT %(limit)s
+"""
 
 
 class PostgresColleagueMessageRepository:
@@ -51,6 +76,41 @@ class PostgresColleagueMessageRepository:
             in_reply_to=in_reply_to,
             sent_at=sent_at,
         )
+
+    def messages_between(
+        self,
+        start: datetime,
+        end: datetime,
+        peer: str | None,
+        message_type: str | None,
+        limit: int,
+    ) -> list[ColleagueMessage]:
+        with (
+            psycopg.connect(self._database_url) as connection,
+            connection.cursor(row_factory=class_row(ColleagueMessage)) as cursor,
+        ):
+            return cursor.execute(
+                MESSAGES_BETWEEN_QUERY,
+                {
+                    "start": start,
+                    "end": end,
+                    "peer": peer,
+                    "type": message_type,
+                    "limit": limit,
+                },
+            ).fetchall()
+
+    def unshown_incoming(
+        self, peer: str | None, message_type: str | None, limit: int
+    ) -> list[ColleagueMessage]:
+        with (
+            psycopg.connect(self._database_url) as connection,
+            connection.cursor(row_factory=class_row(ColleagueMessage)) as cursor,
+        ):
+            return cursor.execute(
+                UNSHOWN_INCOMING_QUERY,
+                {"peer": peer, "type": message_type, "limit": limit},
+            ).fetchall()
 
     def _insert(
         self,
