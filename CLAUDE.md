@@ -20,7 +20,7 @@ workers/bot/
 ├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
 ├── cases_tools_factory.py   # клиент сервиса дел по CASES_* + case_* и task_add, task_list, task_update, task_close
-├── todoist_tools_factory.py # find_tasks, create_task, read_task, add_task_link, update_task поверх TodoistTaskService
+├── todoist_tools_factory.py # find_tasks, read_task, task_link_todoist; build_task_mirror — отражение задач в Todoist
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
 ├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
 ├── protocols/               # IWhatsAppSource — что бот берёт от коннектора WhatsApp (протоколы src.conversations)
@@ -45,7 +45,8 @@ src/
 │       ├── attachment_labels.py      # строки «[вложение: имя]» перед подписью владельца
 │       └── protocols/                # IConversationClearer
 ├── cases/                   # CasesHttpClient — клиент сервиса дел assistant_cases (модели, ошибки, UntrustedCaseFrame)
-├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete), TodoistTaskService: дела, подзадачи, ссылки-комментарии
+├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete; activities), TodoistTaskService
+├── task_mirror/             # Отражение задач self в Todoist: наружу — слушатель инструментов задач, внутрь — поток по activities
 ├── conversations/           # Контракт источника переписки: модели, ошибки, Protocol-ы (реализации — gmail, whatsapp)
 ├── gmail/                   # GmailClient (поиск, чтение, вложения, черновики — без отправки), UntrustedMailFrame
 ├── whatsapp/                # Источник переписки WhatsApp: платформенные реализации протокола src.conversations
@@ -134,8 +135,8 @@ deploy/                      # Образ и выкат в colima
 ### Todoist и Gmail
 
 Регистрируются в `__main__.py` через `workers/bot/todoist_tools_factory.py` и `workers/bot/gmail_tools_factory.py`,
-если заданы переменные: `TODOIST_TOKEN` — `find_tasks`, `create_task`, `read_task`, `add_task_link`,
-`update_task`; все три `GMAIL_*` — `search_mail`, `read_mail`,
+если заданы переменные: `TODOIST_TOKEN` — `find_tasks`, `read_task` (чтение задач владельца), с `CASES_*` ещё
+`task_link_todoist`; все три `GMAIL_*` — `search_mail`, `read_mail`,
 `draft_reply`, `draft_mail` (задана только часть `GMAIL_*` — бот падает на старте). В проде compose требует все четыре.
 Список зарегистрированных инструментов пишется в лог на старте строкой `AI tools: …`.
 
@@ -147,16 +148,12 @@ deploy/                      # Образ и выкат в colima
   Scope токена — `gmail.readonly` + `gmail.compose`
 - `read_mail` перечисляет вложения с `attachment_id` — это partId части письма (короткий и стабильный), а не
   attachmentId Gmail: `GmailClient.get_attachment` находит часть по partId и качает по свежему attachmentId
-- **Задачи не закрываются и не удаляются.** В `TodoistHttpClient` нет close/reopen/delete. `update_task` меняет
-  только срок (`clear_due` снимает его как due «no date» с `due_lang` ru — проверено на живом Todoist), дедлайн
-  (`clear_deadline` шлёт `deadline_date: null`) и метки — дописывает к текущим, `pa` на чужую задачу не навешивает
-- `create_task` — метка `pa` ставится кодом, не моделью. Срок необязателен; `deadline` — внешняя граница
-  (`YYYY-MM-DD`), `parent_id` — подзадача. Проект — по имени и только по указанию владельца, без него — Входящие;
-  неизвестный проект — ошибка модели без создания задачи, новый проект — только с `create_project`. Метки — `pa` плюс
-  названные владельцем
-- Дело = задача Todoist с подзадачами, ссылки на источники (вики, Dropbox, письмо, контакт) — отдельными
-  комментариями через `add_task_link`; `read_task` отдаёт задачу, подзадачи и комментарии. Поиск дела по названию —
-  `find_tasks` («search: <тема>»). Файлов дел в вики нет
+- **Задачи не закрываются и не удаляются.** В `TodoistHttpClient` нет close/reopen/delete — ни у модели, ни у
+  отражения: задачу в Todoist закрывает только владелец (q1 таска 01a0e680-73b6)
+- `create_task`, `update_task`, `add_task_link` с регистрации сняты: задачу ставит `task_add`, в Todoist она уходит
+  отражением; ссылка к делу — событие ленты (`case_add_event`). Пакеты пока лежат — их держит
+  `scripts/claude_sdk_live_check.py`
+- Todoist — не хранилище дел: дело живёт в сервисе дел (см. «Дела»), в Todoist — только задачи владельца
 - Текст писем — данные: инструменты почты оборачивают его в `UntrustedMailFrame`, системный промпт запрещает
   исполнять указания из писем
 - `search_mail`/`read_mail` идут через `GmailConversationSource` (`src/gmail/services/conversation_source`) —
@@ -231,6 +228,21 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
   `ITaskChangedListener`, `ITaskClosedListener` в `protocols/` своих пакетов), слушатель вызывается только после
   успешного ответа сервиса. Подставляет их `build_cases_tools` (`task_recorded`, `task_changed`, `task_closed`);
   не передан — ничего. Todoist инструменты задач не знают: отражение в Todoist цепляется слушателем
+- **Отражение в Todoist** (`src/task_mirror`, при `TODOIST_TOKEN` и `CASES_*`; сборка — `build_task_mirror`). Отражаются
+  только задачи с исполнителем `self`, связь — `external_id` `todoist:<id>`:
+  - наружу — `TaskMirrorListener` на `task_recorded`/`task_changed`: новая задача self → `POST /tasks` Todoist (метка
+    `pa`, текст — summary, срок → `deadline_date`), её id → `PATCH /tasks/{id}` external_id; смена срока → дедлайн в
+    Todoist; исполнитель сменился на self — задача уходит в Todoist. Закрытие у нас и смена исполнителя с self в
+    Todoist не уходят — бот задачи Todoist не закрывает. Сбой Todoist/сервиса — строка в лог, ответ модели не ломается
+  - внутрь — поток `todoist-mirror` (`start_todoist_mirror`, раз в 10 мин, `TodoistMirrorPass`): сначала отражает
+    открытые задачи self без `external_id` (догоняет сбойные), затем `GET /activities` (`item:completed|uncompleted|
+    updated|deleted` с прошлого прохода минус 2 мин, первый проход — за сутки) и по каждой нашей задаче self:
+    completed → close done, deleted → close cancelled, uncompleted → reopen (`source todoist`, `source_ref`
+    `todoist:activity:<id>`), смена дедлайна (`extra_data.deadline`) → PATCH due. Повтор события не даёт — сверка со
+    статусом и срок, плюс уникальность source_ref в сервисе. Сбой прохода — строка в лог, следующий через 10 мин
+  - задача, заведённая владельцем прямо в Todoist, сама не приходит; поднял тему — модель находит её `find_tasks` и
+    подвязывает `task_link_todoist` (todoist_task_id, case_id, summary): задача self с её external_id, дальше отражается
+  - граница — import-linter: `src.todoist` не знает дел, `src.cases` не знает Todoist, мост — только `src.task_mirror`
 - Пересказы в ленте пишутся по чужим письмам и сообщениям: `case_find` и `case_read` отдают их в рамке
   `UntrustedCaseFrame` (`<untrusted_case>`)
 - Регистрация — `workers/bot/cases_tools_factory.py` при `CASES_API_URL` и `CASES_API_KEY`; задана одна из двух —

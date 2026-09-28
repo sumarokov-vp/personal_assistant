@@ -138,7 +138,21 @@ forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "s
 name = "cases client stands alone"
 type = "forbidden"
 source_modules = ["src.cases"]
-forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+
+# Клиент Todoist про дела не знает: мост между ними — только src.task_mirror
+[[tool.importlinter.contracts]]
+name = "todoist client knows nothing about cases"
+type = "forbidden"
+source_modules = ["src.todoist"]
+forbidden_modules = ["src.ai_tools", "src.cases", "src.task_mirror"]
+
+# Отражение задач в Todoist знает только клиентов дел и Todoist; инструменты и бот — снаружи
+[[tool.importlinter.contracts]]
+name = "task mirror bridges only cases and todoist"
+type = "forbidden"
+source_modules = ["src.task_mirror"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 
 [tool.uv.sources]
 ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.5" }

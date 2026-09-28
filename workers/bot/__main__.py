@@ -87,6 +87,8 @@ from src.memory.repos import (
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
 from src.cases.repos.cases_http_client import CasesHttpClient
+from src.task_mirror.services.mirror_pass import TodoistMirrorPass
+from src.task_mirror.services.outbound_mirror import TaskMirrorListener
 from src.gmail.repos.gmail_client import GmailClient
 from workers.bot.cases_tools_factory import (
     CASES_VARIABLES,
@@ -99,7 +101,11 @@ from workers.bot.gmail_tools_factory import (
     build_gmail_client,
     build_gmail_tools,
 )
-from workers.bot.todoist_tools_factory import build_todoist_tools
+from workers.bot.todoist_tools_factory import (
+    build_task_mirror,
+    build_todoist_client,
+    build_todoist_tools,
+)
 from workers.bot.transcriber_factory import build_transcriber
 from workers.bot.whatsapp_tools_factory import (
     WHATSAPP_MACOS_SNAPSHOT_VARIABLE,
@@ -121,6 +127,7 @@ GMAIL_HTTP_TIMEOUT_SECONDS = 30.0
 DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
 SWEEP_INTERVAL_SECONDS = 60 * 60
 AGENT_NOTIFICATIONS_RECONNECT_SECONDS = 15
+TODOIST_MIRROR_INTERVAL_SECONDS = 10 * 60
 
 
 def configure_logging(level: str) -> None:
@@ -297,6 +304,27 @@ def start_agent_notifications(
     return thread
 
 
+def mirror_todoist_forever(mirror_pass: TodoistMirrorPass) -> None:
+    while True:
+        try:
+            mirror_pass.run()
+        except Exception as error:
+            logger.warning("Todoist mirror pass failed, next try later: %s", error)
+        sleep(TODOIST_MIRROR_INTERVAL_SECONDS)
+
+
+def start_todoist_mirror(mirror_pass: TodoistMirrorPass | None) -> None:
+    if mirror_pass is None:
+        logger.info("TODOIST_TOKEN or CASES_* not set, Todoist mirror not started")
+        return
+    Thread(
+        target=mirror_todoist_forever,
+        args=(mirror_pass,),
+        name="todoist-mirror",
+        daemon=True,
+    ).start()
+
+
 def build_wiki_factory() -> WikiFactory:
     ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
     return WikiFactory(
@@ -436,12 +464,23 @@ def main() -> None:
     )
 
     cases = build_configured_cases_client()
-    if cases is not None:
-        tools.extend(build_cases_tools(cases, owner_timezone))
-
     todoist_token = getenv("TODOIST_TOKEN")
-    if todoist_token:
-        tools.extend(build_todoist_tools(todoist_token))
+    todoist = build_todoist_client(todoist_token) if todoist_token else None
+    mirror_listener: TaskMirrorListener | None = None
+    mirror_pass: TodoistMirrorPass | None = None
+    if todoist is not None and cases is not None:
+        mirror_listener, mirror_pass = build_task_mirror(todoist, cases)
+    if cases is not None:
+        tools.extend(
+            build_cases_tools(
+                cases,
+                owner_timezone,
+                task_recorded=mirror_listener,
+                task_changed=mirror_listener,
+            )
+        )
+    if todoist is not None:
+        tools.extend(build_todoist_tools(todoist, cases))
 
     mail = build_configured_gmail_client()
     if mail is not None:
@@ -575,6 +614,7 @@ def main() -> None:
     )
 
     apply_migrations(db_url)
+    start_todoist_mirror(mirror_pass)
     start_agent_notifications(
         rabbitmq_url=getenv("RABBITMQ_URL"),
         database_url=db_url,

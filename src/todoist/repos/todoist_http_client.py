@@ -1,12 +1,16 @@
+import json
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
+from src.todoist.models.todoist_activity import TodoistActivity
 from src.todoist.models.todoist_comment import TodoistComment
 from src.todoist.models.todoist_project import TodoistProject
 from src.todoist.models.todoist_task import TodoistTask
 from src.todoist.models.todoist_task_update import TodoistTaskUpdate
 from src.todoist.repos.todoist_api_error import TodoistApiError
+from src.todoist.repos.todoist_unavailable_error import TodoistUnavailableError
 
 TODOIST_BASE_URL = "https://api.todoist.com/api/v1"
 DEFAULT_TIMEOUT_SECONDS = 30.0
@@ -112,6 +116,18 @@ class TodoistHttpClient:
             )
         )
 
+    def list_activities(
+        self, object_event_types: list[str], since: datetime
+    ) -> list[TodoistActivity]:
+        filters = {
+            "object_event_types": json.dumps(object_event_types),
+            "date_from": since.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        return [
+            TodoistActivity.model_validate(item)
+            for item in self._all_pages("/activities", filters)
+        ]
+
     def _all_pages(self, path: str, filters: dict[str, Any]) -> list[Any]:
         items: list[Any] = []
         cursor: str | None = None
@@ -137,9 +153,12 @@ class TodoistHttpClient:
             headers=self._headers,
             transport=self._transport,
         ) as client:
-            response = client.request(
-                method, f"{self._base_url}{path}", params=params, json=json_body
-            )
+            try:
+                response = client.request(
+                    method, f"{self._base_url}{path}", params=params, json=json_body
+                )
+            except httpx.TransportError as error:
+                raise TodoistUnavailableError(type(error).__name__) from error
         if response.status_code >= 400:
             raise TodoistApiError(response.status_code, response.text)
         return response.json()
