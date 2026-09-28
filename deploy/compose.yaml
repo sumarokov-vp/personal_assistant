@@ -34,6 +34,10 @@
 #    src/whatsapp/macos_desktop/host/install.sh из up.sh) — том /whatsapp только на чтение.
 #    Папку WhatsApp (~/Library/Group Containers/...) сюда не монтировать никогда: обращение VM
 #    к ней вешает virtiofs целиком. Бот читает снимок mode=ro&immutable=1.
+#  * Дела: сервис дел assistant_cases — соседний контейнер в той же сети infra, порт на хост не
+#    публикуется, адрес http://assistant_cases:8000. CASES_API_KEY — из pass cases-api-key; тот же
+#    ключ строкой «user:ключ» зарегистрирован в API_KEYS сервиса дел. Без CASES_* у бота нет
+#    инструментов дел и задач.
 name: personal_assistant
 
 services:
@@ -72,6 +76,8 @@ services:
       GMAIL_REFRESH_TOKEN: ${GMAIL_REFRESH_TOKEN:?}
       RABBITMQ_URL: ${RABBITMQ_URL:?}
       WHATSAPP_MACOS_SNAPSHOT_DIR: /whatsapp
+      CASES_API_URL: ${CASES_API_URL:-http://assistant_cases:8000}
+      CASES_API_KEY: ${CASES_API_KEY:?}
     volumes:
       - ${PA_DATA_DIR:?}/wiki:/wiki
       - ${WIKI_DEPLOY_KEY_FILE:?}:/run/secrets/wiki_deploy_key:ro
