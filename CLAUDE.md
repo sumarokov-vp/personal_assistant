@@ -22,7 +22,7 @@ workers/bot/
 ├── cases_tools_factory.py   # клиент сервиса кейсов по CASES_* + case_* и task_add, task_list, task_update, task_close
 ├── todoist_tools_factory.py # find_tasks, read_task, task_link_todoist; build_task_mirror — отражение задач в Todoist
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
-├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
+├── whatsapp_tools_factory.py # коннектор WhatsApp по env (+ клиент WhatsApp Web по WHATSAPP_WEB_*) + search_whatsapp, read_whatsapp, list_whatsapp_chats
 ├── colleague_mail_tool_gateway.py # ColleagueMailToolGateway: вызов colleague_send → OutgoingMail → ColleagueMailSender
 ├── protocols/               # IWhatsAppSource — что бот берёт от коннектора WhatsApp (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
@@ -53,7 +53,8 @@ src/
 ├── conversations/           # Контракт источника переписки: модели, ошибки, Protocol-ы (реализации — gmail, whatsapp)
 ├── gmail/                   # GmailClient (поиск, чтение, вложения, черновики — без отправки), UntrustedMailFrame
 ├── whatsapp/                # Источник переписки WhatsApp: платформенные реализации протокола src.conversations
-│   └── macos_desktop/       # WhatsApp Desktop на macOS: чтение снимка ChatStorage.sqlite и медиа (host/ — хост-процесс снимка)
+│   ├── macos_desktop/       # WhatsApp Desktop на macOS: чтение снимка ChatStorage.sqlite и медиа (host/ — хост-процесс снимка)
+│   └── web_media/           # Клиент сервиса WhatsApp Web на хосте: документ, удалённый с CDN (платформенно-нейтральный)
 ├── files/                   # Механика «файл»: WorkFolder, источники (IFileSource; mail/dropbox/chat), ридеры, растр, OverflowFolder, Sweeper
 └── voice_recognition/       # HttpTranscriber, NativeTranscriber
 scripts/
@@ -193,7 +194,8 @@ deploy/                      # Образ и выкат в colima
   указания из сообщений. Отправки в WhatsApp нет ни в протоколе, ни в инструментах
 - Файл — `file_take(source=whatsapp, message_id, attachment_id)` через `ConversationFileSource` (origin
   `whatsapp:<message>/<attachment>`); нескачанное Desktop бот качает с CDN WhatsApp по запросу (см. «WhatsApp (macOS
-  Desktop)»), истёкшая ссылка — ошибка с причиной и просьбой владельцу скачать файл в WhatsApp Desktop
+  Desktop)»), документ, удалённый с CDN, — через сервис WhatsApp Web (`WHATSAPP_WEB_URL`); не вышло — ошибка с
+  причиной и просьбой владельцу скачать файл в WhatsApp Desktop
 
 Refresh token Gmail: `uv run scripts/gmail_auth.py` (из корня репы, на машине с ключом pass ассистента) — берёт
 OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, открывает согласие (offline,
@@ -331,6 +333,8 @@ ASSISTANT_KEY=sumarokov                         # ключ этого ассис
 ASSISTANT_DIRECTORY_FILE=/path/to/directory.yaml  # необязательная; справочник коллег (ключ → имя, editor)
 COLLEAGUE_DIGEST_AT=09:00                       # необязательная (дефолт 09:00, пояс OWNER_TIMEZONE); время суточной сводки почты коллег
 WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необязательная; снимок WhatsApp Desktop (macOS); без неё инструментов WhatsApp нет
+WHATSAPP_WEB_URL=http://host.docker.internal:18790  # необязательная; сервис WhatsApp Web на Mac mini — запасной путь для документов, удалённых с CDN
+WHATSAPP_WEB_TOKEN=                                 # ключ сервиса WhatsApp Web (Authorization: Bearer)
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
@@ -466,10 +470,22 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
     `<PA_WORK_DIR>/whatsapp-media/<media_pk>-<хеш ключа>` (снимок только на чтение) и живёт, как рабочая папка,
     сутки (`Sweeper`)
   - Пометка вложения: файл в снимке или в кэше — `available`; ссылка живая — `on_request`; `oe` в прошлом —
-    `unavailable` «ссылка истекла», без ссылки/ключа/известного типа — «нет ссылки для скачивания».
+    `unavailable` «ссылка истекла» (с запасным путём WhatsApp Web у документа — `on_request`), без
+    ссылки/ключа/известного типа — «нет ссылки для скачивания».
     Неудача скачивания — `AttachmentNotDownloadedError` с причиной (ссылка истекла / CDN ответил кодом /
     MAC не сошёлся / размер не сошёлся) и просьбой скачать файл в WhatsApp Desktop; сетевой сбой (таймаут,
     DNS) — исключение httpx, `ai_framework` отдаёт его модели текстом, промпт велит повторить раз
+  - Запасной путь — WhatsApp Web (`src/whatsapp/web_media/`, клиент `WhatsAppWebClient`, httpx, таймаут 150 с;
+    решение владельца 28.09.2026 — только документы). Включается, если задан `WHATSAPP_WEB_URL` (ключ —
+    `WHATSAPP_WEB_TOKEN`, заголовок `Authorization: Bearer`); без URL поведение прежнее. У документа (тип 8, есть
+    `ZTITLE` и jid чата) ссылка истекла по `oe=` или CDN ответил 403/404/410 — `POST /v1/documents/fetch`
+    (`chat_title`, `chat_jid`, `file_name` = `ZTITLE`, `size` = `ZFILESIZE`, `sent_at` UTC); 200 — байты, размер
+    сверяется с `ZFILESIZE`, ложатся в тот же кэш, что у CDN. Отказ сервиса (409 не привязан — код придёт в
+    Telegram, 504 телефон не ответил, 404 не найден, 502 изменился интерфейс Web) — `AttachmentNotDownloadedError`:
+    причина CDN + причина Web словами + `detail` сервиса. Сервис не ответил (connect error, таймаут) — причина
+    CDN + «запасной путь WhatsApp Web не ответил». Фото, видео, голосовые с CDN 410 — прежнее поведение.
+    Протокол запасного источника — у потребителя (`remote_media/protocols/i_document_fallback.py`),
+    `web_media` о `macos_desktop` не знает
 - Свежесть — `max(ZMESSAGEDATE)` и `snapshot_at`: бот говорит «последнее сообщение от <дата>»
 - Поиск — подстрока без учёта регистра (Python `casefold` через `create_function`, SQLite LIKE
   кириллицу не складывает), полный проход ~0,2 с на 62 тыс. сообщений
@@ -621,7 +637,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   `claude-agent-sdk` со встроенными инструментами, выключенными managed settings (см. выше); git и openssh-client —
   для вики, ключи хоста github.com — из `deploy/ssh/known_hosts` (системный known_hosts); typst и jq нет.
   Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
-- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key}`,
+- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,whatsapp-web}`,
   `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента), собирает из `db` переменную
   `AI_DB_URL` (`options=-csearch_path%3Dai`), разбирает `spaces-attachments` (первая строка — secret key → `ATTACHMENTS_S3_SECRET_KEY`,
   строки `access_key=`, `bucket=`, `region=`, `endpoint=` → остальные `ATTACHMENTS_S3_*`), из `gmail-oauth-client`
@@ -652,6 +668,9 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 - WhatsApp: том `~/docker/personal_assistant/whatsapp` → `/whatsapp:ro`, `WHATSAPP_MACOS_SNAPSHOT_DIR=/whatsapp`
   (compose). Монтируется только снимок хост-процесса, папка WhatsApp (`Group Containers`) — никогда (см. «Снимок
   WhatsApp (хост-процесс)»). Каталог создаёт `host/install.sh`, его зовёт `up.sh`
+- WhatsApp Web: не том, а HTTP до хостового сервиса на localhost — `WHATSAPP_WEB_URL=http://host.docker.internal:18790`,
+  `WHATSAPP_WEB_TOKEN` из pass `whatsapp-web` (см. «WhatsApp Web (хостовый сервис)»). Устанавливает
+  `hosts/whatsapp_web/install.sh`, его зовёт `up.sh`; без ключа в pass ещё не заведён — `install.sh` заводит сам
 - В контейнере uid 1000; монтируются том вики, ключ вики и Dropbox: сессии CLI живут в `$HOME/.claude` контейнера
   и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
   не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`
@@ -702,3 +721,44 @@ WhatsApp Desktop на Mac mini держит переписку в `~/Library/Gro
 - Проверить: `tail ~/Library/Logs/personal_assistant/whatsapp_snapshot.log`, `cat ~/docker/personal_assistant/whatsapp/snapshot_at`,
   `sqlite3 'file:<снимок>?mode=ro' 'pragma integrity_check'`, `max(ZMESSAGEDATE)` (секунды от 01.01.2001).
   Ручной прогон в свой каталог: `~/docker/personal_assistant/bin/whatsapp_snapshot <каталог>`
+
+### WhatsApp Web (хостовый сервис)
+
+Второе связанное устройство аккаунта владельца — не снимок, а живой Chromium под Playwright
+(`hosts/whatsapp_web/`, отдельный uv-проект, вне образа бота и его mypy/import-linter/pytest,
+см. «Инструменты (tools)» → «WhatsApp» и `hosts/whatsapp_web/README.md`). Бот зовёт его только
+запасным путём: документ чата, который WhatsApp уже удалил с CDN, сервис достаёт перезаливкой
+через интерфейс WhatsApp Web (владельцу — руками ничего делать не нужно, лишь бы телефон был в
+сети). Отправки, чтения переписки и массовой выкачки нет — только скачивание по запросу.
+
+- launchd-агент `com.sumarokov.personal-assistant.whatsapp-web` (`RunAtLoad`, `KeepAlive`, домен
+  `gui/<uid>` — Chromium требует GUI-сессии владельца), лог — `~/Library/Logs/personal_assistant/whatsapp_web.log`.
+  `ProgramArguments` — `.venv/bin/whatsapp-web-host` проекта (консольный скрипт из `pyproject.toml`),
+  не `uv run`: launchd не видит `PATH` пользователя, а venv уже собран `install.sh`
+- Слушает только `127.0.0.1:18790` (`WHATSAPP_WEB_PORT`, см. README) — из контейнера бота
+  `http://host.docker.internal:18790`. Профиль Chromium — `~/docker/personal_assistant/whatsapp-web/profile`
+  (0700); первый прогон пробного сценария оставил привязанный профиль в `~/whatsapp-web-spike/profile` —
+  `install.sh` переносит его копией (`cp -a`, исходник не трогается) при пустом целевом каталоге,
+  предварительно остановив спайк-браузер, если он слушает `:9222`
+- Секреты — один файл 0600 `~/docker/personal_assistant/secrets/whatsapp-web` (`WHATSAPP_WEB_KEY_FILE`):
+  первая строка — ключ API (`Authorization: Bearer`, тот же в `WHATSAPP_WEB_TOKEN` бота), дальше
+  `key=value`: `phone=<номер>` (перепривязка кодом — #01a0e7b6-23e6), `notify_amqp_url=<URL agent-whatsapp-web>`
+  (нет строки — сервис не падает, сигнал о перепривязке пишется только в лог). Источник — pass
+  `assistant/personal_assistant/whatsapp-web` (ключ, `phone=`, связка ассистента, как у `up.sh`) и
+  учётка RabbitMQ `agent-whatsapp-web` (`deploy/rabbitmq/setup.sh add-source whatsapp-web`, vhost
+  `assistant`, exchange `agent-notify`) — её pass-запись `work/local/rabbitmq/assistant-notify/whatsapp-web`
+  вне связки ассистента (`$ASSISTANT_GNUPGHOME` её не расшифровывает: там только приватный ключ
+  ассистента, а `work/` шифруется на YubiKey/soft key), поэтому `install.sh` читает и заводит её
+  с явно снятым `GNUPGHOME` (`env -u`), а не с тем, что экспортировал вызвавший `up.sh`
+- Установка — `hosts/whatsapp_web/install.sh` (вызывает `up.sh`, идемпотентно): `uv sync --locked`,
+  `playwright install chromium`, перенос профиля (если нужен), pass-запись ключа и номера (нет —
+  заводится: ключ `openssl rand -hex 32`, номер вытаскивается из `~/whatsapp-web-spike/scripts/s_num.py`,
+  сам скрипт не запускается — в репозиторий, лог и очередь номер не попадает), учётка RabbitMQ,
+  файл секретов (перезаписывается только при изменении), plist в `~/Library/LaunchAgents/`,
+  `launchctl bootstrap gui/<uid>` (изменился plist — `bootout` + `bootstrap`, иначе без изменений)
+- Первая проверка привязки — на старте сервиса (`GET /v1/health` до неё сам её делает); дальше
+  отдаёт последнее известное состояние, браузер не поднимая. Суточную проверку и сигнал владельцу
+  при отвязке (агент-уведомление, код перепривязки) проводит #01a0e7b6-23e6
+- Проверить: `launchctl print gui/<uid>/com.sumarokov.personal-assistant.whatsapp-web`,
+  `curl -H "Authorization: Bearer <ключ>" http://127.0.0.1:18790/v1/health`,
+  `lsof -iTCP:18790 -sTCP:LISTEN` (только `127.0.0.1`), `tail ~/Library/Logs/personal_assistant/whatsapp_web.log`

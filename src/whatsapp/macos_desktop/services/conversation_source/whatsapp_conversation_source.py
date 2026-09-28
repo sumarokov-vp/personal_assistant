@@ -40,6 +40,9 @@ from src.whatsapp.macos_desktop.services.message_mapper.message_mapper import (
 from src.whatsapp.macos_desktop.services.conversation_source.protocols.i_cdn_client import (
     ICdnClient,
 )
+from src.whatsapp.macos_desktop.services.conversation_source.protocols.i_document_fallback import (
+    IDocumentFallback,
+)
 from src.whatsapp.macos_desktop.services.media_cipher.media_cipher import (
     WhatsAppMediaCipher,
 )
@@ -62,13 +65,17 @@ class WhatsAppConversationSource:
         timezone: ZoneInfo,
         media_cache_dir: Path,
         cdn_client: ICdnClient,
+        document_fallback: IDocumentFallback | None = None,
     ) -> None:
         database = SnapshotDatabase(snapshot_dir / DATABASE_FILE, SnapshotSchema())
         messages = WhatsAppMessageRepo(database)
         chats = WhatsAppChatRepo(database)
         clock = CoreDataClock(timezone)
         remote_media = WhatsAppRemoteMedia(
-            MediaCache(media_cache_dir), cdn_client, WhatsAppMediaCipher()
+            MediaCache(media_cache_dir),
+            cdn_client,
+            WhatsAppMediaCipher(),
+            fallback=document_fallback,
         )
         describer = AttachmentDescriber(snapshot_dir / MEDIA_ROOT, remote_media)
         mapper = MessageMapper(clock, describer)

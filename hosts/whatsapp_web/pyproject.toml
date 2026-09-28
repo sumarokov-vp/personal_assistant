@@ -1,0 +1,52 @@
+[project]
+name = "whatsapp-web-host"
+version = "0.1.0"
+description = "Host service on Mac mini: WhatsApp Web under Playwright fetches a chat document removed from WhatsApp CDN (HTTP on 127.0.0.1)"
+requires-python = ">=3.13"
+dependencies = [
+    "aio-pika>=10.1.0",
+    # Версия совпадает с пробным прогоном: сборка Chromium 1243 уже лежит в ~/Library/Caches/ms-playwright
+    "playwright==1.63.0",
+    "pydantic>=2.12.5",
+    "starlette>=0.48.0",
+    "uvicorn>=0.37.0",
+]
+
+[project.scripts]
+whatsapp-web-host = "whatsapp_web.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.9.0,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "whatsapp_web"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "mypy==1.19.1",
+    "pytest==9.0.2",
+    "ruff==0.15.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+lint.select = ["F", "E", "W", "B", "N", "C", "T", "UP", "ANN", "S", "DTZ"]
+lint.ignore = ["ANN204", "E501", "C901", "ANN401", "W293", "W291"]
+
+[tool.ruff.lint.per-file-ignores]
+"test*" = ["S101", "ANN201"]
+
+[tool.mypy]
+mypy_path = "src"
+ignore_missing_imports = true
+strict = false
+disallow_subclassing_any = true
+warn_redundant_casts = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+show_error_codes = true

@@ -133,6 +133,14 @@ fi
 # $PA_DATA_DIR/whatsapp. VM colima к папке WhatsApp не обращается никогда — только к снимку
 src/whatsapp/macos_desktop/host/install.sh
 
+# WhatsApp Web: хостовый сервис на Mac mini (Chromium/Playwright, launchd-агент
+# com.sumarokov.personal-assistant.whatsapp-web) — запасной путь бота за документами, которые
+# WhatsApp уже удалил с CDN. install.sh сам заводит pass-запись с ключом и номером (первый
+# запуск) и учётку RabbitMQ agent-whatsapp-web; здесь берём только ключ, чтобы отдать боту.
+hosts/whatsapp_web/install.sh
+WHATSAPP_WEB_URL="http://host.docker.internal:18790"
+WHATSAPP_WEB_TOKEN="$(pass_first_line "$PASS_ROOT/whatsapp-web")"
+
 export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
     CLAUDE_CODE_EFFORT_LEVEL \
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
@@ -140,6 +148,7 @@ export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN 
     ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \
     TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN \
     RABBITMQ_URL CASES_API_URL CASES_API_KEY \
-    ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE
+    ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE \
+    WHATSAPP_WEB_URL WHATSAPP_WEB_TOKEN
 
 docker compose -f deploy/compose.yaml up -d --build

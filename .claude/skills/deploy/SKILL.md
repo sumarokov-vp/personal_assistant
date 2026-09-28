@@ -12,7 +12,7 @@ deploy/up.sh
 ```
 
 Скрипт:
-1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key}`,
+1. берёт секреты из `pass` (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,whatsapp-web}`,
    `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента, без пароля), экспортирует
    их только в своё окружение и не печатает;
 2. собирает `AI_DB_URL` из `db` (та же БД `personal_assistant`, `options=-csearch_path%3Dai`);
@@ -25,7 +25,12 @@ deploy/up.sh
 3. кладёт deploy-ключ вики файлом 0600 в `~/docker/personal_assistant/secrets/wiki_deploy_key` (ssh берёт
    ключ только из файла; в контейнер он монтируется read-only) и заводит том вики
    `~/docker/personal_assistant/wiki` — первый clone `obsidian_wiki` на пустом томе делает сам бот;
-4. выполняет `docker compose -f deploy/compose.yaml up -d --build`.
+4. запускает `hosts/whatsapp_web/install.sh` — хостовый сервис WhatsApp Web (launchd-агент
+   `com.sumarokov.personal-assistant.whatsapp-web`, не в контейнере, слушает `127.0.0.1:18790`):
+   ключ и номер — pass `whatsapp-web` (первая строка ключ, `phone=`; нет записи — заводит сам),
+   учётка RabbitMQ `agent-whatsapp-web` — `deploy/rabbitmq/setup.sh add-source whatsapp-web`.
+   `WHATSAPP_WEB_TOKEN` в шаге 1 — та же первая строка `whatsapp-web`, боту нужен тот же ключ;
+5. выполняет `docker compose -f deploy/compose.yaml up -d --build`.
 
 Если `pass` просит GPG-пин — это ожидаемо, дождись пользователя.
 
