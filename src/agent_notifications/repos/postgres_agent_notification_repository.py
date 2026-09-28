@@ -16,6 +16,8 @@ class PostgresAgentNotificationRepository:
         source: str,
         body: str,
         published_at: datetime | None,
+        file_name: str | None = None,
+        file_size: int | None = None,
     ) -> AgentNotification:
         with (
             psycopg.connect(self._database_url) as connection,
@@ -24,9 +26,10 @@ class PostgresAgentNotificationRepository:
             cursor.execute(
                 """
                 INSERT INTO agent_notifications
-                    (message_id, source, body, published_at)
+                    (message_id, source, body, published_at, file_name, file_size)
                 VALUES
-                    (%(message_id)s, %(source)s, %(body)s, %(published_at)s)
+                    (%(message_id)s, %(source)s, %(body)s, %(published_at)s,
+                     %(file_name)s, %(file_size)s)
                 ON CONFLICT (message_id) DO NOTHING
                 """,
                 {
@@ -34,12 +37,14 @@ class PostgresAgentNotificationRepository:
                     "source": source,
                     "body": body,
                     "published_at": published_at,
+                    "file_name": file_name,
+                    "file_size": file_size,
                 },
             )
             cursor.execute(
                 """
                 SELECT id, message_id, source, body, published_at,
-                       received_at, delivered_at
+                       received_at, delivered_at, file_name, file_size
                 FROM agent_notifications
                 WHERE message_id = %(message_id)s
                 """,
@@ -75,7 +80,7 @@ class PostgresAgentNotificationRepository:
             cursor.execute(
                 """
                 SELECT id, message_id, source, body, published_at,
-                       received_at, delivered_at
+                       received_at, delivered_at, file_name, file_size
                 FROM agent_notifications
                 WHERE received_at >= %(start)s AND received_at < %(end)s
                   AND (%(source)s::text IS NULL OR source = %(source)s)

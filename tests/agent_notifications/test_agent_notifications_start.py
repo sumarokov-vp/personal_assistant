@@ -21,6 +21,7 @@ def test_consumer_does_not_start_without_rabbitmq_url(
             database_url="postgres://unused",
             app=Mock(),
             owner_telegram_id=42,
+            dropbox_boundary=None,
         )
 
     assert started is None
