@@ -11,3 +11,6 @@ class IAgentNotificationEntry(Protocol):
 
     @property
     def received_at(self) -> datetime: ...
+
+    @property
+    def file_label(self) -> str | None: ...

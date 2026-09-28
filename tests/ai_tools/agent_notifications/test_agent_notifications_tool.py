@@ -19,6 +19,7 @@ class Entry:
     source: str
     body: str
     received_at: datetime
+    file_label: str | None = None
 
 
 class InMemoryJournal:
@@ -115,3 +116,17 @@ def test_limit_keeps_latest_in_chronological_order() -> None:
     assert "n0" not in output
     assert output.index("n1") < output.index("n2")
     assert "Показаны последние 2" in output
+
+
+def test_file_entry_shows_name_size_and_caption() -> None:
+    entries = [
+        Entry("mac-mini", "отчёт за сентябрь", utc(26, 5), "файл report.pdf (1,2 МБ)"),
+        Entry("mac-mini", "", utc(26, 6), "файл dump.csv (340 КБ)"),
+    ]
+
+    output = tool(entries).execute(
+        AgentNotificationsInput(date=date(2026, 9, 26)), CONTEXT
+    )
+
+    assert "10:00 · mac-mini · файл report.pdf (1,2 МБ) — отчёт за сентябрь" in output
+    assert "11:00 · mac-mini · файл dump.csv (340 КБ)\n" in output
