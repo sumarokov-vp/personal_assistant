@@ -1,5 +1,5 @@
 from typing import Literal
 
 CaseSource = Literal[
-    "owner", "assistant", "gmail", "whatsapp", "todoist", "dropbox", "wiki"
+    "owner", "assistant", "gmail", "whatsapp", "telegram", "todoist", "dropbox", "wiki"
 ]

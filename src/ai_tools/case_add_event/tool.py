@@ -18,7 +18,8 @@ class CaseAddEventInput(BaseModel):
     case_id: str = Field(min_length=1)
     source: CaseSource = Field(
         description="Откуда событие: owner — сам владелец в чате, gmail, whatsapp, "
-        "todoist, dropbox, wiki, assistant — вывод ассистента"
+        "telegram — переписка Telegram владельца, todoist, dropbox, wiki, assistant — "
+        "вывод ассистента"
     )
     kind: Literal["note", "message", "file", "link"] = Field(
         description="note — реплика или заметка, message — письмо или сообщение, "
@@ -26,10 +27,14 @@ class CaseAddEventInput(BaseModel):
     )
     source_ref: str | None = Field(
         default=None,
-        description="id события в источнике: id письма Gmail, id сообщения WhatsApp, путь "
-        "Dropbox или вики. Повтор того же source_ref в кейсе новую запись не даёт",
+        description="id события в источнике: id письма Gmail, id сообщения WhatsApp или "
+        "Telegram, путь Dropbox или вики. Повтор того же source_ref в кейсе новую запись не даёт",
     )
-    url: str | None = Field(default=None, description="Ссылка на оригинал, если есть")
+    url: str | None = Field(
+        default=None,
+        description="Ссылка на оригинал, если есть: у сообщения Telegram — его ссылка из "
+        "read_telegram (нет ссылки — url не передавать)",
+    )
     occurred_at: datetime | None = Field(
         default=None,
         description="Когда это случилось: YYYY-MM-DDTHH:MM, без пояса — пояс владельца. "

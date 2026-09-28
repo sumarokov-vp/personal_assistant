@@ -146,10 +146,12 @@ source_modules = ["src.telegram_user"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.cases", "src.chat", "src.checkup", "src.colleague_mail", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 
 # Telethon держит ключ от всего аккаунта владельца: клиент живёт только внутри src.telegram_user,
-# наружу — объект с методами чтения протоколов src.conversations
+# наружу — объект с методами чтения протоколов src.conversations. Запрещён прямой импорт telethon;
+# цепочка composition root -> src.telegram_user -> telethon и есть задуманный путь
 [[tool.importlinter.contracts]]
 name = "telethon only inside telegram_user"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["workers", "src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.cases", "src.chat", "src.checkup", "src.colleague_mail", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 forbidden_modules = ["telethon"]
 

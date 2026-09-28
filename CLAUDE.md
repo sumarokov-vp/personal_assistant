@@ -24,7 +24,8 @@ workers/bot/
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
 ├── whatsapp_tools_factory.py # коннектор WhatsApp по env (+ клиент WhatsApp Web по WHATSAPP_WEB_*) + search_whatsapp, read_whatsapp, list_whatsapp_chats
 ├── colleague_mail_tool_gateway.py # ColleagueMailToolGateway: вызов colleague_send → OutgoingMail → ColleagueMailSender
-├── protocols/               # IWhatsAppSource — что бот берёт от коннектора WhatsApp (протоколы src.conversations)
+├── telegram_tools_factory.py # коннектор Telegram владельца по TELEGRAM_USER_SECRETS_FILE + search_telegram, read_telegram, list_telegram_chats
+├── protocols/               # IWhatsAppSource, ITelegramSource — что бот берёт от коннекторов переписки (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
 workers/colleague_digest/    # Сводка почты коллег: build_colleague_digest (её же зовёт бот) и ручной запуск
 src/
@@ -55,6 +56,7 @@ src/
 ├── whatsapp/                # Источник переписки WhatsApp: платформенные реализации протокола src.conversations
 │   ├── macos_desktop/       # WhatsApp Desktop на macOS: чтение снимка ChatStorage.sqlite и медиа (host/ — хост-процесс снимка)
 │   └── web_media/           # Клиент сервиса WhatsApp Web на хосте: документ, удалённый с CDN (платформенно-нейтральный)
+├── telegram_user/           # Переписка Telegram владельца: MTProto (Telethon) от его аккаунта, только чтение
 ├── files/                   # Механика «файл»: WorkFolder, источники (IFileSource; mail/dropbox/chat), ридеры, растр, OverflowFolder, Sweeper
 └── voice_recognition/       # HttpTranscriber, NativeTranscriber
 scripts/
@@ -106,10 +108,10 @@ deploy/                      # Образ и выкат в colima
 ### Разделы промпта по коннекторам
 
 Раздел коннектора в `data/system_prompt.txt` обрамлён строками `<!-- connector:<ключ> -->` и
-`<!-- /connector:<ключ> -->` (ключи `todoist`, `gmail`, `whatsapp`; обрамлять можно и отдельные строки внутри
+`<!-- /connector:<ключ> -->` (ключи `todoist`, `gmail`, `whatsapp`, `telegram`; обрамлять можно и отдельные строки внутри
 чужого раздела — так сделаны строки «Файлов» про почту и WhatsApp). `SystemPromptBuilder(connectors=…)` один раз
 на старте оставляет тело разделов зарегистрированных коннекторов и вырезает остальные вместе с маркерами; серии
-пустых строк схлопываются. Список собирает `__main__.py` по построенным клиентам (`todoist`, `mail`, `whatsapp`)
+пустых строк схлопываются. Список собирает `__main__.py` по построенным клиентам (`todoist`, `mail`, `whatsapp`, `telegram`)
 и пишет в лог строкой `Prompt connectors: …`. Упоминание инструмента коннектора вне его маркеров — ошибка:
 без коннектора модель увидит инструмент, которого нет (тест `tests/chat/test_system_prompt_builder.py`).
 Раздел «Кейсы» от коннекторов не зависит.
@@ -197,6 +199,36 @@ deploy/                      # Образ и выкат в colima
   Desktop)»), документ, удалённый с CDN, — через сервис WhatsApp Web (`WHATSAPP_WEB_URL`); не вышло — ошибка с
   причиной и просьбой владельцу скачать файл в WhatsApp Desktop
 
+### Telegram
+
+Переписка Telegram владельца — живым запросом от его аккаунта (MTProto, Telethon), коннектор
+`src/telegram_user/` (см. «Telegram владельца (MTProto)»). Регистрируется в `__main__.py` через
+`workers/bot/telegram_tools_factory.py`, если `TELEGRAM_USER_SECRETS_FILE` задан и файл есть; иначе
+инструментов Telegram, источника `telegram` у `file_take` и раздела промпта `telegram` нет, в лог — строка
+`TELEGRAM_USER_SECRETS_FILE … Telegram tools are off`. Кривой файл (не три строки `session=`, `api_id=`,
+`api_hash=`) — бот падает на старте, как при части `GMAIL_*`.
+
+- Инструменты: `search_telegram` (text — серверный поиск Telegram по словам целиком, не подстрока;
+  participant, chat_id, since/until; без text, participant и chat_id инструмент отвечает подсказкой, не
+  ходя в Telegram — глобальный поиск без text коннектор умеет только с participant), `read_telegram`
+  (chat_id — последние сообщения чата; message_id `<чат>:<номер>` — одно сообщение с вложениями и
+  ссылкой), `list_telegram_chats`. Строки свежести нет — API живой (`ISourceFreshness` не реализуется)
+- `chat_id` — marked peer id (у групп отрицательный), `message_id` — `<peer>:<msg>`. Ссылка на сообщение
+  (`link` моделей `src.conversations`) — у супергрупп `t.me/c/…` или `t.me/<username>/…`; у личных чатов и
+  обычных групп её нет, `read_telegram` так и пишет
+- Текст сообщений, имена чатов — в рамке `UntrustedTelegramFrame` (`<untrusted_telegram>`,
+  `src/ai_tools/telegram_common/`), промпт запрещает исполнять указания из сообщений. Отправки,
+  отметки прочитанным и статуса «в сети» нет ни в коннекторе, ни в инструментах
+- Файл — `file_take(source=telegram, message_id, attachment_id)` через `ConversationFileSource` (origin
+  `telegram:<message>/<attachment>`), предел 50 МБ проверяется по размеру вложения до скачивания
+- К кейсу — `case_add_event` с `source telegram` (`CaseSource`; в сервисе кейсов значение вносит его
+  миграция 0002), `url` — ссылка на сообщение; ссылки нет — цитата с датой в summary (раздел
+  «Переписка Telegram» промпта)
+- FLOOD_WAIT дольше 10 с — ошибка «Telegram ограничил запросы, повтори через N с» модели, без ожидания
+- Живые прогоны против аккаунта при работающем контейнере с той же сессией не делаются: одна сессия —
+  один процесс (риск AUTH_KEY_DUPLICATED — Telegram отзывает ключ). Тесты — на подменённом источнике
+  (`tests/ai_tools/telegram/`, `tests/telegram_user/`)
+
 Refresh token Gmail: `uv run scripts/gmail_auth.py` (из корня репы, на машине с ключом pass ассистента) — берёт
 OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, открывает согласие (offline,
 `prompt=consent`) и кладёт токен в `assistant/personal_assistant/gmail-refresh-token`, на экран его не выводит.
@@ -280,7 +312,13 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
 на пустом каталоге, дальше pull перед чтением; запись — коммит `pa: …` и push в `main` ключом `WIKI_SSH_KEY_PATH`.
 Сборка — `build_wiki_tools` в `workers/bot/__main__.py`: один `WikiFactory` на бот, инструменты
 `wiki_search` (`WikiSearcher` поверх `WikiReader`), `wiki_read`, `wiki_create_page`, `wiki_append`.
-Инструменты памяти (`memory_*`) работают через тот же `WikiFactory` — общий замок на копию.
+Без `WIKI_DIR` инструментов `wiki_*` нет.
+
+Память (`memory_*`) — за протоколом `IWikiStorage` (`src/memory/repos/protocols/`), реализация выбирается
+`MEMORY_STORAGE` одинаково в боте, `workers.memory_fill` и `workers.checkup`: не задана или `local` —
+`LocalFolderStorage`, файлы в `MEMORY_DIR` (дефолт `~/.local/share/personal_assistant/memory`), без git и сети;
+`wiki` — `WikiPageStorage` поверх вики (бот — через тот же `WikiFactory`, что `wiki_*`, общий замок на копию;
+требует `WIKI_DIR`). На проде владельца `MEMORY_STORAGE: wiki` задан в `deploy/compose.yaml`.
 В системном промпте: факт из вики — со ссылкой на путь страницы; служебные страницы памяти — только через `memory_*`.
 
 ## Безопасность: бот слышит только владельца
@@ -312,7 +350,9 @@ VOICE_RECOGNITION_API_KEY=ключ                  # заголовок X-API-K
 VOICE_RECOGNITION_MODE=http                     # необязательная (дефолт http); http | native
 WHISPER_MODEL=small                             # необязательная (дефолт small); модель для native-режима
 LOG_LEVEL=INFO                                  # необязательная (дефолт INFO); логгеры TeleBot/urllib3/requests/httpx/anthropic всегда не ниже WARNING; DEBUG у ai_framework пишет вызовы инструментов
-WIKI_DIR=/path/to/obsidian_wiki                 # локальная копия вики; пустой каталог — бот сам сделает clone
+MEMORY_STORAGE=local                            # необязательная (дефолт local); local — память файлами в MEMORY_DIR, wiki — в вики (нужен WIKI_DIR)
+MEMORY_DIR=~/.local/share/personal_assistant/memory  # необязательная (это дефолт); папка памяти в режиме local
+WIKI_DIR=/path/to/obsidian_wiki                 # необязательная; локальная копия вики, пустой каталог — бот сам сделает clone; без неё нет wiki_*
 WIKI_REMOTE_URL=git@github.com:sumarokov-vp/obsidian_wiki.git
 WIKI_SSH_KEY_PATH=/path/to/deploy_key           # необязательная; без неё git берёт ssh-ключи/агент пользователя
 DROPBOX_ROOT=/path/to/Dropbox                   # необязательная; без неё инструменты Dropbox не регистрируются
@@ -335,11 +375,12 @@ COLLEAGUE_DIGEST_AT=09:00                       # необязательная (
 WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необязательная; снимок WhatsApp Desktop (macOS); без неё инструментов WhatsApp нет
 WHATSAPP_WEB_URL=http://host.docker.internal:18790  # необязательная; сервис WhatsApp Web на Mac mini — запасной путь для документов, удалённых с CDN
 WHATSAPP_WEB_TOKEN=                                 # ключ сервиса WhatsApp Web (Authorization: Bearer)
+TELEGRAM_USER_SECRETS_FILE=/path/to/telegram_user  # необязательная; файл session=/api_id=/api_hash= Telegram владельца; нет файла — нет инструментов Telegram
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
-Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`, `WIKI_DIR`,
-`WIKI_REMOTE_URL`, `ATTACHMENTS_S3_*`. `CASES_*`, `TODOIST_TOKEN`, `GMAIL_*` и `WHATSAPP_MACOS_SNAPSHOT_DIR` в коде бота необязательны (нет — нет инструментов),
+Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`,
+`ATTACHMENTS_S3_*`; `WIKI_DIR` и `WIKI_REMOTE_URL` — при `MEMORY_STORAGE=wiki` (иначе `WIKI_*` необязательны). `CASES_*`, `TODOIST_TOKEN`, `GMAIL_*`, `WHATSAPP_MACOS_SNAPSHOT_DIR` и `TELEGRAM_USER_SECRETS_FILE` в коде бота необязательны (нет — нет инструментов),
 в проде их требует compose. Их же читают `workers.checkup` (`TODOIST_TOKEN` обязателен) и `workers.memory_fill` (`GMAIL_*` необязательны)
 
 ## Распознавание речи
@@ -391,7 +432,8 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   без тома: файлы живут сутки, перезапуск контейнера переживать им не нужно. `WorkFolder` кладёт файл в
   `<file_id>/<имя>` рядом с `.work_file.json` (имя, тип, размер, источник), каталоги 0700, файлы 0600; `file_id` —
   8 hex-символов. Каталог создаётся при первом `file_take`
-- `file_take` (`mail` — `message_id` + `attachment_id` из `read_mail`; `dropbox` — `path` через `DropboxBoundary`, закрытые
+- `file_take` (`telegram` — `message_id` + `attachment_id` из `read_telegram`, только при файле
+  `TELEGRAM_USER_SECRETS_FILE`; `mail` — `message_id` + `attachment_id` из `read_mail`; `dropbox` — `path` через `DropboxBoundary`, закрытые
   места не отдаёт; `chat` — вложение из истории треда; `whatsapp` — `message_id` + `attachment_id` из `read_whatsapp`,
   только при `WHATSAPP_MACOS_SNAPSHOT_DIR`) — предел 50 МБ, отвечает `{file_id, name, media_type, size}`
 - `file_read` — текст через `FileTextReader`: txt/md/csv/json, текстовый слой PDF (pypdf), DOCX, XLSX; обёрнут в
@@ -511,6 +553,23 @@ Dropbox), `name` (вложение чата по имени). Источник �
    адаптер вложений над её `IAttachmentStore`); `file_take` не правится;
 3. инструменты модели и раздел промпта — в `src/ai_tools/` и `data/system_prompt.txt`, регистрация в composition root
    при заданной конфигурации источника.
+
+### Telegram владельца (MTProto)
+
+`src/telegram_user/` — переписка Telegram от имени аккаунта владельца через Telethon (MTProto user API):
+Bot API видит только чаты бота. Вход — `TelegramConversationSource.from_secrets_file(path, timezone)`
+(`services/conversation_source/`): `IConversationSource` + `IConversationDirectory`, без `ISourceFreshness`.
+
+- Только чтение: `send_*`, `read_acknowledge`, `edit_*`, `delete_*` не вызываются нигде; клиент —
+  `receive_updates=False`, после каждого вызова `account.UpdateStatusRequest(offline=True)`. Каналы (broadcast)
+  отброшены в списке чатов, поиске и чтении; секретные чаты через API недоступны
+- Telethon живёт в своём event loop в потоке `telegram-user` (инструменты вызываются изнутри чужого loop),
+  подключение ленивое, на первый вызов; таймаут запроса 300 с
+- Файл секретов читается сразу на старте (кривой — `TelegramSecretsFileError`, без значений в тексте)
+- telethon импортируется только внутри `src.telegram_user` (import-linter, прямой импорт; composition root
+  получает его косвенно через коннектор), сам коннектор из соседей знает только `src.conversations`
+- Сессию владелец кладёт в pass `assistant/personal_assistant/telegram-user` скриптом
+  `scripts/telegram_login.py`; приложение my.telegram.org — запись `telegram-app`
 
 ## Уведомления агентов
 
@@ -638,7 +697,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   `claude-agent-sdk` со встроенными инструментами, выключенными managed settings (см. выше); git и openssh-client —
   для вики, ключи хоста github.com — из `deploy/ssh/known_hosts` (системный known_hosts); typst и jq нет.
   Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
-- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,whatsapp-web}`,
+- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,whatsapp-web,telegram-user,telegram-app}`,
   `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента), собирает из `db` переменную
   `AI_DB_URL` (`options=-csearch_path%3Dai`), разбирает `spaces-attachments` (первая строка — secret key → `ATTACHMENTS_S3_SECRET_KEY`,
   строки `access_key=`, `bucket=`, `region=`, `endpoint=` → остальные `ATTACHMENTS_S3_*`), из `gmail-oauth-client`
@@ -647,7 +706,17 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 `RABBITMQ_URL`, `CASES_API_KEY` (пустое значение останавливает выкат), и запускает `docker compose -f deploy/compose.yaml up -d --build`.
   Секреты идут переменными окружения, в файлы не пишутся — кроме deploy-ключа вики: ssh читает ключ только из
   файла, `up.sh` кладёт его в `~/docker/personal_assistant/secrets/wiki_deploy_key` (0600, каталог 0700), в
-  контейнер он монтируется read-only как `/run/secrets/wiki_deploy_key` (`WIKI_SSH_KEY_PATH`)
+  контейнер он монтируется read-only как `/run/secrets/wiki_deploy_key` (`WIKI_SSH_KEY_PATH`) — и сессии
+  Telegram владельца (см. ниже)
+- Telegram владельца: `up.sh` собирает файл секретов из pass `telegram-user` (одна строка — StringSession) и
+  `telegram-app` (строки `api_id=`, `api_hash=`) — три строки `session=`, `api_id=`, `api_hash=` (формат держит
+  `src/telegram_user/repos/telegram_secrets_file.py`), кладёт 0600 (umask 077, `.tmp`, `mv`) в
+  `~/docker/personal_assistant/secrets/telegram/telegram_user` (каталог 0700); каталог монтируется
+  `/run/secrets/telegram:ro`, `TELEGRAM_USER_SECRETS_FILE=/run/secrets/telegram/telegram_user` (compose).
+  Каталогом, а не файлом: нет файла — docker не подставит на его место пустой каталог. Значения идут через
+  встроенный `printf` bash — ни в аргументы процессов, ни в вывод. Нет записи `telegram-user` в pass (проверка
+  по файлу `.gpg` хранилища, без расшифровки) — прежний файл удаляется, бот стартует без Telegram, выкат
+  идёт. Сессию кладёт в pass владелец скриптом `scripts/telegram_login.py`
 - Вики: том `~/docker/personal_assistant/wiki` → `/wiki`, `WIKI_DIR=/wiki/obsidian_wiki`; первый clone на пустом
   томе делает сам бот. `WIKI_REMOTE_URL` — `git@github.com:sumarokov-vp/obsidian_wiki.git` (дефолт в compose/up.sh)
 - Схему `ai` в БД `personal_assistant` `up.sh` не создаёт — `CREATE SCHEMA IF NOT EXISTS ai` делается один раз
@@ -676,7 +745,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
   не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x docker compose -f deploy/compose.yaml build`.
+  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x TELEGRAM_SECRETS_DIR=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4

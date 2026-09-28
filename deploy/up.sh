@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Сборка и запуск бота в colima. Секреты берутся из pass (ветка ассистента, свой GPG-ключ)
-# и живут только в окружении этого процесса — в файлы не пишутся. Исключение — deploy-ключ
-# вики: ssh берёт ключ только из файла, он кладётся 0600 в ~/docker/personal_assistant/secrets.
+# и живут только в окружении этого процесса — в файлы не пишутся. Исключения — deploy-ключ
+# вики (ssh берёт ключ только из файла) и сессия Telegram владельца: они кладутся 0600 в
+# ~/docker/personal_assistant/secrets.
 set -euo pipefail
 
 export GNUPGHOME="$HOME/docker/personal_assistant/gnupg"
@@ -13,6 +14,8 @@ DROPBOX_DIR="$HOME/Dropbox"
 EMPTY_DIR="$PA_DATA_DIR/empty"
 ASSISTANT_DIRECTORY_FILE="$PA_DATA_DIR/directory.yaml"
 WIKI_DEPLOY_KEY_FILE="$SECRETS_DIR/wiki_deploy_key"
+TELEGRAM_SECRETS_DIR="$SECRETS_DIR/telegram"
+TELEGRAM_USER_SECRETS_FILE="$TELEGRAM_SECRETS_DIR/telegram_user"
 
 cd "$(dirname "$0")/.."
 
@@ -29,6 +32,16 @@ pass_field() {
 # Значение идёт через stdin, в аргументы процесса секрет не попадает
 oauth_client_field() {
     pass show "$1" | python3 -c 'import json, sys; print(json.load(sys.stdin)["installed"][sys.argv[1]])' "$2"
+}
+
+# Поле «key=value» из любой строки записи pass (у записи без секрета в первой строке)
+pass_any_field() {
+    pass show "$1" | sed -n "s/^$2=//p" | awk "NR == 1"
+}
+
+# Есть ли запись в pass — по файлу хранилища, без расшифровки
+pass_entry_exists() {
+    [ -f "${PASSWORD_STORE_DIR:-$HOME/.password-store}/$1.gpg" ]
 }
 
 require_value() {
@@ -117,6 +130,38 @@ chmod 700 "$SECRETS_DIR"
 chmod 600 "$WIKI_DEPLOY_KEY_FILE.tmp"
 mv -f "$WIKI_DEPLOY_KEY_FILE.tmp" "$WIKI_DEPLOY_KEY_FILE"
 
+# Telegram владельца (MTProto, Telethon): сессия StringSession — ключ от всего аккаунта. Файл
+# секретов из трёх строк session=, api_id=, api_hash= (формат держит src/telegram_user/repos/
+# telegram_secrets_file.py) кладётся 0600 в каталог 0700 и монтируется в контейнер только на
+# чтение — каталогом, чтобы отсутствие файла не превращалось в пустой каталог на его месте.
+# Сессия — pass telegram-user (одна строка), приложение my.telegram.org — telegram-app (строки
+# api_id=, api_hash=). Нет записи telegram-user — владелец ещё не входил (scripts/telegram_login.py):
+# файла нет, бот стартует без инструментов Telegram, выкат идёт дальше. Значения не попадают ни в
+# аргументы процессов (printf — встроенная команда bash), ни в вывод.
+( umask 077 && mkdir -p "$TELEGRAM_SECRETS_DIR" )
+chmod 700 "$TELEGRAM_SECRETS_DIR"
+if pass_entry_exists "$PASS_ROOT/telegram-user"; then
+    TELEGRAM_SESSION="$(pass_first_line "$PASS_ROOT/telegram-user")"
+    TELEGRAM_API_ID="$(pass_any_field "$PASS_ROOT/telegram-app" api_id)"
+    TELEGRAM_API_HASH="$(pass_any_field "$PASS_ROOT/telegram-app" api_hash)"
+    require_value "$PASS_ROOT/telegram-user" "$TELEGRAM_SESSION"
+    require_value "$PASS_ROOT/telegram-app api_id" "$TELEGRAM_API_ID"
+    require_value "$PASS_ROOT/telegram-app api_hash" "$TELEGRAM_API_HASH"
+    (
+        umask 077
+        printf 'session=%s\napi_id=%s\napi_hash=%s\n' \
+            "$TELEGRAM_SESSION" "$TELEGRAM_API_ID" "$TELEGRAM_API_HASH" \
+            > "$TELEGRAM_USER_SECRETS_FILE.tmp"
+    )
+    unset TELEGRAM_SESSION TELEGRAM_API_ID TELEGRAM_API_HASH
+    chmod 600 "$TELEGRAM_USER_SECRETS_FILE.tmp"
+    mv -f "$TELEGRAM_USER_SECRETS_FILE.tmp" "$TELEGRAM_USER_SECRETS_FILE"
+else
+    # Запись убрали из pass — сессия не должна пережить её в контейнере
+    rm -f "$TELEGRAM_USER_SECRETS_FILE" "$TELEGRAM_USER_SECRETS_FILE.tmp"
+    echo "up.sh: в pass нет $PASS_ROOT/telegram-user — бот стартует без Telegram владельца"
+fi
+
 # Dropbox: том ~/Dropbox, закрытые папки перекрываются пустым каталогом только на чтение
 # (compose.yaml). Заглушка обязана быть пустой — иначе её содержимое окажется на месте Vault.
 if [ ! -d "$DROPBOX_DIR" ]; then
@@ -149,6 +194,7 @@ export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN 
     TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN \
     RABBITMQ_URL CASES_API_URL CASES_API_KEY \
     ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE \
-    WHATSAPP_WEB_URL WHATSAPP_WEB_TOKEN
+    WHATSAPP_WEB_URL WHATSAPP_WEB_TOKEN \
+    TELEGRAM_SECRETS_DIR
 
 docker compose -f deploy/compose.yaml up -d --build

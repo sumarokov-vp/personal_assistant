@@ -25,6 +25,8 @@ deploy/up.sh
 3. кладёт deploy-ключ вики файлом 0600 в `~/docker/personal_assistant/secrets/wiki_deploy_key` (ssh берёт
    ключ только из файла; в контейнер он монтируется read-only) и заводит том вики
    `~/docker/personal_assistant/wiki` — первый clone `obsidian_wiki` на пустом томе делает сам бот;
+   память ассистента на проде — в вики: `MEMORY_STORAGE: wiki` задан в `deploy/compose.yaml` явно (без него
+   память ушла бы в локальную папку контейнера и пропала с ним);
 4. запускает `hosts/whatsapp_web/install.sh` — хостовый сервис WhatsApp Web (launchd-агент
    `com.sumarokov.personal-assistant.whatsapp-web`, не в контейнере, слушает `127.0.0.1:18790`):
    копирует проект в постоянный `~/docker/personal_assistant/whatsapp-web/app` (`rsync

@@ -23,10 +23,13 @@ class CheckupEnv:
 def read_checkup_env() -> CheckupEnv:
     memory_fill = read_memory_fill_env()
     wiki_dir = Path(getenv("CHECKUP_WIKI_DIR", str(DEFAULT_WIKI_DIR)))
+    wiki = (
+        replace(memory_fill.wiki, wiki_dir=wiki_dir)
+        if memory_fill.wiki is not None
+        else None
+    )
     return CheckupEnv(
-        memory_fill=replace(
-            memory_fill, wiki=replace(memory_fill.wiki, wiki_dir=wiki_dir)
-        ),
+        memory_fill=replace(memory_fill, wiki=wiki),
         todoist_token=require_env("TODOIST_TOKEN"),
         max_tool_rounds=int(
             getenv("CHECKUP_MAX_TOOL_ROUNDS", str(DEFAULT_MAX_TOOL_ROUNDS))
