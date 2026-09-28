@@ -27,6 +27,9 @@ deploy/up.sh
    `~/docker/personal_assistant/wiki` — первый clone `obsidian_wiki` на пустом томе делает сам бот;
 4. запускает `hosts/whatsapp_web/install.sh` — хостовый сервис WhatsApp Web (launchd-агент
    `com.sumarokov.personal-assistant.whatsapp-web`, не в контейнере, слушает `127.0.0.1:18790`):
+   копирует проект в постоянный `~/docker/personal_assistant/whatsapp-web/app` (`rsync
+   --checksum`, не сам checkout — `ProgramArguments` в plist смотрит туда, поэтому удаление или
+   переключение ветки рабочей копии сервис не ломает) и там же `uv sync --locked --no-dev`;
    ключ и номер — pass `whatsapp-web` (первая строка ключ, `phone=`; нет записи — заводит сам),
    учётка RabbitMQ `agent-whatsapp-web` — `deploy/rabbitmq/setup.sh add-source whatsapp-web`.
    `WHATSAPP_WEB_TOKEN` в шаге 1 — та же первая строка `whatsapp-web`, боту нужен тот же ключ;

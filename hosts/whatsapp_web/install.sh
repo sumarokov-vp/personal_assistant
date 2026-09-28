@@ -6,6 +6,14 @@
 # com.sumarokov.personal-assistant.whatsapp-web — RunAtLoad, KeepAlive, GUI-сессия (Chromium её
 # требует). Лог — ~/Library/Logs/personal_assistant/whatsapp_web.log.
 #
+# Рантайм — не в checkout: SOURCE_DIR (hosts/whatsapp_web в той рабочей копии, откуда запущен
+# install.sh) копируется rsync'ом в постоянный APP_DIR ~/docker/personal_assistant/whatsapp-web/app
+# (переживает удаление/переключение worktree — checkout удалили, gc, сменили ветку — сервис не
+# затронут), там же собирается .venv (uv sync --locked --no-dev). ProgramArguments plist — бинарь
+# из APP_DIR, а не из checkout. rsync --checksum сравнивает содержимое, не mtime: второй прогон из
+# другой копии с тем же кодом ничего не копирует. launchd перезапускается («kickstart -k»), только
+# если rsync реально что-то поменял в APP_DIR (новый код/версия) — не на каждый прогон install.sh.
+#
 # Секреты сервиса — один файл 0600 ~/docker/personal_assistant/secrets/whatsapp-web (каталог 0700):
 # первая строка — ключ API, дальше key=value: phone=<номер>, notify_amqp_url=<URL agent-whatsapp-web>
 # (нет учётки — строки не будет, сервис пишет сигнал перепривязки в лог и не падает). Ключ и номер —
@@ -27,9 +35,10 @@ LABEL="com.sumarokov.personal-assistant.whatsapp-web"
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SOURCE_DIR/../.." && pwd)"
 PLIST_TEMPLATE="$SOURCE_DIR/launchd/$LABEL.plist"
-PROGRAM="$SOURCE_DIR/.venv/bin/whatsapp-web-host"
 
 PA_DATA_DIR="$HOME/docker/personal_assistant"
+APP_DIR="$PA_DATA_DIR/whatsapp-web/app"
+PROGRAM="$APP_DIR/.venv/bin/whatsapp-web-host"
 SECRETS_DIR="$PA_DATA_DIR/secrets"
 KEY_FILE="$SECRETS_DIR/whatsapp-web"
 PROFILE_DIR="$PA_DATA_DIR/whatsapp-web/profile"
@@ -52,11 +61,40 @@ say() {
 
 ( umask 077 && mkdir -p "$SECRETS_DIR" "$PROFILE_DIR" )
 chmod 700 "$SECRETS_DIR" "$PROFILE_DIR"
-mkdir -p "$LOG_DIR" "$(dirname "$PLIST")"
+mkdir -p "$LOG_DIR" "$(dirname "$PLIST")" "$APP_DIR"
+
+# --- рантайм: копия проекта в постоянный APP_DIR (не сам checkout — тот может исчезнуть worktree'ом) ---
+# --checksum сравнивает содержимое файлов, не mtime: разные рабочие копии с одинаковым кодом дают
+# пустой diff. --delete + --exclude '.venv/' не трогает venv в APP_DIR (excluded-файлы rsync по
+# умолчанию не удаляет). install.sh, launchd/ и тесты в рантайме не нужны — не копируются.
+rsync_diff="$(rsync -a --delete --checksum -i \
+    --exclude='.venv/' \
+    --exclude='__pycache__/' \
+    --exclude='.pytest_cache/' \
+    --exclude='.mypy_cache/' \
+    --exclude='.ruff_cache/' \
+    --exclude='*.pyc' \
+    --exclude='.git/' \
+    --exclude='tests/' \
+    --exclude='conftest.py' \
+    --exclude='install.sh' \
+    --exclude='launchd/' \
+    "$SOURCE_DIR/" "$APP_DIR/")"
+runtime_changed=0
+if [ -n "$rsync_diff" ] || [ ! -x "$PROGRAM" ]; then
+    runtime_changed=1
+fi
 
 # --- зависимости: та же сборка Chromium, что у пробного прогона (playwright==1.63.0) ---
-( cd "$SOURCE_DIR" && uv sync --locked --quiet )
-( cd "$SOURCE_DIR" && uv run --quiet playwright install chromium )
+# Выполняются всегда (дёшево и идемпотентно при отсутствии изменений), но именно runtime_changed
+# (не факт вызова uv sync) решает, перезапускать ли уже работающий launchd-агент ниже.
+( cd "$APP_DIR" && uv sync --locked --no-dev --quiet )
+( cd "$APP_DIR" && uv run --quiet playwright install chromium )
+if [ "$runtime_changed" = 1 ]; then
+    say "рантайм обновлён: $APP_DIR"
+else
+    say "рантайм без изменений: $APP_DIR"
+fi
 
 # --- перенос профиля пробного прогона, если своего профиля ещё нет ---
 if [ -z "$(ls -A "$PROFILE_DIR" 2>/dev/null)" ] && [ -d "$SPIKE_PROFILE" ]; then
@@ -170,15 +208,31 @@ if [ ! -f "$PLIST" ] || [ "$(cat "$PLIST")" != "$plist_content" ]; then
     plist_changed=1
 fi
 
+# launchd сразу после bootout иногда отвечает на bootstrap транзиентным "Input/output error" (5) —
+# домен ещё не освободил label. Несколько попыток с паузой вместо падения install.sh.
+bootstrap_with_retry() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+    launchctl bootstrap "$DOMAIN" "$PLIST"
+}
+
 if launchctl print "$DOMAIN/$LABEL" > /dev/null 2>&1; then
     if [ "$plist_changed" = 1 ]; then
         launchctl bootout "$DOMAIN/$LABEL"
-        launchctl bootstrap "$DOMAIN" "$PLIST"
+        bootstrap_with_retry
         say "агент перезагружен (plist изменился)"
+    elif [ "$runtime_changed" = 1 ]; then
+        launchctl kickstart -k "$DOMAIN/$LABEL"
+        say "агент перезапущен (рантайм изменился)"
     else
         say "агент без изменений"
     fi
 else
-    launchctl bootstrap "$DOMAIN" "$PLIST"
+    bootstrap_with_retry
     say "агент загружен"
 fi
