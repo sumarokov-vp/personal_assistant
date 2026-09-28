@@ -1,3 +1,4 @@
+from datetime import datetime, time
 from logging import WARNING, basicConfig, getLogger
 from os import getenv
 from pathlib import Path
@@ -25,11 +26,15 @@ from src.agent_notifications.services.text_splitter import TelegramTextSplitter
 from src.access.services.update_gate_installer import UpdateGateInstaller
 from src.ai_tools import (
     AgentNotificationsTool,
+    ColleagueMessagesTool,
+    ColleagueSendTool,
+    ColleaguesTool,
     MemoryCloseCommitmentTool,
     MemoryShowTool,
     MemoryUpsertCommitmentTool,
     MemoryUpsertDeadlineTool,
     MemoryUpsertTripTool,
+    UntrustedColleagueMessageFrame,
     UntrustedNotificationFrame,
     WikiAppendTool,
     WikiCreatePageTool,
@@ -43,6 +48,19 @@ from src.ai_tools.dropbox_search import DropboxSearchTool
 from src.ai_tools.dropbox_tree import DropboxTreeTool
 from src.ai_tools.dropbox_undo_moves import DropboxUndoMovesTool
 from src.app_migrations import apply_migrations
+from src.colleague_mail.repos import (
+    PostgresColleagueMessageRepository,
+    YamlColleagueDirectory,
+)
+from src.colleague_mail.services.body_parser import MailBodyParser
+from src.colleague_mail.services.digest import ColleagueDigest, next_digest_at
+from src.colleague_mail.services.entities import ColleagueMailSettings
+from src.colleague_mail.services.publisher import RabbitMqMailPublisher
+from src.colleague_mail.services.rabbitmq_consumer import (
+    RabbitMqColleagueMailConsumer,
+)
+from src.colleague_mail.services.receiver import ColleagueMailReceiver
+from src.colleague_mail.services.sender import ColleagueMailSender
 from src.chat.actions.send_to_agent_action import SendToAgentAction
 from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.chat.actions.transcribe_voice_action import TranscribeVoiceAction
@@ -88,6 +106,9 @@ from src.memory.repos import (
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
 from src.gmail.repos.gmail_client import GmailClient
+from workers.bot.colleague_mail_tool_gateway import ColleagueMailToolGateway
+from workers.colleague_digest.composition import build_colleague_digest
+from workers.memory_fill.owner_notifier import OwnerNotifier
 from workers.bot.file_tools_factory import build_file_tools
 from workers.bot.gmail_tools_factory import (
     GMAIL_VARIABLES,
@@ -116,6 +137,7 @@ GMAIL_HTTP_TIMEOUT_SECONDS = 30.0
 DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
 SWEEP_INTERVAL_SECONDS = 60 * 60
 AGENT_NOTIFICATIONS_RECONNECT_SECONDS = 15
+COLLEAGUE_MAIL_RECONNECT_SECONDS = 15
 AGENT_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 
 
@@ -303,6 +325,135 @@ def start_agent_notifications(
     return thread
 
 
+def read_colleague_mail_settings() -> ColleagueMailSettings | None:
+    mail_url = getenv("ASSISTANT_MAIL_URL")
+    key = getenv("ASSISTANT_KEY")
+    if not mail_url and not key:
+        logger.info(
+            "ASSISTANT_MAIL_URL and ASSISTANT_KEY are not set, colleague mail is off"
+        )
+        return None
+    if not mail_url or not key:
+        raise ValueError("ASSISTANT_MAIL_URL and ASSISTANT_KEY are required together")
+    directory_file = getenv("ASSISTANT_DIRECTORY_FILE")
+    return ColleagueMailSettings(
+        mail_url=mail_url,
+        key=key,
+        directory_file=Path(directory_file) if directory_file else None,
+    )
+
+
+def consume_colleague_mail_forever(consumer: RabbitMqColleagueMailConsumer) -> None:
+    while True:
+        try:
+            consumer.consume()
+        except Exception:
+            logger.exception("Colleague mail consumer failed, reconnecting")
+        sleep(COLLEAGUE_MAIL_RECONNECT_SECONDS)
+
+
+def start_colleague_mail(
+    settings: ColleagueMailSettings | None, database_url: str
+) -> Thread | None:
+    if settings is None:
+        return None
+    consumer = RabbitMqColleagueMailConsumer(
+        mail_url=settings.mail_url,
+        inbox=settings.inbox,
+        receiver=ColleagueMailReceiver(
+            journal=PostgresColleagueMessageRepository(database_url=database_url),
+            parser=MailBodyParser(),
+            own_key=settings.key,
+        ),
+    )
+    thread = Thread(
+        target=consume_colleague_mail_forever,
+        args=(consumer,),
+        name="colleague-mail",
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
+def send_colleague_digest_forever(
+    digest: ColleagueDigest, timezone: ZoneInfo, at: time
+) -> None:
+    while True:
+        now = datetime.now(tz=timezone)
+        sleep((next_digest_at(now, at) - now).total_seconds())
+        try:
+            digest.send()
+        except Exception:
+            logger.exception("Colleague digest failed, next attempt at the next term")
+
+
+def start_colleague_digest(
+    settings: ColleagueMailSettings | None,
+    database_url: str,
+    notifier: OwnerNotifier,
+    timezone: ZoneInfo,
+    at: time,
+) -> Thread | None:
+    if settings is None:
+        return None
+    digest = build_colleague_digest(
+        database_url=database_url,
+        directory_file=settings.directory_file,
+        notifier=notifier,
+    )
+    thread = Thread(
+        target=send_colleague_digest_forever,
+        args=(digest, timezone, at),
+        name="colleague-digest",
+        daemon=True,
+    )
+    thread.start()
+    logger.info("Colleague digest scheduled daily at %s %s", at, timezone.key)
+    return thread
+
+
+def build_colleague_mail_sender(
+    settings: ColleagueMailSettings, database_url: str
+) -> ColleagueMailSender:
+    return ColleagueMailSender(
+        publisher=RabbitMqMailPublisher(
+            mail_url=settings.mail_url, account=settings.account
+        ),
+        journal=PostgresColleagueMessageRepository(database_url=database_url),
+        own_key=settings.key,
+    )
+
+
+def build_colleague_directory(
+    settings: ColleagueMailSettings,
+) -> YamlColleagueDirectory | None:
+    if settings.directory_file is None:
+        logger.info("ASSISTANT_DIRECTORY_FILE is not set, colleague directory is empty")
+        return None
+    return YamlColleagueDirectory(settings.directory_file)
+
+
+def build_colleague_mail_tools(
+    settings: ColleagueMailSettings, database_url: str, timezone: ZoneInfo
+) -> list[BaseTool]:
+    directory = build_colleague_directory(settings)
+    return [
+        ColleaguesTool(directory=directory),
+        ColleagueSendTool(
+            gateway=ColleagueMailToolGateway(
+                build_colleague_mail_sender(settings, database_url)
+            ),
+            directory=directory,
+        ),
+        ColleagueMessagesTool(
+            journal=PostgresColleagueMessageRepository(database_url=database_url),
+            frame=UntrustedColleagueMessageFrame(),
+            timezone=timezone,
+        ),
+    ]
+
+
 def build_wiki_factory() -> WikiFactory:
     ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
     return WikiFactory(
@@ -383,6 +534,8 @@ def main() -> None:
     ai_db_url = require_env("AI_DB_URL")
     ai_model = require_env("AI_MODEL")
     owner_timezone = ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty"))
+    colleague_mail = read_colleague_mail_settings()
+    colleague_digest_at = time.fromisoformat(getenv("COLLEAGUE_DIGEST_AT", "09:00"))
 
     voice_recognition_url = getenv("VOICE_RECOGNITION_URL", "http://localhost:8000")
     voice_recognition_api_key = getenv("VOICE_RECOGNITION_API_KEY")
@@ -432,6 +585,8 @@ def main() -> None:
             timezone=owner_timezone,
         )
     )
+    if colleague_mail is not None:
+        tools.extend(build_colleague_mail_tools(colleague_mail, db_url, owner_timezone))
 
     todoist_token = getenv("TODOIST_TOKEN")
     if todoist_token:
@@ -575,6 +730,16 @@ def main() -> None:
         app=app,
         owner_telegram_id=owner_telegram_id,
         dropbox_boundary=dropbox_boundary,
+    )
+    start_colleague_mail(colleague_mail, db_url)
+    start_colleague_digest(
+        settings=colleague_mail,
+        database_url=db_url,
+        notifier=OwnerNotifier(
+            sender=app.message_sender, owner_chat_id=owner_telegram_id
+        ),
+        timezone=owner_timezone,
+        at=colleague_digest_at,
     )
 
     with ai:
