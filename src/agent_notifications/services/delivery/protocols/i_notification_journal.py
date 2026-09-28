@@ -11,6 +11,8 @@ class INotificationJournal(Protocol):
         source: str,
         body: str,
         published_at: datetime | None,
+        file_name: str | None = None,
+        file_size: int | None = None,
     ) -> AgentNotification: ...
 
     def mark_delivered(self, message_id: str) -> None: ...

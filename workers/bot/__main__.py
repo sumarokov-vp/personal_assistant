@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from src.access.services.owner_gate import OwnerUpdateGate
 from src.agent_notifications.repos import PostgresAgentNotificationRepository
 from src.agent_notifications.services.delivery import AgentNotificationDelivery
+from src.agent_notifications.services.dropbox_file_store import DropboxAgentFileStore
 from src.agent_notifications.services.rabbitmq_consumer import (
     RabbitMqNotificationConsumer,
 )
@@ -137,6 +138,7 @@ DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
 SWEEP_INTERVAL_SECONDS = 60 * 60
 AGENT_NOTIFICATIONS_RECONNECT_SECONDS = 15
 COLLEAGUE_MAIL_RECONNECT_SECONDS = 15
+AGENT_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 
 
 def configure_logging(level: str) -> None:
@@ -290,6 +292,7 @@ def start_agent_notifications(
     database_url: str,
     app: BotApplication,
     owner_telegram_id: int,
+    dropbox_boundary: DropboxBoundary | None,
 ) -> Thread | None:
     if not rabbitmq_url:
         logger.info("RABBITMQ_URL is not set, agent notifications consumer not started")
@@ -299,8 +302,17 @@ def start_agent_notifications(
         delivery=AgentNotificationDelivery(
             journal=PostgresAgentNotificationRepository(database_url=database_url),
             message_sender=app.message_sender,
+            document_sender=app.document_sender,
             splitter=TelegramTextSplitter(),
             owner_chat_id=owner_telegram_id,
+            file_store=(
+                DropboxAgentFileStore(
+                    dropbox=dropbox_boundary,
+                    size_limit_bytes=AGENT_FILE_LIMIT_BYTES,
+                )
+                if dropbox_boundary is not None
+                else None
+            ),
         ),
     )
     thread = Thread(
@@ -717,6 +729,7 @@ def main() -> None:
         database_url=db_url,
         app=app,
         owner_telegram_id=owner_telegram_id,
+        dropbox_boundary=dropbox_boundary,
     )
     start_colleague_mail(colleague_mail, db_url)
     start_colleague_digest(
