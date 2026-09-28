@@ -15,7 +15,12 @@ from whatsapp_web.browser.services.entities.web_locators import (
     DOWNLOAD_BUTTON,
     INTRO_DIALOG_BUTTON,
     INTRO_DIALOG_CONTINUE,
+    LINK_CODE_ATTRIBUTE,
+    LINK_CODE_MARK,
+    LOGIN_BY_PHONE_TEXT,
     MEDIA_SECTION_TEXT,
+    PHONE_INPUT,
+    PHONE_NEXT_TEXT,
     SEARCH_BOX,
 )
 from whatsapp_web.browser.services.web_screen.preview_title_match import (
@@ -38,6 +43,8 @@ SCROLL_SETTLE_SECONDS = 1.0
 MAX_SCROLLS = 40
 MIN_PHONE_DIGITS = 7
 CLOSE_PRESSES = 3
+TYPE_DELAY_MS = 80
+LINK_CODE_SECONDS = 30.0
 
 
 class WhatsAppWebScreen:
@@ -55,6 +62,30 @@ class WhatsAppWebScreen:
 
     async def is_linked(self) -> bool:
         return (await self.link_state()).linked
+
+    async def request_phone_code(self, phone: str) -> str:
+        if not await self._page.locator(LINK_CODE_MARK).count():
+            await self._click(
+                self._page.get_by_text(LOGIN_BY_PHONE_TEXT), "войти по номеру телефона"
+            )
+            await self._enter_phone(re.sub(r"\D", "", phone))
+            await self._click(
+                self._page.get_by_text(PHONE_NEXT_TEXT, exact=True), "кнопка «Далее»"
+            )
+        await self._require(
+            self._page.locator(LINK_CODE_MARK), "код привязки", LINK_CODE_SECONDS
+        )
+        code = await self.current_link_code()
+        if not code:
+            raise UiChangedError("код привязки")
+        return code
+
+    async def current_link_code(self) -> str | None:
+        mark = self._page.locator(LINK_CODE_MARK)
+        if not await mark.count():
+            return None
+        raw = await mark.first.get_attribute(LINK_CODE_ATTRIBUTE) or ""
+        return re.sub(r"[^0-9A-Za-z]", "", raw) or None
 
     async def open_chat(self, title: str | None, phone_digits: str | None) -> bool:
         await self._close_panels()
@@ -176,6 +207,19 @@ class WhatsAppWebScreen:
             ):
                 return index
         return None
+
+    async def _enter_phone(self, digits: str) -> None:
+        box = self._page.locator(PHONE_INPUT).first
+        await self._require(box, "поле номера телефона", STEP_SECONDS)
+        await box.click()
+        prefilled = re.sub(r"\D", "", await box.input_value())
+        if prefilled and digits.startswith(prefilled):
+            await box.press("End")
+            await box.press_sequentially(digits[len(prefilled) :], delay=TYPE_DELAY_MS)
+            return
+        await box.press("ControlOrMeta+A")
+        await box.press("Backspace")
+        await box.press_sequentially(f"+{digits}", delay=TYPE_DELAY_MS)
 
     async def _dismiss_intro_dialog(self) -> None:
         button = self._page.locator(INTRO_DIALOG_BUTTON, has_text=INTRO_DIALOG_CONTINUE)
