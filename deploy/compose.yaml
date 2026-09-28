@@ -38,6 +38,10 @@
 #    src/whatsapp/macos_desktop/host/install.sh из up.sh) — том /whatsapp только на чтение.
 #    Папку WhatsApp (~/Library/Group Containers/...) сюда не монтировать никогда: обращение VM
 #    к ней вешает virtiofs целиком. Бот читает снимок mode=ro&immutable=1.
+#  * WhatsApp Web: запасной путь за документом, который WhatsApp уже удалил с CDN — не том, а HTTP
+#    до хостового сервиса на localhost (com.sumarokov.personal-assistant.whatsapp-web,
+#    hosts/whatsapp_web/install.sh из up.sh): WHATSAPP_WEB_URL=http://host.docker.internal:18790,
+#    WHATSAPP_WEB_TOKEN — ключ из pass whatsapp-web. Без них поведение прежнее (WHATSAPP_WEB_URL:-).
 #  * Кейсы: сервис кейсов assistant_cases — соседний контейнер в той же сети infra, порт на хост не
 #    публикуется, адрес http://assistant_cases:8000. CASES_API_KEY — из pass cases-api-key; тот же
 #    ключ строкой «user:ключ» зарегистрирован в API_KEYS сервиса кейсов. Без CASES_* у бота нет
@@ -83,6 +87,8 @@ services:
       ASSISTANT_KEY: ${ASSISTANT_KEY:-sumarokov}
       ASSISTANT_DIRECTORY_FILE: /run/config/directory.yaml
       WHATSAPP_MACOS_SNAPSHOT_DIR: /whatsapp
+      WHATSAPP_WEB_URL: ${WHATSAPP_WEB_URL:-}
+      WHATSAPP_WEB_TOKEN: ${WHATSAPP_WEB_TOKEN:-}
       CASES_API_URL: ${CASES_API_URL:-http://assistant_cases:8000}
       CASES_API_KEY: ${CASES_API_KEY:?}
     volumes:
