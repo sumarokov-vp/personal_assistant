@@ -21,6 +21,10 @@ from src.ai_tools.memory_upsert_commitment import MemoryUpsertCommitmentTool
 from src.ai_tools.memory_upsert_deadline import MemoryUpsertDeadlineTool
 from src.ai_tools.memory_upsert_trip import MemoryUpsertTripTool
 from src.ai_tools.read_task import ReadTaskTool
+from src.ai_tools.task_add import TaskAddTool
+from src.ai_tools.task_close import TaskCloseTool
+from src.ai_tools.task_list import TaskListTool
+from src.ai_tools.task_update import TaskUpdateTool
 from src.ai_tools.update_task import UpdateTaskTool
 from src.ai_tools.wiki_append.tool import WikiAppendTool
 from src.ai_tools.wiki_create_page.tool import WikiCreatePageTool
@@ -49,6 +53,10 @@ __all__ = [
     "MemoryUpsertDeadlineTool",
     "MemoryUpsertTripTool",
     "ReadTaskTool",
+    "TaskAddTool",
+    "TaskCloseTool",
+    "TaskListTool",
+    "TaskUpdateTool",
     "UntrustedNotificationFrame",
     "UpdateTaskTool",
     "WikiAppendTool",

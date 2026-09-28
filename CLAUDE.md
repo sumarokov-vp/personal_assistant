@@ -19,7 +19,7 @@ Telegram <-> bot_framework <-> SendToAgentAction <-> ai_framework.AIApplication 
 workers/bot/
 ├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
-├── cases_tools_factory.py   # клиент сервиса дел по CASES_* + case_find, case_open, case_read, case_add_event, case_update
+├── cases_tools_factory.py   # клиент сервиса дел по CASES_* + case_* и task_add, task_list, task_update, task_close
 ├── todoist_tools_factory.py # find_tasks, create_task, read_task, add_task_link, update_task поверх TodoistTaskService
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
 ├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
@@ -217,6 +217,20 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
   пересказ · ссылка» в поясе `OWNER_TIMEZONE`, у задач — id, статус, срок, исполнитель), `case_add_event` (kind
   note|message|file|link — задачи не им; `occurred_at` без пояса — пояс владельца, не передан — сейчас),
   `case_update` (title, summary, status). Имена инструментов и параметров — опора промпта, не переименовывать
+- Инструменты задач (`src/ai_tools/task_*`): задача — событие ленты `kind task` с четырьмя полями (статус, срок,
+  исполнитель, внешний id). `task_add` (case_id, summary — что сделать и зачем, assignee, due, occurred_at, source
+  owner|assistant) → `POST /cases/{id}/events`; без `case_id` — в служебное дело «Без темы» по адресу
+  `/cases/inbox/events`. `task_list` (assignee, status — умолчание open, due_before, case_id) — строки
+  «id · срок · исполнитель · дело · текст» по сроку, без срока в конце, в рамке `UntrustedCaseFrame`. `task_update`
+  (task_id, due, assignee, summary — причина) → `PATCH /tasks/{id}`, только заданные поля; `task_close` (task_id,
+  done|cancelled, summary) → `POST /tasks/{id}/close`. Срок — жёсткая граница (дедлайн), не «когда займусь»
+- Исполнитель — `self | assistant | agent:<имя> | person:<имя> | colleague:<user>`
+  (`src/ai_tools/task_add/task_assignee.py`); другое — ошибка модели без запроса к сервису. Исполнитель только
+  записывается: поручений агентам и отправки коллегам нет
+- Точка расширения «задача записана / изменена / закрыта» — Protocol-ы у инструментов (`ITaskRecordedListener`,
+  `ITaskChangedListener`, `ITaskClosedListener` в `protocols/` своих пакетов), слушатель вызывается только после
+  успешного ответа сервиса. Подставляет их `build_cases_tools` (`task_recorded`, `task_changed`, `task_closed`);
+  не передан — ничего. Todoist инструменты задач не знают: отражение в Todoist цепляется слушателем
 - Пересказы в ленте пишутся по чужим письмам и сообщениям: `case_find` и `case_read` отдают их в рамке
   `UntrustedCaseFrame` (`<untrusted_case>`)
 - Регистрация — `workers/bot/cases_tools_factory.py` при `CASES_API_URL` и `CASES_API_KEY`; задана одна из двух —
