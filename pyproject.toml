@@ -133,5 +133,12 @@ type = "forbidden"
 source_modules = ["src.whatsapp"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.wiki"]
 
+# Каталог агентов читает только файлы и git: связывают его с остальным composition root
+[[tool.importlinter.contracts]]
+name = "corporate_agents stands alone"
+type = "forbidden"
+source_modules = ["src.corporate_agents"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+
 [tool.uv.sources]
 ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.5" }

@@ -28,6 +28,7 @@ src/
 ├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
 ├── agent_notifications/     # Уведомления рабочих агентов из RabbitMQ: журнал, пересылка владельцу, потребитель
 ├── ai_tools/                # Инструменты модели: пакет на инструмент, класс — наследник BaseTool
+├── corporate_agents/        # Каталог агентов: два слоя (корпоративный, личный), list/get, версия правил
 ├── chat/
 │   ├── actions/
 │   │   ├── send_to_agent_action.py   # Текст → AIApplication.process_message → ответ в чат
@@ -247,6 +248,8 @@ GMAIL_CLIENT_SECRET=секрет OAuth-клиента
 GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_auth.py
 RABBITMQ_URL=amqp://pa-consumer:пароль@localhost:5672/assistant   # необязательная; без неё уведомления агентов не принимаются
 WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необязательная; снимок WhatsApp Desktop (macOS); без неё инструментов WhatsApp нет
+CORPORATE_AGENTS_DIR=~/docker/personal_assistant/corporate_agents  # необязательная; корпоративный слой каталога агентов (git-клон репозитория компании)
+PERSONAL_AGENTS_DIR=~/docker/personal_assistant/personal_agents    # необязательная; личный слой, расширяет корпоративный
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
@@ -443,6 +446,33 @@ UTF-8), необязательный `caption`; байты — либо тело
   хранятся. Размер печатает `human_size` (1024-основание, «1,2 МБ») через `AgentNotification.file_label` — одна
   функция и для владельца, и для инструмента `agent_notifications`: у файла строка «время · источник · файл <имя>
   (<размер>) — подпись»
+
+## Каталог агентов
+
+`src/corporate_agents` — каталог агентов на машине сотрудника: какие агенты есть и по какой инструкции работает
+каждый. Модели в нём нет, только файлы и git. Два слоя, как у Claude:
+
+- **корпоративный** — `CORPORATE_AGENTS_DIR`, git-клон репозитория компании (синхронизация — история 01a0e662-d614,
+  здесь каталог читается как есть); каталога нет или он пуст — слоя нет
+- **личный** — `PERSONAL_AGENTS_DIR`, свои агенты сотрудника, расширяют корпоративные
+
+Формат обоих — раскладка плагина Claude: `<слой>/agents/<файл>.md`, frontmatter `name` и `description`, тело —
+инструкция. Остальные ключи frontmatter (`tools`, `model`) читаются и не используются. Frontmatter разбирает свой
+`AgentMarkdownParser` (строки `key: value`, кавычки, блоки `|`/`>`, списки) — pyyaml в зависимостях нет.
+
+- Вход — `build_agent_catalog(corporate_dir, personal_dir)` → `AgentCatalog`: `list()` — `AgentSummary` (имя,
+  описание, слой); `get(имя)` — `AgentDefinition` (инструкция, слой, версия, путь), нет — `AgentNotFoundError`
+- Имя — как в исполнителе задачи после `agent:`, сравнение без учёта регистра (`casefold`), кириллица допустима
+- Одноимённый агент в обоих слоях — берётся корпоративный (правила компании локально не переопределяются),
+  конфликт — строка `Agent name conflict: …` в лог. Дубль имени внутри слоя — первый по имени файла, лог
+- Битый файл (frontmatter не разобран, нет `name`/`description`, пустое тело, не UTF-8) — строка
+  `Agent file … skipped: <причина>` в лог и пропуск, каталог не падает
+- Версия правил — sha HEAD, если корень слоя — git-клон (`git rev-parse` с `safe.directory`: клон смонтирован в
+  контейнер с чужим владельцем), иначе `sha256:<хеш файла>`. Пишется в отчёт прогона
+- Файлы читаются на каждом `list`/`get`: правка или `git pull` видны без рестарта
+- import-linter: `src.corporate_agents` не импортирует соседние контексты
+- Прод: `~/docker/personal_assistant/{corporate_agents,personal_agents}` → `/corporate_agents`, `/personal_agents`
+  только на чтение, каталоги создаёт `up.sh`
 
 ## Технологический стек
 
