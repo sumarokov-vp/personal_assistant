@@ -21,8 +21,8 @@ class TaskLinkTodoistInput(BaseModel):
     )
     case_id: str | None = Field(
         default=None,
-        description="Дело, к которому подвязать задачу. Не относится ни к какому — не "
-        "передавай: задача ляжет в служебное дело «Без темы»",
+        description="Кейс, к которому подвязать задачу. Не относится ни к какому — не "
+        "передавай: задача ляжет в служебный кейс «Без темы»",
     )
     summary: str | None = Field(
         default=None,
@@ -34,9 +34,9 @@ class TaskLinkTodoistInput(BaseModel):
 class TaskLinkTodoistTool(BaseTool):
     name: ClassVar[str] = "task_link_todoist"
     description: ClassVar[str] = (
-        "Подвязывает к делу задачу, которую владелец сам завёл в Todoist: она "
+        "Подвязывает к кейсу задачу, которую владелец сам завёл в Todoist: она "
         "становится нашей задачей с исполнителем self, и дальше её закрытие, "
-        "удаление и смену дедлайна в Todoist ассистент переносит в ленту дела. "
+        "удаление и смену дедлайна в Todoist ассистент переносит в ленту кейса. "
         "Только когда владелец поднял эту тему; уже подвязанная задача второй раз "
         "не записывается."
     )
@@ -56,6 +56,6 @@ class TaskLinkTodoistTool(BaseTool):
             return json.dumps({"error": str(error)}, ensure_ascii=False)
         due = task.due.strftime("%d.%m.%Y") if task.due else "без срока"
         return (
-            f"Задача Todoist подвязана: {task.id} · дело «{task.case.title}» · "
+            f"Задача Todoist подвязана: {task.id} · кейс «{task.case.title}» · "
             f"{task.status} · срок {due}"
         )

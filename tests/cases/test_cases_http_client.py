@@ -251,7 +251,7 @@ def test_missing_case_raises_case_not_found(
 ) -> None:
     fake_service.on("GET", f"{CASES}/{CASE_ID}", 404, {"error": "case_not_found"})
 
-    with pytest.raises(CaseNotFoundError, match="Дело не найдено"):
+    with pytest.raises(CaseNotFoundError, match="Кейс не найден"):
         client.read_case(CASE_ID, 50)
 
 

@@ -37,7 +37,7 @@ class TaskUpdateInput(BaseModel):
 class TaskUpdateTool(BaseTool):
     name: ClassVar[str] = "task_update"
     description: ClassVar[str] = (
-        "Меняет у задачи срок-дедлайн или исполнителя; в ленту дела ложится событие с "
+        "Меняет у задачи срок-дедлайн или исполнителя; в ленту кейса ложится событие с "
         "причиной. Передавай только то, что меняешь. Закрыть задачу — task_close."
     )
     Input: ClassVar[type[BaseModel]] = TaskUpdateInput

@@ -27,7 +27,7 @@ class CaseAddEventInput(BaseModel):
     source_ref: str | None = Field(
         default=None,
         description="id события в источнике: id письма Gmail, id сообщения WhatsApp, путь "
-        "Dropbox или вики. Повтор того же source_ref в деле новую запись не даёт",
+        "Dropbox или вики. Повтор того же source_ref в кейсе новую запись не даёт",
     )
     url: str | None = Field(default=None, description="Ссылка на оригинал, если есть")
     occurred_at: datetime | None = Field(
@@ -37,16 +37,16 @@ class CaseAddEventInput(BaseModel):
     )
     summary: str = Field(
         min_length=1,
-        description="Коротко, что произошло и что это значит для дела. Не копия письма",
+        description="Коротко, что произошло и что это значит для кейса. Не копия письма",
     )
 
 
 class CaseAddEventTool(BaseTool):
     name: ClassVar[str] = "case_add_event"
     description: ClassVar[str] = (
-        "Записывает в ленту дела одно событие: реплику владельца, письмо, сообщение, файл "
-        "или ссылку. Привязывается конкретное событие, не собеседник; одно событие — одно "
-        "дело. В ленте хранится пересказ и ссылка на источник, оригинал остаётся там."
+        "Записывает в ленту кейса одно событие: реплику владельца, письмо, сообщение, файл "
+        "или ссылку. Привязывается конкретное событие, не собеседник; одно событие — один "
+        "кейс. В ленте хранится пересказ и ссылка на источник, оригинал остаётся там."
     )
     Input: ClassVar[type[BaseModel]] = CaseAddEventInput
 
@@ -68,8 +68,8 @@ class CaseAddEventTool(BaseTool):
         except CasesServiceError as error:
             return json.dumps({"error": str(error)}, ensure_ascii=False)
         if addition.created:
-            return f"Событие записано в дело: {addition.event.id}"
-        return f"Это событие уже есть в ленте дела: {addition.event.id}"
+            return f"Событие записано в кейс: {addition.event.id}"
+        return f"Это событие уже есть в ленте кейса: {addition.event.id}"
 
     def _aware(self, moment: datetime | None) -> datetime:
         if moment is None:

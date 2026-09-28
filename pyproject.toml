@@ -136,21 +136,21 @@ type = "forbidden"
 source_modules = ["src.whatsapp"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.wiki"]
 
-# Клиент сервиса дел не знает ни соседей, ни потребителей: инструменты берут у него модели и ошибки
+# Клиент сервиса кейсов не знает ни соседей, ни потребителей: инструменты берут у него модели и ошибки
 [[tool.importlinter.contracts]]
 name = "cases client stands alone"
 type = "forbidden"
 source_modules = ["src.cases"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 
-# Клиент Todoist про дела не знает: мост между ними — только src.task_mirror
+# Клиент Todoist про кейсы не знает: мост между ними — только src.task_mirror
 [[tool.importlinter.contracts]]
 name = "todoist client knows nothing about cases"
 type = "forbidden"
 source_modules = ["src.todoist"]
 forbidden_modules = ["src.ai_tools", "src.cases", "src.task_mirror"]
 
-# Отражение задач в Todoist знает только клиентов дел и Todoist; инструменты и бот — снаружи
+# Отражение задач в Todoist знает только клиентов сервиса кейсов и Todoist; инструменты и бот — снаружи
 [[tool.importlinter.contracts]]
 name = "task mirror bridges only cases and todoist"
 type = "forbidden"
