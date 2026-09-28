@@ -133,5 +133,12 @@ type = "forbidden"
 source_modules = ["src.whatsapp"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.wiki"]
 
+# Клиент сервиса дел не знает ни соседей, ни потребителей: инструменты берут у него модели и ошибки
+[[tool.importlinter.contracts]]
+name = "cases client stands alone"
+type = "forbidden"
+source_modules = ["src.cases"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+
 [tool.uv.sources]
 ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.5" }

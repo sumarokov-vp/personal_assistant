@@ -3,6 +3,11 @@ from src.ai_tools.agent_notifications import (
     AgentNotificationsTool,
     UntrustedNotificationFrame,
 )
+from src.ai_tools.case_add_event import CaseAddEventTool
+from src.ai_tools.case_find import CaseFindTool
+from src.ai_tools.case_open import CaseOpenTool
+from src.ai_tools.case_read import CaseReadTool
+from src.ai_tools.case_update import CaseUpdateTool
 from src.ai_tools.create_task import CreateTaskTool
 from src.ai_tools.draft_mail import DraftAttachments, DraftMailTool
 from src.ai_tools.file_read import FileReadTool
@@ -25,6 +30,11 @@ from src.ai_tools.wiki_search import WikiSearchTool
 __all__ = [
     "AddTaskLinkTool",
     "AgentNotificationsTool",
+    "CaseAddEventTool",
+    "CaseFindTool",
+    "CaseOpenTool",
+    "CaseReadTool",
+    "CaseUpdateTool",
     "CreateTaskTool",
     "DraftAttachments",
     "DraftMailTool",
