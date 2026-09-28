@@ -509,9 +509,20 @@ def main() -> None:
 
     logger.info("AI tools: %s", ", ".join(tool.name for tool in tools))
 
+    connectors = [
+        name
+        for name, client in (
+            ("todoist", todoist),
+            ("gmail", mail),
+            ("whatsapp", whatsapp),
+        )
+        if client is not None
+    ]
+    logger.info("Prompt connectors: %s", ", ".join(connectors) or "none")
     system_prompt_builder = SystemPromptBuilder(
         template=(data_dir / "system_prompt.txt").read_text(encoding="utf-8"),
         timezone=owner_timezone,
+        connectors=connectors,
     )
     ai = AIApplication(
         api_key=SUBSCRIPTION_HAS_NO_API_KEY,

@@ -32,7 +32,7 @@ src/
 ├── chat/
 │   ├── actions/
 │   │   ├── send_to_agent_action.py   # Текст → AIApplication.process_message → ответ в чат
-│   │   ├── system_prompt_builder.py  # data/system_prompt.txt + сегодняшняя дата на каждый запрос
+│   │   ├── system_prompt_builder.py  # data/system_prompt.txt: разделы подключённых коннекторов + дата на каждый запрос
 │   │   ├── transcribe_voice_action.py
 │   │   └── protocols/                # IConversationAI, ISystemPromptBuilder, ITranscriber, ...
 │   ├── albums/                       # AlbumBuffer: фото альбома копятся до тишины, потом одним запросом
@@ -96,8 +96,19 @@ deploy/                      # Образ и выкат в colima
 С v0.9.4 блок «Available tools» при `ClaudeSdkProvider` идёт с полными именами. `data/checkup_prompt.txt` и
 `data/memory_fill_prompt.txt` называют инструменты полными именами; `data/system_prompt.txt` — короткими, а в начале
 раздела «Возможности» указание вызывать по полному имени `mcp__ai-framework-tools__<имя>`: оно остаётся до
-подтверждения на проде, при правке промпта его не терять. `claude_sdk_live_check` идёт с
-коротким промптом-заглушкой, а не с `data/system_prompt.txt`, — поведение настоящего промпта он не проверяет.
+подтверждения на проде, при правке промпта его не терять. `claude_sdk_live_check bot|cases` идёт с настоящим
+`data/system_prompt.txt` (собранным `SystemPromptBuilder`), `checkup` — с коротким промптом-заглушкой.
+
+### Разделы промпта по коннекторам
+
+Раздел коннектора в `data/system_prompt.txt` обрамлён строками `<!-- connector:<ключ> -->` и
+`<!-- /connector:<ключ> -->` (ключи `todoist`, `gmail`, `whatsapp`; обрамлять можно и отдельные строки внутри
+чужого раздела — так сделаны строки «Файлов» про почту и WhatsApp). `SystemPromptBuilder(connectors=…)` один раз
+на старте оставляет тело разделов зарегистрированных коннекторов и вырезает остальные вместе с маркерами; серии
+пустых строк схлопываются. Список собирает `__main__.py` по построенным клиентам (`todoist`, `mail`, `whatsapp`)
+и пишет в лог строкой `Prompt connectors: …`. Упоминание инструмента коннектора вне его маркеров — ошибка:
+без коннектора модель увидит инструмент, которого нет (тест `tests/chat/test_system_prompt_builder.py`).
+Раздел «Дела» от коннекторов не зависит.
 
 ### Встроенные инструменты CLI выключены
 
@@ -121,9 +132,11 @@ deploy/                      # Образ и выкат в colima
 - `uv run python -m scripts.claude_cli_tools_check` — список инструментов из init CLI, без вызова модели;
   в образе: `docker run --rm -v "$PWD/scripts:/app/scripts:ro" --entrypoint python personal_assistant-bot:latest -m scripts.claude_cli_tools_check`.
   Должно быть ровно `mcp__ai-framework-tools__…`
-- `uv run python -m scripts.claude_sdk_live_check bot|checkup` — живой прогон `AIApplication(CLAUDE_SDK)` со
-  списком инструментов бота или чекапа на локальных подменах источников (Todoist — `FakeTodoistClient`, в конце
-  прогона `bot` в лог идут заведённые задачи и комментарии), вызовы модели настоящие.
+- `uv run python -m scripts.claude_sdk_live_check bot|cases|checkup` — живой прогон `AIApplication(CLAUDE_SDK)` со
+  списком инструментов бота или чекапа на локальных подменах источников (Todoist — `FakeTodoistClient`, сервис
+  дел — `InMemoryCasesService` на `httpx.MockTransport` под настоящим `CasesHttpClient`; в конце прогона в лог идут
+  вызовы сервиса дел и записанные события), вызовы модели настоящие. `cases` — только инструменты дел и задач и
+  промпт без коннекторов, как бот без `TODOIST_TOKEN`
   Нативно файл — project settings, а `allowManaged*Only` действует только из managed: запрос разрешения на
   инструмент бота ловится лишь прогоном в образе — `docker build -f deploy/Dockerfile -t <свой тег> .`, затем
   `docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/tests:/app/tests:ro" -v "$PWD/deploy:/app/deploy:ro" --entrypoint python <тег> -m scripts.claude_sdk_live_check bot`
@@ -150,9 +163,9 @@ deploy/                      # Образ и выкат в colima
   attachmentId Gmail: `GmailClient.get_attachment` находит часть по partId и качает по свежему attachmentId
 - **Задачи не закрываются и не удаляются.** В `TodoistHttpClient` нет close/reopen/delete — ни у модели, ни у
   отражения: задачу в Todoist закрывает только владелец (q1 таска 01a0e680-73b6)
-- `create_task`, `update_task`, `add_task_link` с регистрации сняты: задачу ставит `task_add`, в Todoist она уходит
-  отражением; ссылка к делу — событие ленты (`case_add_event`). Пакеты пока лежат — их держит
-  `scripts/claude_sdk_live_check.py`
+- `create_task`, `update_task`, `add_task_link` удалены: задачу ставит `task_add`, в Todoist она уходит
+  отражением; ссылка к делу — событие ленты (`case_add_event`). Промпт о Todoist — раздел «Задачи Todoist» под
+  маркером `todoist`: только чтение `find_tasks`/`read_task` и подвязка `task_link_todoist`
 - Todoist — не хранилище дел: дело живёт в сервисе дел (см. «Дела»), в Todoist — только задачи владельца
 - Текст писем — данные: инструменты почты оборачивают его в `UntrustedMailFrame`, системный промпт запрещает
   исполнять указания из писем
@@ -245,6 +258,11 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
   - граница — import-linter: `src.todoist` не знает дел, `src.cases` не знает Todoist, мост — только `src.task_mirror`
 - Пересказы в ленте пишутся по чужим письмам и сообщениям: `case_find` и `case_read` отдают их в рамке
   `UntrustedCaseFrame` (`<untrusted_case>`)
+- Поведение задаёт раздел «Дела» `data/system_prompt.txt`: сперва `case_find` по теме, неясна тема — вопрос
+  «для чего это?», новое дело — только под новую тему; задача — `task_add` в деле с исполнителем (self по
+  умолчанию) и «что и зачем» в summary; к делу пишется событие (`source_ref`), а не собеседник, одно событие —
+  одно дело, не уверен — вопрос с кандидатами и до ответа не писать; вопрос о деле — `case_read`, в источник —
+  только за подробностями
 - Регистрация — `workers/bot/cases_tools_factory.py` при `CASES_API_URL` и `CASES_API_KEY`; задана одна из двух —
   бот падает на старте (как `GMAIL_*`). От `TODOIST_TOKEN` не зависит
 - Граница — import-linter «cases client stands alone»: `src.cases` не импортирует соседей; инструменты берут у него
