@@ -1,3 +1,4 @@
+from src.conversations.models.attachment_availability import AttachmentAvailability
 from src.conversations.models.conversation_attachment import ConversationAttachment
 from src.conversations.models.conversation_message import ConversationMessage
 from src.conversations.models.message_summary import MessageSummary
@@ -48,5 +49,5 @@ class MailConversationMapper:
             name=attachment.filename,
             media_type=attachment.media_type,
             size=attachment.size,
-            downloaded=True,
+            availability=AttachmentAvailability.AVAILABLE,
         )

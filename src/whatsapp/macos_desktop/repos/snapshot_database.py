@@ -34,7 +34,9 @@ SELECT
     i.Z_PK AS media_pk,
     i.ZTITLE AS media_title,
     i.ZFILESIZE AS media_size,
-    i.ZMEDIALOCALPATH AS media_path
+    i.ZMEDIALOCALPATH AS media_path,
+    i.ZMEDIAURL AS media_url,
+    i.ZMEDIAKEY AS media_key
 FROM ZWAMESSAGE m
 JOIN ZWACHATSESSION c ON c.Z_PK = m.ZCHATSESSION
 LEFT JOIN ZWAGROUPMEMBER g ON g.Z_PK = m.ZGROUPMEMBER

@@ -542,7 +542,7 @@ def seed_whatsapp(snapshot_dir: Path) -> None:
 def whatsapp_source(scratch: Path) -> IWhatsAppSource:
     snapshot_dir = scratch / "whatsapp"
     seed_whatsapp(snapshot_dir)
-    source = build_whatsapp_source(str(snapshot_dir), TIMEZONE)
+    source = build_whatsapp_source(str(snapshot_dir), TIMEZONE, scratch / "work")
     if source is None:
         raise RuntimeError("WhatsApp source is not built")
     return source

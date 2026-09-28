@@ -2,22 +2,39 @@ import mimetypes
 import re
 from pathlib import Path, PurePosixPath
 
+from src.conversations.models.attachment_availability import AttachmentAvailability
 from src.conversations.models.conversation_attachment import ConversationAttachment
 from src.whatsapp.macos_desktop.models.whatsapp_message_row import WhatsAppMessageRow
-from src.whatsapp.macos_desktop.services.attachment_describer.media_kind import (
+from src.whatsapp.macos_desktop.services.attachment_describer.protocols.i_remote_media_state import (
+    IRemoteMediaState,
+)
+from src.whatsapp.macos_desktop.services.entities.media_kind import (
     DOCUMENT_MESSAGE_TYPE,
-    FALLBACK_KIND,
-    KIND_BY_MESSAGE_TYPE,
     MediaKind,
+    media_kind,
+)
+from src.whatsapp.macos_desktop.services.remote_media.remote_media_state import (
+    RemoteMediaState,
 )
 
 FILE_SUFFIX = re.compile(r"\.[A-Za-z0-9]{1,8}")
 MAX_FILE_NAME_LENGTH = 255
+UNAVAILABLE_REASONS = {
+    RemoteMediaState.EXPIRED: "ссылка истекла",
+    RemoteMediaState.NO_LINK: "нет ссылки для скачивания",
+}
+REMOTE_AVAILABILITY = {
+    RemoteMediaState.CACHED: AttachmentAvailability.AVAILABLE,
+    RemoteMediaState.ON_REQUEST: AttachmentAvailability.ON_REQUEST,
+    RemoteMediaState.EXPIRED: AttachmentAvailability.UNAVAILABLE,
+    RemoteMediaState.NO_LINK: AttachmentAvailability.UNAVAILABLE,
+}
 
 
 class AttachmentDescriber:
-    def __init__(self, media_root: Path) -> None:
+    def __init__(self, media_root: Path, remote: IRemoteMediaState) -> None:
         self._media_root = media_root
+        self._remote = remote
 
     def describe(self, row: WhatsAppMessageRow) -> ConversationAttachment | None:
         if not row.has_attachment or row.media_pk is None:
@@ -27,12 +44,14 @@ class AttachmentDescriber:
         size = row.media_size if row.media_size else None
         if size is None and local_file is not None:
             size = local_file.stat().st_size
+        availability, unavailable_reason = self._availability(row, local_file)
         return ConversationAttachment(
             attachment_id=str(row.media_pk),
             name=name,
-            media_type=self._media_type(name, self._kind(row)),
+            media_type=self._media_type(name, media_kind(row.message_type)),
             size=size,
-            downloaded=local_file is not None,
+            availability=availability,
+            unavailable_reason=unavailable_reason,
         )
 
     def local_file(self, row: WhatsAppMessageRow) -> Path | None:
@@ -44,19 +63,22 @@ class AttachmentDescriber:
             return None
         return candidate
 
+    def _availability(
+        self, row: WhatsAppMessageRow, local_file: Path | None
+    ) -> tuple[AttachmentAvailability, str | None]:
+        if local_file is not None:
+            return AttachmentAvailability.AVAILABLE, None
+        state = self._remote.state(row)
+        return REMOTE_AVAILABILITY[state], UNAVAILABLE_REASONS.get(state)
+
     def _name(self, row: WhatsAppMessageRow) -> str:
         if row.message_type == DOCUMENT_MESSAGE_TYPE:
             for candidate in (row.media_title, row.body):
                 if candidate and _looks_like_file_name(candidate):
                     return candidate
-        kind = self._kind(row)
+        kind = media_kind(row.message_type)
         suffix = PurePosixPath(row.media_path).suffix if row.media_path else kind.suffix
         return f"whatsapp-{kind.label}-{row.media_pk}{suffix}"
-
-    def _kind(self, row: WhatsAppMessageRow) -> MediaKind:
-        if row.message_type is None:
-            return FALLBACK_KIND
-        return KIND_BY_MESSAGE_TYPE.get(row.message_type, FALLBACK_KIND)
 
     def _media_type(self, name: str, kind: MediaKind) -> str:
         guessed, _ = mimetypes.guess_type(name, strict=False)
