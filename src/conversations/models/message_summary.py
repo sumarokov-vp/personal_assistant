@@ -11,3 +11,4 @@ class MessageSummary(BaseModel):
     date: str
     snippet: str
     has_attachments: bool
+    link: str | None = None

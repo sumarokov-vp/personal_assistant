@@ -19,17 +19,21 @@ from src.ai_tools.file_send import FileSendTool
 from src.ai_tools.file_take import FileTakeTool
 from src.ai_tools.file_view import FileViewTool
 from src.ai_tools.find_tasks import FindTasksTool
+from src.ai_tools.list_telegram_chats import ListTelegramChatsTool
 from src.ai_tools.memory_close_commitment import MemoryCloseCommitmentTool
 from src.ai_tools.memory_show import MemoryShowTool
 from src.ai_tools.memory_upsert_commitment import MemoryUpsertCommitmentTool
 from src.ai_tools.memory_upsert_deadline import MemoryUpsertDeadlineTool
 from src.ai_tools.memory_upsert_trip import MemoryUpsertTripTool
 from src.ai_tools.read_task import ReadTaskTool
+from src.ai_tools.read_telegram import ReadTelegramTool
+from src.ai_tools.search_telegram import SearchTelegramTool
 from src.ai_tools.task_add import TaskAddTool
 from src.ai_tools.task_close import TaskCloseTool
 from src.ai_tools.task_link_todoist import TaskLinkTodoistTool
 from src.ai_tools.task_list import TaskListTool
 from src.ai_tools.task_update import TaskUpdateTool
+from src.ai_tools.telegram_common import UntrustedTelegramFrame
 from src.ai_tools.wiki_append.tool import WikiAppendTool
 from src.ai_tools.wiki_create_page.tool import WikiCreatePageTool
 from src.ai_tools.wiki_read import WikiReadTool
@@ -52,12 +56,15 @@ __all__ = [
     "FileTakeTool",
     "FileViewTool",
     "FindTasksTool",
+    "ListTelegramChatsTool",
     "MemoryCloseCommitmentTool",
     "MemoryShowTool",
     "MemoryUpsertCommitmentTool",
     "MemoryUpsertDeadlineTool",
     "MemoryUpsertTripTool",
     "ReadTaskTool",
+    "ReadTelegramTool",
+    "SearchTelegramTool",
     "TaskAddTool",
     "TaskCloseTool",
     "TaskLinkTodoistTool",
@@ -65,6 +72,7 @@ __all__ = [
     "TaskUpdateTool",
     "UntrustedColleagueMessageFrame",
     "UntrustedNotificationFrame",
+    "UntrustedTelegramFrame",
     "WikiAppendTool",
     "WikiCreatePageTool",
     "WikiReadTool",

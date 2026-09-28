@@ -47,6 +47,10 @@ WHATSAPP_HINT = (
     "вложение сообщения WhatsApp: message_id и attachment_id из read_whatsapp; "
     "берётся только файл, скачанный в WhatsApp Desktop"
 )
+TELEGRAM_HINT = (
+    "вложение сообщения Telegram: message_id (вида <чат>:<номер>) и attachment_id из "
+    "read_telegram; файл качается из Telegram по запросу"
+)
 
 
 def build_file_take_tool(
@@ -55,6 +59,7 @@ def build_file_take_tool(
     dropbox_boundary: IDropboxFileOpener | None,
     mail: IMailAttachments | None,
     whatsapp: IConversationAttachments | None = None,
+    telegram: IConversationAttachments | None = None,
 ) -> FileTakeTool:
     mail_source: IFileSource = (
         MailFileSource(mail, FILE_TAKE_LIMIT_BYTES)
@@ -83,6 +88,14 @@ def build_file_take_tool(
                 ConversationFileSource(whatsapp, "whatsapp", FILE_TAKE_LIMIT_BYTES),
             )
         )
+    if telegram is not None:
+        sources.append(
+            RegisteredFileSource(
+                "telegram",
+                TELEGRAM_HINT,
+                ConversationFileSource(telegram, "telegram", FILE_TAKE_LIMIT_BYTES),
+            )
+        )
     return FileTakeTool(work_files=work_folder, sources=sources)
 
 
@@ -93,13 +106,19 @@ def build_file_tools(
     dropbox_boundary: DropboxBoundary | None,
     mail: GmailClient | None,
     whatsapp: IConversationAttachments | None,
+    telegram: IConversationAttachments | None,
     max_image_bytes: int,
     document_sender: IDocumentSender,
     owner_chat_id: int,
 ) -> list[BaseTool]:
     return [
         build_file_take_tool(
-            work_folder, chat_attachments, dropbox_boundary, mail, whatsapp
+            work_folder,
+            chat_attachments,
+            dropbox_boundary,
+            mail,
+            whatsapp=whatsapp,
+            telegram=telegram,
         ),
         FileReadTool(
             work_files=work_folder, text_reader=text_reader, frame=UntrustedFileFrame()

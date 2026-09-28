@@ -135,6 +135,11 @@ from workers.bot.todoist_tools_factory import (
     build_todoist_client,
     build_todoist_tools,
 )
+from workers.bot.telegram_tools_factory import (
+    TELEGRAM_USER_SECRETS_VARIABLE,
+    build_telegram_source,
+    build_telegram_tools,
+)
 from workers.bot.transcriber_factory import build_transcriber
 from workers.bot.whatsapp_tools_factory import (
     WHATSAPP_MACOS_SNAPSHOT_VARIABLE,
@@ -689,6 +694,12 @@ def main() -> None:
             "on" if getenv(WHATSAPP_WEB_URL_VARIABLE) else "off",
         )
 
+    telegram = build_telegram_source(
+        getenv(TELEGRAM_USER_SECRETS_VARIABLE), owner_timezone, bot_token
+    )
+    if telegram is not None:
+        tools.extend(build_telegram_tools(telegram, owner_timezone))
+
     tools.extend(
         build_file_tools(
             work_folder=WorkFolder(work_dir),
@@ -697,6 +708,7 @@ def main() -> None:
             dropbox_boundary=dropbox_boundary,
             mail=mail,
             whatsapp=whatsapp,
+            telegram=telegram,
             max_image_bytes=MAX_IMAGE_BYTES,
             document_sender=app.document_sender,
             owner_chat_id=owner_telegram_id,
@@ -711,6 +723,7 @@ def main() -> None:
             ("todoist", todoist),
             ("gmail", mail),
             ("whatsapp", whatsapp),
+            ("telegram", telegram),
         )
         if client is not None
     ]

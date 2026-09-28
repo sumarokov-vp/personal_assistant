@@ -4,8 +4,10 @@
 # подменах источников: временная папка Dropbox, вики в локальном bare-репозитории, фейковый
 # Todoist, фейковая почта (письмо с PDF и сканом во вложениях), история чата в памяти,
 # синтетический снимок WhatsApp (схема WhatsApp Desktop, выдуманные чаты — настоящей переписки нет),
+# подменный Telegram владельца (FakeTelegramSource: супергруппа с договором и ссылкой t.me/c/…,
+# личный чат без ссылки — живой сессии и TELEGRAM_USER_SECRETS_FILE прогон не касается),
 # сервис кейсов в памяти (httpx.MockTransport под настоящим CasesHttpClient). Режимы bot и cases идут с
-# настоящим data/system_prompt.txt: bot — с разделами Todoist, Gmail, WhatsApp; cases — без
+# настоящим data/system_prompt.txt: bot — с разделами Todoist, Gmail, WhatsApp, Telegram; cases — без
 # коннекторов, как бот без TODOIST_TOKEN. В конце прогона в лог идут вызовы сервиса кейсов.
 # Черновики писем и файлы «в чат» не уходят никуда — только строкой в лог. Вызовы модели настоящие: CLI берёт CLAUDE_CODE_OAUTH_TOKEN, а нативно на Mac
 # владельца — локальную авторизацию Claude Code.
@@ -90,6 +92,7 @@ from src.wiki import WikiFactory, WikiSettings
 from tests.checkup.fakes import FakeTodoistClient
 from tests.dropbox.in_memory_dropbox_journal import InMemoryDropboxJournal
 from tests.dropbox.in_memory_move_plan_store import InMemoryMovePlanStore
+from tests.ai_tools.telegram.fake_telegram_source import FakeTelegramSource
 from tests.memory.in_memory_wiki_storage import InMemoryWikiStorage
 from tests.whatsapp.macos_desktop.synthetic_snapshot import GROUP, SyntheticSnapshot
 from workers.bot.__main__ import (
@@ -106,7 +109,9 @@ from workers.bot.file_tools_factory import (
     TELEGRAM_BOT_UPLOAD_LIMIT_BYTES,
     build_file_take_tool,
 )
+from workers.bot.protocols.i_telegram_source import ITelegramSource
 from workers.bot.protocols.i_whatsapp_source import IWhatsAppSource
+from workers.bot.telegram_tools_factory import build_telegram_tools
 from workers.bot.whatsapp_tools_factory import (
     build_whatsapp_source,
     build_whatsapp_tools,
@@ -122,7 +127,7 @@ logger = getLogger("claude_sdk_live_check")
 PROJECT_ROOT = Path(__file__).parent.parent
 SYSTEM_PROMPT = PROJECT_ROOT / "data" / "system_prompt.txt"
 STUB_PROMPT = "Ты личный ассистент. Отвечай кратко, по-русски."
-BOT_CONNECTORS = ("todoist", "gmail", "whatsapp")
+BOT_CONNECTORS = ("todoist", "gmail", "whatsapp", "telegram")
 CASES_PREFIX = "/api/v1"
 MANAGED_SETTINGS = PROJECT_ROOT / "deploy" / "claude-code" / "managed-settings.json"
 TIMEZONE = ZoneInfo("Asia/Almaty")
@@ -176,6 +181,13 @@ BOT_PROMPTS = [
     "Что пишут в группе «Дача» в WhatsApp?",
     "Анна присылала в WhatsApp фото квартиры — забери его и покажи мне.",
     "Прикрепи к кейсу про аренду сообщение Анны в WhatsApp про оплату до 5 октября.",
+    "Что писал Борис в Telegram?",
+    "Что пишут в Telegram-группе «Стройка дачи»?",
+    "Заведи кейс «Стройка дачи» и приложи к нему договор, который Борис прислал в "
+    "Telegram-группу «Стройка дачи»: положи файл в Dropbox в 03_home/archive и добавь "
+    "событие в кейс.",
+    "Прикрепи к кейсу «Стройка дачи» сообщение Анны в Telegram о том, что она пришлёт "
+    "договор завтра.",
     *CASES_PROMPTS,
 ]
 CHECKUP_PROMPTS = [
@@ -241,12 +253,13 @@ class InMemoryCasesService:
         for case_id, events in self.events.items():
             for event in events:
                 logger.info(
-                    "case %r: %s/%s %r ref=%s",
+                    "case %r: %s/%s %r ref=%s url=%s",
                     self.cases[case_id]["title"],
                     event["source"],
                     event["kind"],
                     event["summary"],
                     event.get("source_ref"),
+                    event.get("url"),
                 )
 
     def _case_id(self, alias: str) -> str:
@@ -556,6 +569,7 @@ def file_tools(
     work_folder: WorkFolder,
     scan: bytes,
     whatsapp: IWhatsAppSource,
+    telegram: ITelegramSource,
 ) -> list[BaseTool]:
     mail = FakeMail(
         {
@@ -568,7 +582,12 @@ def file_tools(
         SearchMailTool(searcher=GmailMessageSearch(mail), frame=UntrustedMailFrame()),
         ReadMailTool(reader=GmailMessageReader(mail), frame=UntrustedMailFrame()),
         build_file_take_tool(
-            work_folder, chat_with_photo(scan), boundary, mail, whatsapp
+            work_folder,
+            chat_with_photo(scan),
+            boundary,
+            mail,
+            whatsapp,
+            telegram=telegram,
         ),
         FileReadTool(
             work_files=work_folder,
@@ -681,6 +700,7 @@ def bot_tools(
         DropboxUndoMovesTool(plans=NoPlans(), offer_sender=card),
     ]
     whatsapp = whatsapp_source(scratch)
+    telegram = FakeTelegramSource()
     return [
         *build_dropbox_tools(boundary, FileTextReader()),
         *move_tools,
@@ -693,7 +713,8 @@ def bot_tools(
         *build_cases_tools(cases, TIMEZONE),
         *todoist_tools(todoist, cases),
         *build_whatsapp_tools(whatsapp, TIMEZONE),
-        *file_tools(boundary, WorkFolder(scratch / "work"), scan, whatsapp),
+        *build_telegram_tools(telegram, TIMEZONE),
+        *file_tools(boundary, WorkFolder(scratch / "work"), scan, whatsapp, telegram),
     ]
 
 
