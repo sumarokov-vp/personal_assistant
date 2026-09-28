@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 
+from src.conversations.models.attachment_availability import AttachmentAvailability
+
 
 class ConversationAttachment(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -8,4 +10,5 @@ class ConversationAttachment(BaseModel):
     name: str
     media_type: str
     size: int | None
-    downloaded: bool
+    availability: AttachmentAvailability
+    unavailable_reason: str | None = None

@@ -106,12 +106,14 @@ class SyntheticSnapshot:
         title: str | None = None,
         local_path: str | None = None,
         content: bytes | None = None,
+        url: str | None = None,
+        media_key: bytes | None = None,
     ) -> int:
         pk = self._pk()
         self._execute(
-            "INSERT INTO ZWAMEDIAITEM (Z_PK, ZFILESIZE, ZMEDIALOCALPATH, ZTITLE) "
-            "VALUES (?, ?, ?, ?)",
-            (pk, size, local_path, title),
+            "INSERT INTO ZWAMEDIAITEM (Z_PK, ZFILESIZE, ZMEDIALOCALPATH, ZTITLE, "
+            "ZMEDIAURL, ZMEDIAKEY) VALUES (?, ?, ?, ?, ?, ?)",
+            (pk, size, local_path, title, url, media_key),
         )
         if local_path is not None and content is not None:
             file_path = self.media_root / local_path

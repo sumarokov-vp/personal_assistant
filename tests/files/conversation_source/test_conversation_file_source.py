@@ -6,6 +6,7 @@ from ai_framework import ToolContext
 
 from src.ai_tools.file_take import FileTakeTool, RegisteredFileSource
 from src.ai_tools.file_take.tool import FileTakeInput
+from src.conversations.models.attachment_availability import AttachmentAvailability
 from src.conversations.errors.attachment_not_downloaded_error import (
     AttachmentNotDownloadedError,
 )
@@ -26,7 +27,7 @@ PHOTO = ConversationAttachment(
     name="IMG-1.jpg",
     media_type="image/jpeg",
     size=4,
-    downloaded=True,
+    availability=AttachmentAvailability.AVAILABLE,
 )
 
 
@@ -42,7 +43,7 @@ class FakeChatStore:
         self, message_id: str, attachment_id: str
     ) -> AttachmentContent:
         self.downloads += 1
-        if not self._attachment.downloaded:
+        if self._attachment.availability is not AttachmentAvailability.AVAILABLE:
             raise AttachmentNotDownloadedError(
                 self._attachment.name, "открой чат в WhatsApp Desktop и скачай файл"
             )
@@ -76,7 +77,9 @@ def test_known_size_over_limit_is_refused_without_download() -> None:
 
 
 def test_not_downloaded_hint_reaches_model(tmp_path: Path) -> None:
-    store = FakeChatStore(PHOTO.model_copy(update={"downloaded": False}))
+    store = FakeChatStore(
+        PHOTO.model_copy(update={"availability": AttachmentAvailability.UNAVAILABLE})
+    )
     tool = FileTakeTool(
         work_files=WorkFolder(tmp_path / "work"),
         sources=[

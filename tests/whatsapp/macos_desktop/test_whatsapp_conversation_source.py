@@ -16,6 +16,7 @@ from src.conversations.errors.conversation_not_found_error import (
     ConversationNotFoundError,
 )
 from src.conversations.errors.message_not_found_error import MessageNotFoundError
+from src.conversations.models.attachment_availability import AttachmentAvailability
 from src.conversations.models.conversation_window import ConversationWindow
 from src.conversations.models.message_query import MessageQuery
 from src.conversations.protocols.i_conversation_directory import (
@@ -24,6 +25,7 @@ from src.conversations.protocols.i_conversation_directory import (
 from src.conversations.protocols.i_conversation_source import IConversationSource
 from src.conversations.protocols.i_source_freshness import ISourceFreshness
 from src.whatsapp.macos_desktop.errors.whatsapp_schema_error import WhatsAppSchemaError
+from src.whatsapp.macos_desktop.models.cdn_download import CdnDownload
 from src.whatsapp.macos_desktop.errors.whatsapp_snapshot_missing_error import (
     WhatsAppSnapshotMissingError,
 )
@@ -33,6 +35,11 @@ from src.whatsapp.macos_desktop.services.conversation_source.whatsapp_conversati
 from tests.whatsapp.macos_desktop.synthetic_snapshot import GROUP, SyntheticSnapshot
 
 TIMEZONE = ZoneInfo("Asia/Almaty")
+
+
+class OfflineCdnClient:
+    def download(self, url: str, max_bytes: int) -> CdnDownload:
+        raise AssertionError("снимок без ссылок CDN не ходит в сеть")
 
 
 class Fixture:
@@ -104,7 +111,9 @@ class Fixture:
             media_pk=self.escape_media,
         )
         s.mark_captured("2026-09-05T07:10:00Z")
-        self.source = WhatsAppConversationSource(snapshot_dir, TIMEZONE)
+        self.source = WhatsAppConversationSource(
+            snapshot_dir, TIMEZONE, snapshot_dir.parent / "cache", OfflineCdnClient()
+        )
 
 
 @pytest.fixture
@@ -223,19 +232,22 @@ def test_downloaded_attachment_is_listed_and_fetched(fx: Fixture):
     content = fx.source.fetch_attachment(str(fx.document), str(fx.document_media))
 
     assert [
-        (item.name, item.media_type, item.size, item.downloaded) for item in attachments
-    ] == [("Договор.pdf", "application/pdf", 11, True)]
+        (item.name, item.media_type, item.size, item.availability)
+        for item in attachments
+    ] == [("Договор.pdf", "application/pdf", 11, AttachmentAvailability.AVAILABLE)]
     assert content.content == b"%PDF-synthetic"
     assert content.name == "Договор.pdf"
 
 
-def test_not_downloaded_attachment_asks_owner_to_download_in_desktop(fx: Fixture):
+def test_not_downloaded_attachment_without_link_asks_owner_to_download_in_desktop(
+    fx: Fixture,
+):
     attachment = fx.source.read_message(str(fx.photo)).attachments[0]
 
-    assert (attachment.name, attachment.media_type, attachment.downloaded) == (
+    assert (attachment.name, attachment.media_type, attachment.availability) == (
         f"whatsapp-image-{fx.photo_media}.jpg",
         "image/jpeg",
-        False,
+        AttachmentAvailability.UNAVAILABLE,
     )
     with pytest.raises(AttachmentNotDownloadedError, match="WhatsApp Desktop"):
         fx.source.fetch_attachment(str(fx.photo), attachment.attachment_id)
@@ -268,7 +280,9 @@ def test_freshness_reports_last_message_and_capture_time(fx: Fixture):
 
 
 def test_missing_snapshot_is_a_clear_error(tmp_path: Path):
-    source = WhatsAppConversationSource(tmp_path / "absent", TIMEZONE)
+    source = WhatsAppConversationSource(
+        tmp_path / "absent", TIMEZONE, tmp_path / "cache", OfflineCdnClient()
+    )
 
     with pytest.raises(WhatsAppSnapshotMissingError):
         source.freshness()

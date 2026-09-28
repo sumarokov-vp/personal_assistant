@@ -23,7 +23,14 @@ REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
         "ZLASTMESSAGEDATE",
     ),
     "ZWAGROUPMEMBER": ("Z_PK", "ZCONTACTNAME", "ZFIRSTNAME", "ZMEMBERJID"),
-    "ZWAMEDIAITEM": ("Z_PK", "ZTITLE", "ZFILESIZE", "ZMEDIALOCALPATH"),
+    "ZWAMEDIAITEM": (
+        "Z_PK",
+        "ZTITLE",
+        "ZFILESIZE",
+        "ZMEDIALOCALPATH",
+        "ZMEDIAURL",
+        "ZMEDIAKEY",
+    ),
 }
 
 

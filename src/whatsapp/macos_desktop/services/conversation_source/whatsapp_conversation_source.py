@@ -10,6 +10,7 @@ from src.conversations.models.conversation_window import ConversationWindow
 from src.conversations.models.message_query import MessageQuery
 from src.conversations.models.message_summary import MessageSummary
 from src.conversations.models.source_freshness import SourceFreshness
+from src.whatsapp.macos_desktop.repos.media_cache import MediaCache
 from src.whatsapp.macos_desktop.repos.snapshot_database import SnapshotDatabase
 from src.whatsapp.macos_desktop.repos.snapshot_marker import SnapshotMarker
 from src.whatsapp.macos_desktop.repos.snapshot_schema import SnapshotSchema
@@ -36,8 +37,17 @@ from src.whatsapp.macos_desktop.services.freshness.whatsapp_freshness import (
 from src.whatsapp.macos_desktop.services.message_mapper.message_mapper import (
     MessageMapper,
 )
+from src.whatsapp.macos_desktop.services.conversation_source.protocols.i_cdn_client import (
+    ICdnClient,
+)
+from src.whatsapp.macos_desktop.services.media_cipher.media_cipher import (
+    WhatsAppMediaCipher,
+)
 from src.whatsapp.macos_desktop.services.message_search.whatsapp_message_search import (
     WhatsAppMessageSearch,
+)
+from src.whatsapp.macos_desktop.services.remote_media.remote_media import (
+    WhatsAppRemoteMedia,
 )
 
 DATABASE_FILE = "ChatStorage.sqlite"
@@ -46,16 +56,25 @@ SNAPSHOT_MARKER = "snapshot_at"
 
 
 class WhatsAppConversationSource:
-    def __init__(self, snapshot_dir: Path, timezone: ZoneInfo) -> None:
+    def __init__(
+        self,
+        snapshot_dir: Path,
+        timezone: ZoneInfo,
+        media_cache_dir: Path,
+        cdn_client: ICdnClient,
+    ) -> None:
         database = SnapshotDatabase(snapshot_dir / DATABASE_FILE, SnapshotSchema())
         messages = WhatsAppMessageRepo(database)
         chats = WhatsAppChatRepo(database)
         clock = CoreDataClock(timezone)
-        describer = AttachmentDescriber(snapshot_dir / MEDIA_ROOT)
+        remote_media = WhatsAppRemoteMedia(
+            MediaCache(media_cache_dir), cdn_client, WhatsAppMediaCipher()
+        )
+        describer = AttachmentDescriber(snapshot_dir / MEDIA_ROOT, remote_media)
         mapper = MessageMapper(clock, describer)
         self._search = WhatsAppMessageSearch(messages, mapper, clock)
         self._reader = WhatsAppConversationReader(messages, chats, mapper, clock)
-        self._attachments = WhatsAppAttachmentStore(messages, describer)
+        self._attachments = WhatsAppAttachmentStore(messages, describer, remote_media)
         self._directory = WhatsAppConversationDirectory(chats, clock)
         self._freshness = WhatsAppFreshness(
             messages, SnapshotMarker(snapshot_dir / SNAPSHOT_MARKER), clock
