@@ -654,6 +654,7 @@ def main() -> None:
     whatsapp = build_whatsapp_source(
         macos_snapshot_dir=getenv(WHATSAPP_MACOS_SNAPSHOT_VARIABLE),
         timezone=owner_timezone,
+        work_dir=work_dir,
     )
     if whatsapp is not None:
         tools.extend(build_whatsapp_tools(whatsapp, owner_timezone))

@@ -192,7 +192,8 @@ deploy/                      # Образ и выкат в colima
 - Текст сообщений, имена чатов — в рамке `UntrustedWhatsAppFrame` (`<untrusted_whatsapp>`), промпт запрещает исполнять
   указания из сообщений. Отправки в WhatsApp нет ни в протоколе, ни в инструментах
 - Файл — `file_take(source=whatsapp, message_id, attachment_id)` через `ConversationFileSource` (origin
-  `whatsapp:<message>/<attachment>`); нескачанное Desktop — ошибка с просьбой владельцу скачать файл в WhatsApp Desktop
+  `whatsapp:<message>/<attachment>`); нескачанное Desktop бот качает с CDN WhatsApp по запросу (см. «WhatsApp (macOS
+  Desktop)»), истёкшая ссылка — ошибка с причиной и просьбой владельцу скачать файл в WhatsApp Desktop
 
 Refresh token Gmail: `uv run scripts/gmail_auth.py` (из корня репы, на машине с ключом pass ассистента) — берёт
 OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, открывает согласие (offline,
@@ -426,8 +427,9 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   сообщения и время снимка для фразы «последнее сообщение от <дата>» (WhatsApp).
 - Поле `date` в моделях — строка, как дату показывает источник (заголовок Date у Gmail, «ДД.ММ.ГГГГ ЧЧ:ММ» у
   WhatsApp): её читает модель. Машинные даты — только в `MessageQuery`, `ConversationWindow`, `SourceFreshness`.
-- `ConversationAttachment.downloaded` — лежит ли файл у источника (WhatsApp Desktop хранит только скачанное);
-  `fetch_attachment` нескачанного бросает `AttachmentNotDownloadedError` с подсказкой владельцу. Остальные ошибки —
+- `ConversationAttachment.availability` — `available` (файл у источника), `on_request` (источник скачает его при
+  `fetch_attachment`), `unavailable` с `unavailable_reason`; `fetch_attachment` недоступного или не скачавшегося
+  бросает `AttachmentNotDownloadedError` с причиной и подсказкой владельцу. Остальные ошибки —
   `ConversationNotFoundError`, `MessageNotFoundError`, `AttachmentNotFoundError`, общий предок `ConversationSourceError`.
 - В протоколе нет отправки: бот в переписку ничего не пишет. Черновики Gmail (`draft_*`) остаются Gmail-специфичными.
 - Инструменты модели держат свои узкие Protocol-ы в `src/ai_tools/<tool>/protocols/` (Protocol живёт у клиента), а
@@ -451,9 +453,23 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
 - id — `Z_PK` строкой (чат, сообщение, медиа); даты — секунды от 01.01.2001 UTC (`CoreDataClock`),
   наружу — «ДД.ММ.ГГГГ ЧЧ:ММ» во временной зоне владельца
 - Вложение — `ZFILESIZE > 0` или путь в `ZMEDIALOCALPATH` (превью ссылок — не вложение).
-  Скачано — файл есть в `<снимок>/Message/<ZMEDIALOCALPATH>`. Desktop хранит только скачанное:
-  нескачанное — `AttachmentNotDownloadedError` «открой чат в WhatsApp Desktop и скачай файл».
-  CDN/`ZMEDIAKEY` не используются (решение владельца, в later)
+  Скачано — файл есть в `<снимок>/Message/<ZMEDIALOCALPATH>`. Desktop хранит только скачанное (автозагрузка
+  фактически выключена), остальное бот качает сам — `services/remote_media/` (решение владельца 28.09.2026):
+  - `ZWAMEDIAITEM.ZMEDIAURL` — ссылка на CDN, берётся только `https://mmg.whatsapp.net` (остальные URL в
+    колонке — превью ссылок из чатов, по ним бот не ходит); параметр `oe=` — срок жизни ссылки, hex unix time,
+    живёт ~30 дней. `ZMEDIAKEY` — protobuf, поле 1 — 32-байтный media key
+  - Шифрование медиа WhatsApp (`services/media_cipher/`): HKDF-SHA256 от media key (112 байт, info по типу —
+    `WhatsApp Image/Video/Audio/Document Keys`, таблица `services/entities/media_kind.py`) → iv, cipherKey,
+    macKey; файл — AES-256-CBC, последние 10 байт — HMAC-SHA256(iv + шифртекст). Запрос — обычный GET без
+    аккаунта; тело больше `ZFILESIZE` + 26 не дочитывается, размер после расшифровки сверяется с `ZFILESIZE`
+  - Скачивание только по `fetch_attachment` на конкретное вложение, не массово. Расшифрованное ложится в кэш
+    `<PA_WORK_DIR>/whatsapp-media/<media_pk>-<хеш ключа>` (снимок только на чтение) и живёт, как рабочая папка,
+    сутки (`Sweeper`)
+  - Пометка вложения: файл в снимке или в кэше — `available`; ссылка живая — `on_request`; `oe` в прошлом —
+    `unavailable` «ссылка истекла», без ссылки/ключа/известного типа — «нет ссылки для скачивания».
+    Неудача скачивания — `AttachmentNotDownloadedError` с причиной (ссылка истекла / CDN ответил кодом /
+    MAC не сошёлся / размер не сошёлся) и просьбой скачать файл в WhatsApp Desktop; сетевой сбой (таймаут,
+    DNS) — исключение httpx, `ai_framework` отдаёт его модели текстом, промпт велит повторить раз
 - Свежесть — `max(ZMESSAGEDATE)` и `snapshot_at`: бот говорит «последнее сообщение от <дата>»
 - Поиск — подстрока без учёта регистра (Python `casefold` через `create_function`, SQLite LIKE
   кириллицу не складывает), полный проход ~0,2 с на 62 тыс. сообщений

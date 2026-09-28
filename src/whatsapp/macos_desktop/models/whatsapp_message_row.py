@@ -22,3 +22,5 @@ class WhatsAppMessageRow(BaseModel):
     media_title: str | None
     media_size: int | None
     media_path: str | None
+    media_url: str | None
+    media_key: bytes | None
