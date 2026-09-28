@@ -40,7 +40,7 @@ class TaskCloseInput(BaseModel):
 class TaskCloseTool(BaseTool):
     name: ClassVar[str] = "task_close"
     description: ClassVar[str] = (
-        "Закрывает задачу: done — сделана, cancelled — отменена. В ленту дела ложится "
+        "Закрывает задачу: done — сделана, cancelled — отменена. В ленту кейса ложится "
         "событие закрытия; уже закрытая задача второго события не даёт."
     )
     Input: ClassVar[type[BaseModel]] = TaskCloseInput

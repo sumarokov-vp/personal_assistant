@@ -23,7 +23,7 @@ class CaseUpdateInput(BaseModel):
 class CaseUpdateTool(BaseTool):
     name: ClassVar[str] = "case_update"
     description: ClassVar[str] = (
-        "Меняет у дела название, описание (что за тема и зачем) или статус "
+        "Меняет у кейса название, описание (что за тема и зачем) или статус "
         "(closed — тема завершена, open — снова в работе). Передавай только то, что меняешь."
     )
     Input: ClassVar[type[BaseModel]] = CaseUpdateInput
@@ -44,4 +44,4 @@ class CaseUpdateTool(BaseTool):
             case = self._updater.update_case(input.case_id, update)
         except CasesServiceError as error:
             return json.dumps({"error": str(error)}, ensure_ascii=False)
-        return f"Дело обновлено: {case.id} · {case.status} · {case.title}"
+        return f"Кейс обновлён: {case.id} · {case.status} · {case.title}"
