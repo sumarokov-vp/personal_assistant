@@ -1,0 +1,2 @@
+class ConversationSourceError(LookupError):
+    pass

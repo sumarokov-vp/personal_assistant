@@ -1,10 +1,9 @@
 from pydantic import BaseModel, ConfigDict
 
 
-class FetchedFile(BaseModel):
+class AttachmentContent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     content: bytes
     name: str
     media_type: str
-    origin: str = ""

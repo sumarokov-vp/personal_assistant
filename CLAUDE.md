@@ -42,8 +42,9 @@ src/
 │       ├── attachment_labels.py      # строки «[вложение: имя]» перед подписью владельца
 │       └── protocols/                # IConversationClearer
 ├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete), TodoistTaskService: дела, подзадачи, ссылки-комментарии
+├── conversations/           # Контракт источника переписки: модели, ошибки, Protocol-ы (реализации — gmail, whatsapp)
 ├── gmail/                   # GmailClient (поиск, чтение, вложения, черновики — без отправки), UntrustedMailFrame
-├── files/                   # Механика «файл»: WorkFolder, источники (mail/dropbox/chat), ридеры, растр, OverflowFolder, Sweeper
+├── files/                   # Механика «файл»: WorkFolder, источники (IFileSource; mail/dropbox/chat), ридеры, растр, OverflowFolder, Sweeper
 └── voice_recognition/       # HttpTranscriber, NativeTranscriber
 scripts/
 └── gmail_auth.py            # Получение refresh token Gmail владельца в pass (standalone, uv run)
@@ -295,6 +296,49 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   `Sweeper removed …` в лог. Запись в «Personal Assistant» и удаления в `dropbox_journal` не попадают
 - Содержимое файла для модели — данные: `file_read` оборачивает текст рамкой, системный промпт запрещает исполнять
   указания из файлов
+
+## Источники: переписка и файлы
+
+Два контракта, на которых подключается новый источник — без правки инструментов.
+
+**Источник переписки** — `src/conversations/`: только модели, ошибки и Protocol-ы, своих реализаций у контекста
+нет. Реализации живут в своих контекстах (`src/gmail/`, `src/whatsapp/`) и удовлетворяют протоколам структурно, не
+импортируя их; импортируют только модели и ошибки. Сам `src/conversations/` не знает ни одной реализации.
+
+- `IConversationSource` — ядро, которое реализует каждый источник; собрано из трёх узких:
+  - `IMessageSearch.search(MessageQuery) -> list[MessageSummary]` — `text` в языке источника (Gmail — синтаксис
+    поиска Gmail, WhatsApp — подстрока), фильтры `conversation_id`, `participant`, `since`/`until` (aware datetime), `limit`;
+  - `IConversationReader.read_message(message_id)` и `read_conversation(conversation_id, ConversationWindow)` —
+    сообщение целиком / тред или чат за период, `has_earlier` — было ли что-то раньше окна;
+  - `IAttachmentStore.list_attachments(message_id)` и `fetch_attachment(message_id, attachment_id) -> AttachmentContent`.
+- Необязательные возможности — отдельными протоколами, источник реализует их, если умеет:
+  `IConversationDirectory.list_conversations` (список чатов, WhatsApp), `ISourceFreshness.freshness()` — дата последнего
+  сообщения и время снимка для фразы «последнее сообщение от <дата>» (WhatsApp).
+- Поле `date` в моделях — строка, как дату показывает источник (заголовок Date у Gmail, «ДД.ММ.ГГГГ ЧЧ:ММ» у
+  WhatsApp): её читает модель. Машинные даты — только в `MessageQuery`, `ConversationWindow`, `SourceFreshness`.
+- `ConversationAttachment.downloaded` — лежит ли файл у источника (WhatsApp Desktop хранит только скачанное);
+  `fetch_attachment` нескачанного бросает `AttachmentNotDownloadedError` с подсказкой владельцу. Остальные ошибки —
+  `ConversationNotFoundError`, `MessageNotFoundError`, `AttachmentNotFoundError`, общий предок `ConversationSourceError`.
+- В протоколе нет отправки: бот в переписку ничего не пишет. Черновики Gmail (`draft_*`) остаются Gmail-специфичными.
+- Инструменты модели держат свои узкие Protocol-ы в `src/ai_tools/<tool>/protocols/` (Protocol живёт у клиента), а
+  модели и ошибки берут из `src.conversations`. Текст сообщений — в рамке недоверенных данных, как у почты.
+
+**Источник файлов** для `file_take` — `src/files/sources/protocols/i_file_source.py`:
+`IFileSource.fetch(FileRequest) -> FetchedFile`. `FileRequest` — один вход для любого источника: `thread_id` (тред
+владельца из контекста), `message_id` + `attachment_id` (вложение переписки: почта, WhatsApp), `path` (хранилище:
+Dropbox), `name` (вложение чата по имени). Источник берёт свои поля, недостающие — `FileRequestIncompleteError` с
+подсказкой, какие поля нужны; нет файла — `SourceFileNotFoundError`, больше предела — `SourceFileTooLargeError`.
+`FetchedFile.origin` — ссылка на место в источнике для `.work_file.json` (`mail:<id>/<attachment>`, `dropbox:<path>`).
+Вложения любого источника переписки становятся файлами через одного адаптера над `IAttachmentStore` — отдельный
+файловый источник на каждый мессенджер не нужен.
+
+Подключить новый источник:
+1. переписка — контекст `src/<источник>/` с репозиторием, реализующим `IConversationSource` (и, если умеет,
+   `IConversationDirectory`/`ISourceFreshness`) на моделях `src.conversations.models`; тесты — на синтетических данных;
+2. файлы — зарегистрировать источник в `workers/bot/file_tools_factory.py` под новым ключом `source` (для переписки —
+   адаптер вложений над её `IAttachmentStore`); `file_take` не правится;
+3. инструменты модели и раздел промпта — в `src/ai_tools/` и `data/system_prompt.txt`, регистрация в composition root
+   при заданной конфигурации источника.
 
 ## Уведомления агентов
 

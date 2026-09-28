@@ -1,10 +1,11 @@
 from pydantic import BaseModel, ConfigDict
 
 
-class FetchedFile(BaseModel):
+class ConversationAttachment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    content: bytes
+    attachment_id: str
     name: str
     media_type: str
-    origin: str = ""
+    size: int | None
+    downloaded: bool
