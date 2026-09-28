@@ -1,3 +1,4 @@
+from datetime import datetime, time
 from logging import WARNING, basicConfig, getLogger
 from os import getenv
 from pathlib import Path
@@ -51,6 +52,7 @@ from src.colleague_mail.repos import (
     YamlColleagueDirectory,
 )
 from src.colleague_mail.services.body_parser import MailBodyParser
+from src.colleague_mail.services.digest import ColleagueDigest, next_digest_at
 from src.colleague_mail.services.entities import ColleagueMailSettings
 from src.colleague_mail.services.publisher import RabbitMqMailPublisher
 from src.colleague_mail.services.rabbitmq_consumer import (
@@ -104,6 +106,8 @@ from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
 from src.gmail.repos.gmail_client import GmailClient
 from workers.bot.colleague_mail_tool_gateway import ColleagueMailToolGateway
+from workers.colleague_digest.composition import build_colleague_digest
+from workers.memory_fill.owner_notifier import OwnerNotifier
 from workers.bot.file_tools_factory import build_file_tools
 from workers.bot.gmail_tools_factory import (
     GMAIL_VARIABLES,
@@ -360,6 +364,43 @@ def start_colleague_mail(
     return thread
 
 
+def send_colleague_digest_forever(
+    digest: ColleagueDigest, timezone: ZoneInfo, at: time
+) -> None:
+    while True:
+        now = datetime.now(tz=timezone)
+        sleep((next_digest_at(now, at) - now).total_seconds())
+        try:
+            digest.send()
+        except Exception:
+            logger.exception("Colleague digest failed, next attempt at the next term")
+
+
+def start_colleague_digest(
+    settings: ColleagueMailSettings | None,
+    database_url: str,
+    notifier: OwnerNotifier,
+    timezone: ZoneInfo,
+    at: time,
+) -> Thread | None:
+    if settings is None:
+        return None
+    digest = build_colleague_digest(
+        database_url=database_url,
+        directory_file=settings.directory_file,
+        notifier=notifier,
+    )
+    thread = Thread(
+        target=send_colleague_digest_forever,
+        args=(digest, timezone, at),
+        name="colleague-digest",
+        daemon=True,
+    )
+    thread.start()
+    logger.info("Colleague digest scheduled daily at %s %s", at, timezone.key)
+    return thread
+
+
 def build_colleague_mail_sender(
     settings: ColleagueMailSettings, database_url: str
 ) -> ColleagueMailSender:
@@ -482,6 +523,7 @@ def main() -> None:
     ai_model = require_env("AI_MODEL")
     owner_timezone = ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty"))
     colleague_mail = read_colleague_mail_settings()
+    colleague_digest_at = time.fromisoformat(getenv("COLLEAGUE_DIGEST_AT", "09:00"))
 
     voice_recognition_url = getenv("VOICE_RECOGNITION_URL", "http://localhost:8000")
     voice_recognition_api_key = getenv("VOICE_RECOGNITION_API_KEY")
@@ -677,6 +719,15 @@ def main() -> None:
         owner_telegram_id=owner_telegram_id,
     )
     start_colleague_mail(colleague_mail, db_url)
+    start_colleague_digest(
+        settings=colleague_mail,
+        database_url=db_url,
+        notifier=OwnerNotifier(
+            sender=app.message_sender, owner_chat_id=owner_telegram_id
+        ),
+        timezone=owner_timezone,
+        at=colleague_digest_at,
+    )
 
     with ai:
         logger.info("Starting polling...")
