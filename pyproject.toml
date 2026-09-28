@@ -18,6 +18,7 @@ dependencies = [
     "python-docx>=1.2.0",
     "python-dotenv==1.2.1",
     "pyyaml>=6.0.3",
+    "telethon>=1.40,<2",
 ]
 
 [project.optional-dependencies]
@@ -128,7 +129,7 @@ forbidden_modules = ["src.dropbox", "src.gmail", "src.chat", "src.ai_tools"]
 name = "conversations contract stands alone"
 type = "forbidden"
 source_modules = ["src.conversations"]
-forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.telegram_user", "src.whatsapp", "src.wiki"]
 
 # Коннекторы WhatsApp из соседей знают только контракт src.conversations
 [[tool.importlinter.contracts]]
@@ -136,6 +137,21 @@ name = "whatsapp depends only on conversations contract"
 type = "forbidden"
 source_modules = ["src.whatsapp"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.todoist", "src.voice_recognition", "src.wiki"]
+
+# Коннектор Telegram (аккаунт владельца) из соседей знает только контракт src.conversations
+[[tool.importlinter.contracts]]
+name = "telegram_user depends only on conversations contract"
+type = "forbidden"
+source_modules = ["src.telegram_user"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.cases", "src.chat", "src.checkup", "src.colleague_mail", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+
+# Telethon держит ключ от всего аккаунта владельца: клиент живёт только внутри src.telegram_user,
+# наружу — объект с методами чтения протоколов src.conversations
+[[tool.importlinter.contracts]]
+name = "telethon only inside telegram_user"
+type = "forbidden"
+source_modules = ["workers", "src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.cases", "src.chat", "src.checkup", "src.colleague_mail", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+forbidden_modules = ["telethon"]
 
 # Клиент сервиса кейсов не знает ни соседей, ни потребителей: инструменты берут у него модели и ошибки
 [[tool.importlinter.contracts]]
