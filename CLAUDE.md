@@ -374,3 +374,31 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
+
+### Снимок WhatsApp (хост-процесс)
+
+WhatsApp Desktop на Mac mini держит переписку в `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/`
+(`ChatStorage.sqlite` в WAL). **VM colima к этой папке не обращается никогда** — ни `ls`, ни mount в compose:
+28.09.2026 одно обращение VM к ней повесило virtiofs целиком (postgres, redis, rabbitmq, `limactl shell`).
+Живую WAL-базу через virtiofs читать тоже нельзя: `-shm` и блокировки между macOS и Linux не согласованы.
+Бот читает только снимок, который делает хост:
+
+- `deploy/whatsapp/whatsapp_snapshot.c` — исполняемый файл `~/docker/personal_assistant/bin/whatsapp_snapshot`,
+  launchd-агент `com.sumarokov.personal-assistant.whatsapp-snapshot` (`StartInterval` 120, `RunAtLoad`).
+  Каждый запуск: открывает базу только на чтение (нет доступа — ошибка в лог, снимок не трогается, метка стареет);
+  если mtime/размер `ChatStorage.sqlite` или `-wal` изменились — копия через SQLite backup API во временный файл,
+  `journal_mode=delete`, `quick_check`, атомарный `rename`; затем `rsync` `Message/Media/` без `*.thumb`,
+  `*.mmsthumb` и `Profile/`; в конце метка `snapshot_at`
+- Снимок — `~/docker/personal_assistant/whatsapp/`: `ChatStorage.sqlite` (журнал delete, читается `mode=ro` и
+  `immutable=1` из каталога без записи), `Message/Media/...` (путь от `Message/` — как в `ZWAMEDIAITEM.ZMEDIALOCALPATH`),
+  `snapshot_at` (ISO-8601 UTC — на это время снимок сверен с источником), служебный `.source_stamp`
+- Лог — `~/Library/Logs/personal_assistant/whatsapp_snapshot.log`: ошибки и строка на каждую копию базы
+- Установка — `deploy/whatsapp/install.sh` (вызывает `up.sh`, идемпотентно): собирает файл системным `cc`,
+  кладёт plist в `~/Library/LaunchAgents/`, `launchctl bootstrap gui/<uid>`. Нужна GUI-сессия владельца
+- **«Полный доступ к диску»** выдаётся вручную файлу `~/docker/personal_assistant/bin/whatsapp_snapshot` (не `/bin/sh`,
+  не терминалу): Системные настройки → Конфиденциальность и безопасность → Полный доступ к диску → «+» →
+  Cmd+Shift+G → путь. `rsync` запускается им дочерним процессом и доступ наследует. Разрешение привязано к подписи
+  файла: `install.sh` пересобирает его только при изменении исходника и тогда печатает, что доступ надо выдать заново
+- Проверить: `tail ~/Library/Logs/personal_assistant/whatsapp_snapshot.log`, `cat ~/docker/personal_assistant/whatsapp/snapshot_at`,
+  `sqlite3 'file:<снимок>?mode=ro' 'pragma integrity_check'`, `max(ZMESSAGEDATE)` (секунды от 01.01.2001).
+  Ручной прогон в свой каталог: `~/docker/personal_assistant/bin/whatsapp_snapshot <каталог>`
