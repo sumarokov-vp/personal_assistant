@@ -277,7 +277,13 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
 на пустом каталоге, дальше pull перед чтением; запись — коммит `pa: …` и push в `main` ключом `WIKI_SSH_KEY_PATH`.
 Сборка — `build_wiki_tools` в `workers/bot/__main__.py`: один `WikiFactory` на бот, инструменты
 `wiki_search` (`WikiSearcher` поверх `WikiReader`), `wiki_read`, `wiki_create_page`, `wiki_append`.
-Инструменты памяти (`memory_*`) работают через тот же `WikiFactory` — общий замок на копию.
+Без `WIKI_DIR` инструментов `wiki_*` нет.
+
+Память (`memory_*`) — за протоколом `IWikiStorage` (`src/memory/repos/protocols/`), реализация выбирается
+`MEMORY_STORAGE` одинаково в боте, `workers.memory_fill` и `workers.checkup`: не задана или `local` —
+`LocalFolderStorage`, файлы в `MEMORY_DIR` (дефолт `~/.local/share/personal_assistant/memory`), без git и сети;
+`wiki` — `WikiPageStorage` поверх вики (бот — через тот же `WikiFactory`, что `wiki_*`, общий замок на копию;
+требует `WIKI_DIR`). На проде владельца `MEMORY_STORAGE: wiki` задан в `deploy/compose.yaml`.
 В системном промпте: факт из вики — со ссылкой на путь страницы; служебные страницы памяти — только через `memory_*`.
 
 ## Безопасность: бот слышит только владельца
@@ -309,7 +315,9 @@ VOICE_RECOGNITION_API_KEY=ключ                  # заголовок X-API-K
 VOICE_RECOGNITION_MODE=http                     # необязательная (дефолт http); http | native
 WHISPER_MODEL=small                             # необязательная (дефолт small); модель для native-режима
 LOG_LEVEL=INFO                                  # необязательная (дефолт INFO); логгеры TeleBot/urllib3/requests/httpx/anthropic всегда не ниже WARNING; DEBUG у ai_framework пишет вызовы инструментов
-WIKI_DIR=/path/to/obsidian_wiki                 # локальная копия вики; пустой каталог — бот сам сделает clone
+MEMORY_STORAGE=local                            # необязательная (дефолт local); local — память файлами в MEMORY_DIR, wiki — в вики (нужен WIKI_DIR)
+MEMORY_DIR=~/.local/share/personal_assistant/memory  # необязательная (это дефолт); папка памяти в режиме local
+WIKI_DIR=/path/to/obsidian_wiki                 # необязательная; локальная копия вики, пустой каталог — бот сам сделает clone; без неё нет wiki_*
 WIKI_REMOTE_URL=git@github.com:sumarokov-vp/obsidian_wiki.git
 WIKI_SSH_KEY_PATH=/path/to/deploy_key           # необязательная; без неё git берёт ssh-ключи/агент пользователя
 DROPBOX_ROOT=/path/to/Dropbox                   # необязательная; без неё инструменты Dropbox не регистрируются
@@ -333,8 +341,8 @@ WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необяз
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
-Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`, `WIKI_DIR`,
-`WIKI_REMOTE_URL`, `ATTACHMENTS_S3_*`. `CASES_*`, `TODOIST_TOKEN`, `GMAIL_*` и `WHATSAPP_MACOS_SNAPSHOT_DIR` в коде бота необязательны (нет — нет инструментов),
+Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`,
+`ATTACHMENTS_S3_*`; `WIKI_DIR` и `WIKI_REMOTE_URL` — при `MEMORY_STORAGE=wiki` (иначе `WIKI_*` необязательны). `CASES_*`, `TODOIST_TOKEN`, `GMAIL_*` и `WHATSAPP_MACOS_SNAPSHOT_DIR` в коде бота необязательны (нет — нет инструментов),
 в проде их требует compose. Их же читают `workers.checkup` (`TODOIST_TOKEN` обязателен) и `workers.memory_fill` (`GMAIL_*` необязательны)
 
 ## Распознавание речи

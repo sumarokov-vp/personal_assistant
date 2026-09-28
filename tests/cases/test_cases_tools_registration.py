@@ -24,7 +24,7 @@ def bot_start(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bot_main, "build_attachment_store", Mock())
     monkeypatch.setattr(bot_main, "start_sweeper", Mock())
     monkeypatch.setattr(bot_main, "build_chat_attachments", Mock())
-    monkeypatch.setattr(bot_main, "build_wiki_factory", Mock())
+    monkeypatch.setattr(bot_main, "build_configured_wiki_factory", Mock())
     monkeypatch.setattr(bot_main, "build_wiki_tools", Mock(return_value=[]))
     monkeypatch.setattr(bot_main, "build_memory_tools", Mock(return_value=[]))
     monkeypatch.setattr(bot_main, "AIApplication", capture_tools)

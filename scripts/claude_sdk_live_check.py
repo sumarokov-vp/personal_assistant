@@ -95,9 +95,12 @@ from tests.whatsapp.macos_desktop.synthetic_snapshot import GROUP, SyntheticSnap
 from workers.bot.__main__ import (
     MAX_IMAGE_BYTES,
     build_dropbox_tools,
+    build_memory_storage,
     build_memory_tools,
 )
 from workers.bot.cases_tools_factory import build_cases_tools
+from workers.memory_fill.memory_storage_kind import MemoryStorageKind
+from workers.memory_fill.memory_storage_settings import MemoryStorageSettings
 from workers.bot.file_tools_factory import (
     PDF_RENDER_DPI,
     TELEGRAM_BOT_UPLOAD_LIMIT_BYTES,
@@ -680,7 +683,12 @@ def bot_tools(
     return [
         *build_dropbox_tools(boundary, FileTextReader()),
         *move_tools,
-        *build_memory_tools(wiki, TIMEZONE),
+        *build_memory_tools(
+            build_memory_storage(
+                MemoryStorageSettings(MemoryStorageKind.WIKI, scratch / "memory"), wiki
+            ),
+            TIMEZONE,
+        ),
         *build_cases_tools(cases, TIMEZONE),
         *todoist_tools(todoist, cases),
         *build_whatsapp_tools(whatsapp, TIMEZONE),

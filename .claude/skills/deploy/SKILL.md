@@ -25,6 +25,8 @@ deploy/up.sh
 3. кладёт deploy-ключ вики файлом 0600 в `~/docker/personal_assistant/secrets/wiki_deploy_key` (ssh берёт
    ключ только из файла; в контейнер он монтируется read-only) и заводит том вики
    `~/docker/personal_assistant/wiki` — первый clone `obsidian_wiki` на пустом томе делает сам бот;
+   память ассистента на проде — в вики: `MEMORY_STORAGE: wiki` задан в `deploy/compose.yaml` явно (без него
+   память ушла бы в локальную папку контейнера и пропала с ним);
 4. выполняет `docker compose -f deploy/compose.yaml up -d --build`.
 
 Если `pass` просит GPG-пин — это ожидаемо, дождись пользователя.
