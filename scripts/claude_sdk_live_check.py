@@ -53,6 +53,7 @@ from src.ai_tools.dropbox_save import DropboxSaveTool
 from src.ai_tools.dropbox_undo_moves import DropboxUndoMovesTool
 from src.ai_tools.file_read import UntrustedFileFrame
 from src.ai_tools.read_mail.tool import ReadMailTool
+from src.ai_tools.search_mail.tool import SearchMailTool
 from src.dropbox.models.move_plan import MovePlan
 from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
 from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
@@ -70,6 +71,13 @@ from src.files.work_folder.work_folder import WorkFolder
 from src.gmail.models.mail_attachment import MailAttachment
 from src.gmail.models.mail_draft import MailDraft
 from src.gmail.models.mail_message import MailMessage
+from src.gmail.models.mail_summary import MailSummary
+from src.gmail.services.conversation_source.gmail_message_reader import (
+    GmailMessageReader,
+)
+from src.gmail.services.conversation_source.gmail_message_search import (
+    GmailMessageSearch,
+)
 from src.gmail.services.untrusted_frame.untrusted_mail_frame import UntrustedMailFrame
 from src.todoist.services.todoist_task_service import TodoistTaskService
 from src.wiki import WikiFactory, WikiSettings
@@ -125,6 +133,7 @@ BOT_PROMPTS = [
     "Перенеси в Dropbox файл про ЭЦП в папку 03_home/archive.",
     "С сегодняшнего дня начинаем оформление РВП: нужно собрать медсправку, справку о "
     "несудимости и подать заявление в миграционную службу. Медсправка действует 3 месяца.",
+    "Найди в почте письмо от AirAsia с маршрутом и перескажи PDF-вложение из него.",
     f"В письме {MAIL_ID} есть PDF-вложение. Перескажи, что в нём.",
     f"В письме {MAIL_ID} есть скан. Посмотри на картинку и опиши: цвет фона, фигуры, надпись.",
     f"Сохрани PDF-вложение из письма {MAIL_ID} в Dropbox в папку 03_home/09_travel.",
@@ -158,6 +167,19 @@ class NoPlans:
 class FakeMail:
     def __init__(self, attachments: dict[str, tuple[str, str, bytes]]) -> None:
         self._attachments = attachments
+
+    def search_messages(self, query: str, limit: int) -> list[MailSummary]:
+        return [
+            MailSummary(
+                id=MAIL_ID,
+                thread_id="t1",
+                sender="AirAsia <no-reply@airasia.com>",
+                subject="Your itinerary",
+                date="Sat, 26 Sep 2026 10:00:00 +0500",
+                snippet="Во вложении маршрут и скан паспорта.",
+                has_attachments=True,
+            )
+        ][:limit]
 
     def get_message(self, message_id: str) -> MailMessage:
         return MailMessage(
@@ -281,7 +303,8 @@ def file_tools(
     )
     overflow = OverflowFolder(boundary, work_folder)
     return [
-        ReadMailTool(reader=mail, frame=UntrustedMailFrame()),
+        SearchMailTool(searcher=GmailMessageSearch(mail), frame=UntrustedMailFrame()),
+        ReadMailTool(reader=GmailMessageReader(mail), frame=UntrustedMailFrame()),
         FileTakeTool(
             work_files=work_folder,
             chat=ChatFileSource(chat_with_photo(scan), FILE_TAKE_LIMIT_BYTES),

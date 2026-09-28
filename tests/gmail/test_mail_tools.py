@@ -8,6 +8,15 @@ from src.ai_tools.search_mail.tool import SearchMailInput, SearchMailTool
 from src.gmail.models.mail_attachment import MailAttachment
 from src.gmail.models.mail_message import MailMessage
 from src.gmail.models.mail_summary import MailSummary
+from src.gmail.services.conversation_source.gmail_conversation_source import (
+    GmailConversationSource,
+)
+from src.gmail.services.conversation_source.gmail_message_reader import (
+    GmailMessageReader,
+)
+from src.gmail.services.conversation_source.gmail_message_search import (
+    GmailMessageSearch,
+)
 from src.gmail.services.untrusted_frame.untrusted_mail_frame import UntrustedMailFrame
 from tests.gmail.fixtures import html_only_message
 from tests.gmail.test_gmail_client import BASE, make_client
@@ -75,7 +84,9 @@ def mail(body: str) -> MailMessage:
 
 
 def test_read_mail_puts_body_inside_frame() -> None:
-    tool = ReadMailTool(FakeMailbox(mail(INJECTION)), UntrustedMailFrame())
+    tool = ReadMailTool(
+        GmailMessageReader(FakeMailbox(mail(INJECTION))), UntrustedMailFrame()
+    )
 
     output = tool.execute(ReadMailInput(message_id="18c1a"), ToolContext())
 
@@ -90,7 +101,9 @@ def test_read_mail_puts_body_inside_frame() -> None:
 
 def test_read_mail_truncates_long_body() -> None:
     tool = ReadMailTool(
-        FakeMailbox(mail("z" * 500)), UntrustedMailFrame(), body_limit=100
+        GmailMessageReader(FakeMailbox(mail("z" * 500))),
+        UntrustedMailFrame(),
+        body_limit=100,
     )
 
     output = tool.execute(ReadMailInput(message_id="18c1a"), ToolContext())
@@ -100,7 +113,9 @@ def test_read_mail_truncates_long_body() -> None:
 
 
 def test_search_mail_puts_snippets_inside_frame() -> None:
-    tool = SearchMailTool(FakeMailbox(mail("")), UntrustedMailFrame())
+    tool = SearchMailTool(
+        GmailMessageSearch(FakeMailbox(mail(""))), UntrustedMailFrame()
+    )
 
     output = tool.execute(SearchMailInput(query="is:unread", limit=5), ToolContext())
 
@@ -120,7 +135,7 @@ def test_tools_accept_gmail_client() -> None:
         f"{BASE}": {"messages": [{"id": "18c2b", "threadId": "18c2b"}]},
         f"{BASE}/18c2b": html_only_message(),
     }
-    client = make_client(routes, [])
+    client = GmailConversationSource(make_client(routes, []))
 
     search_output = SearchMailTool(client, UntrustedMailFrame()).execute(
         SearchMailInput(query="from:shop"), ToolContext()

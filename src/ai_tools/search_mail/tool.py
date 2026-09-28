@@ -1,7 +1,9 @@
 from ai_framework import BaseTool, ToolContext
 from pydantic import BaseModel, Field
 
-from src.ai_tools.search_mail.protocols.i_mail_searcher import IMailSearcher
+from src.conversations.models.message_query import MessageQuery
+
+from src.ai_tools.search_mail.protocols.i_message_search import IMessageSearch
 from src.ai_tools.search_mail.protocols.i_untrusted_frame import IUntrustedFrame
 
 MAX_LIMIT = 25
@@ -25,16 +27,17 @@ class SearchMailTool(BaseTool):
     )
     Input = SearchMailInput
 
-    def __init__(self, searcher: IMailSearcher, frame: IUntrustedFrame) -> None:
+    def __init__(self, searcher: IMessageSearch, frame: IUntrustedFrame) -> None:
         self._searcher = searcher
         self._frame = frame
 
     def execute(self, input: SearchMailInput, context: ToolContext) -> str:
-        found = self._searcher.search_messages(input.query, input.limit)
+        found = self._searcher.search(MessageQuery(text=input.query, limit=input.limit))
         if not found:
             return f"По запросу «{input.query}» писем не найдено."
         listing = "\n\n".join(
-            f"id: {mail.id}\nтред: {mail.thread_id}\nот: {mail.sender}\nтема: {mail.subject}\n"
+            f"id: {mail.message_id}\nтред: {mail.conversation_id}\nот: {mail.sender}\n"
+            f"тема: {mail.title}\n"
             f"дата: {mail.date}\nфрагмент: {mail.snippet}"
             for mail in found
         )
