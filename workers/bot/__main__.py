@@ -24,11 +24,15 @@ from src.agent_notifications.services.text_splitter import TelegramTextSplitter
 from src.access.services.update_gate_installer import UpdateGateInstaller
 from src.ai_tools import (
     AgentNotificationsTool,
+    ColleagueMessagesTool,
+    ColleagueSendTool,
+    ColleaguesTool,
     MemoryCloseCommitmentTool,
     MemoryShowTool,
     MemoryUpsertCommitmentTool,
     MemoryUpsertDeadlineTool,
     MemoryUpsertTripTool,
+    UntrustedColleagueMessageFrame,
     UntrustedNotificationFrame,
     WikiAppendTool,
     WikiCreatePageTool,
@@ -99,6 +103,7 @@ from src.memory.repos import (
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
 from src.gmail.repos.gmail_client import GmailClient
+from workers.bot.colleague_mail_tool_gateway import ColleagueMailToolGateway
 from workers.bot.file_tools_factory import build_file_tools
 from workers.bot.gmail_tools_factory import (
     GMAIL_VARIABLES,
@@ -376,6 +381,26 @@ def build_colleague_directory(
     return YamlColleagueDirectory(settings.directory_file)
 
 
+def build_colleague_mail_tools(
+    settings: ColleagueMailSettings, database_url: str, timezone: ZoneInfo
+) -> list[BaseTool]:
+    directory = build_colleague_directory(settings)
+    return [
+        ColleaguesTool(directory=directory),
+        ColleagueSendTool(
+            gateway=ColleagueMailToolGateway(
+                build_colleague_mail_sender(settings, database_url)
+            ),
+            directory=directory,
+        ),
+        ColleagueMessagesTool(
+            journal=PostgresColleagueMessageRepository(database_url=database_url),
+            frame=UntrustedColleagueMessageFrame(),
+            timezone=timezone,
+        ),
+    ]
+
+
 def build_wiki_factory() -> WikiFactory:
     ssh_key_path = getenv("WIKI_SSH_KEY_PATH")
     return WikiFactory(
@@ -506,6 +531,8 @@ def main() -> None:
             timezone=owner_timezone,
         )
     )
+    if colleague_mail is not None:
+        tools.extend(build_colleague_mail_tools(colleague_mail, db_url, owner_timezone))
 
     todoist_token = getenv("TODOIST_TOKEN")
     if todoist_token:
