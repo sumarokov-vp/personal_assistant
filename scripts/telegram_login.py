@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["telethon>=1.36"]
+# dependencies = ["telethon>=1.36", "qrcode>=7.4"]
 # ///
 # ruff: noqa: S105, S603, S607, T201 — пути к записям pass, не пароли; standalone CLI: печать в терминал, pass через subprocess
 """Войти в Telegram аккаунтом владельца и положить сессию Telethon в pass.
@@ -8,7 +8,8 @@
 Запуск (из корня репы personal_assistant, на Mac mini — машине с ключом pass ассистента):
 
     uv run scripts/telegram_login.py --check   # только подключение: DC, адрес, тестовая ли среда
-    uv run scripts/telegram_login.py           # вход
+    uv run scripts/telegram_login.py           # вход по коду
+    uv run scripts/telegram_login.py --qr      # вход по QR, без кода
 
 api_id и api_hash приложения my.telegram.org берутся из pass
 ``assistant/personal_assistant/telegram-app`` (строки ``api_id=`` и ``api_hash=``).
@@ -19,6 +20,14 @@ api_id и api_hash приложения my.telegram.org берутся из pass
 В одном процессе: код — вход; пустой ввод или ``r`` — повторная отправка следующим способом;
 ``q`` — отмена кода и выход. Неверный код и неверный пароль 2FA спрашиваются снова без новой
 отправки. FLOOD_WAIT и прочие отказы Telegram не повторяются: печатается причина и выход.
+
+Вход по QR (``--qr``) — когда код не доходит: скрипт печатает QR прямо в терминал и рядом
+ссылку ``tg://login?token=…``; на телефоне Telegram → Настройки → Устройства → Подключить
+устройство → навести камеру. Токен живёт ~30 с — скрипт сам обновляет QR, пока не отсканируют,
+не введут ``q`` или не пройдёт 3 минуты. Пароль 2FA после скана спрашивается так же, как при
+входе по коду. Переезд на DC аккаунта (``auth.loginTokenMigrateTo`` → ``auth.importLoginToken``)
+делает сам Telethon в ``QRLogin.wait``. Клиент QR-входа до входа принимает апдейты — без них
+не придёт ``updateLoginToken``, сигнал о скане; после входа приём апдейтов выключается.
 
 После входа строка StringSession кладётся в ``assistant/personal_assistant/telegram-user``
 через ``pass insert -m`` (stdin, не аргумент процесса). На экран — только «сохранено», id,
@@ -35,12 +44,15 @@ import getpass
 import io
 import os
 import re
+import select
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
+import qrcode
 from telethon import TelegramClient, errors
 from telethon.sessions import StringSession
 from telethon.tl import types
@@ -57,9 +69,25 @@ SESSION_PASS_ENTRY = "assistant/personal_assistant/telegram-user"
 DEVICE_MODEL = "Personal Assistant"
 PHONE_PATTERN = re.compile(r"\+\d{7,15}")
 PHONE_SEPARATORS = re.compile(r"[\s()\-.]")
+QR_TOTAL_SECONDS = 180
+QR_TOKEN_MIN_SECONDS = 10
+QR_TOKEN_MAX_SECONDS = 30
+QUIT_POLL_SECONDS = 0.2
+ANSI_CLEAR_SCREEN = "\033[2J\033[H"
+ANSI_BLACK_ON_WHITE = {
+    (False, False): "\033[97;107m",
+    (False, True): "\033[97;40m",
+    (True, False): "\033[30;107m",
+    (True, True): "\033[30;40m",
+}
+ANSI_RESET = "\033[0m"
 
 
 class LoginCancelledError(Exception):
+    pass
+
+
+class QrLoginTimeoutError(Exception):
     pass
 
 
@@ -214,16 +242,18 @@ def humanize_seconds(seconds: int) -> str:
     return " ".join(part for part in parts if part) or "0 с"
 
 
-async def print_connection(client: TelegramClient) -> None:
+async def print_connection(client: TelegramClient) -> str:
     config = await client(GetConfigRequest())
     session = client.session
-    print(
-        f"Подключение: DC {session.dc_id}, адрес {session.server_address}:{session.port}"
-    )
     environment = (
         "да — ТЕСТОВЫЕ серверы" if config.test_mode else "нет, боевые серверы Telegram"
     )
-    print(f"Telegram: this_dc {config.this_dc}, тестовая среда: {environment}")
+    header = (
+        f"Подключение: DC {session.dc_id}, адрес {session.server_address}:{session.port}\n"
+        f"Telegram: this_dc {config.this_dc}, тестовая среда: {environment}"
+    )
+    print(header)
+    return header
 
 
 async def send_code(
@@ -268,7 +298,7 @@ async def sign_in(client: TelegramClient, api_id: int, api_hash: str) -> None:
         ).strip()
         if entry.lower() == "q":
             await client(CancelCodeRequest(request.phone, request.phone_code_hash))
-            raise LoginCancelledError
+            raise LoginCancelledError("Отправка кода отменена, ничего не записано")
         if entry.lower() in ("", "r"):
             request = await resend_code(client, api_id, api_hash, request)
             continue
@@ -285,6 +315,96 @@ async def sign_in(client: TelegramClient, api_id: int, api_hash: str) -> None:
         except errors.SessionPasswordNeededError:
             await sign_in_with_password(client)
             return
+
+
+def render_qr(url: str) -> str:
+    code = qrcode.QRCode(border=2)
+    code.add_data(url)
+    code.make(fit=True)
+    matrix = code.get_matrix()
+    if len(matrix) % 2:
+        matrix.append([False] * len(matrix[0]))
+    lines = []
+    for top, bottom in zip(matrix[::2], matrix[1::2], strict=True):
+        cells = "".join(
+            f"{ANSI_BLACK_ON_WHITE[(upper, lower)]}▀"
+            for upper, lower in zip(top, bottom, strict=True)
+        )
+        lines.append(cells + ANSI_RESET)
+    return "\n".join(lines)
+
+
+def show_qr(header: str, url: str, refresh: int, seconds_left: int) -> None:
+    if sys.stdout.isatty():
+        print(ANSI_CLEAR_SCREEN, end="")
+    print(header)
+    print()
+    print(render_qr(url))
+    print()
+    print(
+        "Telegram на телефоне → Настройки → Устройства → Подключить устройство → на QR"
+    )
+    print(f"Если QR не читается, ссылка входа: {url}")
+    print(
+        f"QR №{refresh}, обновится сам; до выхода по таймауту {seconds_left} с. "
+        "q и Enter — выход"
+    )
+
+
+async def wait_for_quit() -> None:
+    while True:
+        readable, _, _ = select.select([sys.stdin], [], [], 0)
+        if readable:
+            line = sys.stdin.readline()
+            if not line:
+                await asyncio.Event().wait()
+            if line.strip().lower() == "q":
+                return
+        await asyncio.sleep(QUIT_POLL_SECONDS)
+
+
+def token_wait_seconds(expires: datetime) -> float:
+    left = (expires - datetime.now(tz=UTC)).total_seconds()
+    return min(max(left, QR_TOKEN_MIN_SECONDS), QR_TOKEN_MAX_SECONDS)
+
+
+async def wait_for_scan(client: TelegramClient, header: str) -> None:
+    deadline = time.monotonic() + QR_TOTAL_SECONDS
+    qr = await client.qr_login()
+    refresh = 1
+    while True:
+        total_left = deadline - time.monotonic()
+        show_qr(header, qr.url, refresh, int(total_left))
+        scan = asyncio.ensure_future(
+            qr.wait(timeout=min(token_wait_seconds(qr.expires), total_left))
+        )
+        quit_requested = asyncio.ensure_future(wait_for_quit())
+        await asyncio.wait({scan, quit_requested}, return_when=asyncio.FIRST_COMPLETED)
+        if quit_requested.done():
+            scan.cancel()
+            await asyncio.gather(scan, return_exceptions=True)
+            raise LoginCancelledError("Вход по QR отменён, ничего не записано")
+        quit_requested.cancel()
+        await asyncio.gather(quit_requested, return_exceptions=True)
+        try:
+            scan.result()
+            return
+        except TimeoutError:
+            if await client.get_me() is not None:
+                return
+        if time.monotonic() >= deadline:
+            raise QrLoginTimeoutError
+        await qr.recreate()
+        refresh += 1
+
+
+async def sign_in_by_qr(client: TelegramClient, header: str) -> None:
+    try:
+        await wait_for_scan(client, header)
+    except errors.SessionPasswordNeededError:
+        print("QR отсканирован, аккаунт защищён паролем")
+        await sign_in_with_password(client)
+    print(f"Вход выполнен, аккаунт на DC {client.session.dc_id}")
 
 
 async def count_dialogs_without_channels(client: TelegramClient) -> int:
@@ -309,12 +429,14 @@ async def save_and_report(client: TelegramClient) -> None:
     await client(UpdateStatusRequest(offline=True))
 
 
-def build_client(api_id: int, api_hash: str) -> TelegramClient:
+def build_client(
+    api_id: int, api_hash: str, *, receive_updates: bool = False
+) -> TelegramClient:
     return TelegramClient(
         StringSession(),
         api_id,
         api_hash,
-        receive_updates=False,
+        receive_updates=receive_updates,
         device_model=DEVICE_MODEL,
         flood_sleep_threshold=0,
     )
@@ -340,14 +462,32 @@ async def login(api_id: int, api_hash: str) -> None:
         await client.disconnect()
 
 
+async def login_by_qr(api_id: int, api_hash: str) -> None:
+    client = build_client(api_id, api_hash, receive_updates=True)
+    await client.connect()
+    try:
+        header = await print_connection(client)
+        await sign_in_by_qr(client, header)
+        await client.set_receive_updates(False)
+        await save_and_report(client)
+    finally:
+        await client.disconnect()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Вход владельца в Telegram, сессия — в pass"
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--check",
         action="store_true",
         help="только подключиться и показать DC, адрес и тестовая ли среда; без номера и кода",
+    )
+    mode.add_argument(
+        "--qr",
+        action="store_true",
+        help="вход по QR: отсканировать с телефона в Настройки → Устройства, без кода",
     )
     return parser.parse_args()
 
@@ -360,6 +500,9 @@ def run(args: argparse.Namespace) -> None:
     if pass_entry_exists(SESSION_PASS_ENTRY) and not confirm_overwrite():
         sys.exit("Оставлена прежняя сессия, ничего не записано")
     api_id, api_hash = load_app()
+    if args.qr:
+        asyncio.run(login_by_qr(api_id, api_hash))
+        return
     asyncio.run(login(api_id, api_hash))
 
 
@@ -369,8 +512,13 @@ def main() -> None:
     args = parse_args()
     try:
         run(args)
-    except LoginCancelledError:
-        sys.exit("Отправка кода отменена, ничего не записано")
+    except LoginCancelledError as cancelled:
+        sys.exit(str(cancelled))
+    except QrLoginTimeoutError:
+        sys.exit(
+            f"QR не отсканировали за {QR_TOTAL_SECONDS // 60} мин — выход, ничего не записано. "
+            "Запустить снова, когда телефон под рукой"
+        )
     except (errors.FloodWaitError, errors.FloodPremiumWaitError) as error:
         sys.exit(
             f"Telegram ограничил попытки: ждать {humanize_seconds(error.seconds)}. "
