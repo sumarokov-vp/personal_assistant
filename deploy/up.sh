@@ -81,8 +81,8 @@ require_value "$PASS_ROOT/gmail-refresh-token" "$GMAIL_REFRESH_TOKEN"
 RABBITMQ_URL="$(pass_first_line "$PASS_ROOT/rabbitmq")"
 require_value "$PASS_ROOT/rabbitmq" "$RABBITMQ_URL"
 
-# Сервис дел assistant_cases (соседний контейнер в сети infra): ключ API ассистента. Его же строка
-# «user:ключ» лежит в записи API_KEYS сервиса дел — ключ определяет, чьи это дела
+# Сервис кейсов assistant_cases (соседний контейнер в сети infra): ключ API ассистента. Его же строка
+# «user:ключ» лежит в записи API_KEYS сервиса кейсов — ключ определяет, чьи это кейсы
 CASES_API_KEY="$(pass_first_line "$PASS_ROOT/cases-api-key")"
 require_value "$PASS_ROOT/cases-api-key" "$CASES_API_KEY"
 CASES_API_URL="${CASES_API_URL:-http://assistant_cases:8000}"

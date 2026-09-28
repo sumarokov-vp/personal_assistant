@@ -19,7 +19,7 @@ Telegram <-> bot_framework <-> SendToAgentAction <-> ai_framework.AIApplication 
 workers/bot/
 ├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
-├── cases_tools_factory.py   # клиент сервиса дел по CASES_* + case_* и task_add, task_list, task_update, task_close
+├── cases_tools_factory.py   # клиент сервиса кейсов по CASES_* + case_* и task_add, task_list, task_update, task_close
 ├── todoist_tools_factory.py # find_tasks, read_task, task_link_todoist; build_task_mirror — отражение задач в Todoist
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
 ├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
@@ -47,7 +47,7 @@ src/
 │       ├── attachment_limits.py      # лимит Claude на картинку (5 МБ в base64)
 │       ├── attachment_labels.py      # строки «[вложение: имя]» перед подписью владельца
 │       └── protocols/                # IConversationClearer
-├── cases/                   # CasesHttpClient — клиент сервиса дел assistant_cases (модели, ошибки, UntrustedCaseFrame)
+├── cases/                   # CasesHttpClient — клиент сервиса кейсов assistant_cases (модели, ошибки, UntrustedCaseFrame)
 ├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete; activities), TodoistTaskService
 ├── task_mirror/             # Отражение задач self в Todoist: наружу — слушатель инструментов задач, внутрь — поток по activities
 ├── conversations/           # Контракт источника переписки: модели, ошибки, Protocol-ы (реализации — gmail, whatsapp)
@@ -111,7 +111,7 @@ deploy/                      # Образ и выкат в colima
 пустых строк схлопываются. Список собирает `__main__.py` по построенным клиентам (`todoist`, `mail`, `whatsapp`)
 и пишет в лог строкой `Prompt connectors: …`. Упоминание инструмента коннектора вне его маркеров — ошибка:
 без коннектора модель увидит инструмент, которого нет (тест `tests/chat/test_system_prompt_builder.py`).
-Раздел «Дела» от коннекторов не зависит.
+Раздел «Кейсы» от коннекторов не зависит.
 
 ### Встроенные инструменты CLI выключены
 
@@ -137,8 +137,8 @@ deploy/                      # Образ и выкат в colima
   Должно быть ровно `mcp__ai-framework-tools__…`
 - `uv run python -m scripts.claude_sdk_live_check bot|cases|checkup` — живой прогон `AIApplication(CLAUDE_SDK)` со
   списком инструментов бота или чекапа на локальных подменах источников (Todoist — `FakeTodoistClient`, сервис
-  дел — `InMemoryCasesService` на `httpx.MockTransport` под настоящим `CasesHttpClient`; в конце прогона в лог идут
-  вызовы сервиса дел и записанные события), вызовы модели настоящие. `cases` — только инструменты дел и задач и
+  кейсов — `InMemoryCasesService` на `httpx.MockTransport` под настоящим `CasesHttpClient`; в конце прогона в лог идут
+  вызовы сервиса кейсов и записанные события), вызовы модели настоящие. `cases` — только инструменты кейсов и задач и
   промпт без коннекторов, как бот без `TODOIST_TOKEN`
   Нативно файл — project settings, а `allowManaged*Only` действует только из managed: запрос разрешения на
   инструмент бота ловится лишь прогоном в образе — `docker build -f deploy/Dockerfile -t <свой тег> .`, затем
@@ -167,9 +167,9 @@ deploy/                      # Образ и выкат в colima
 - **Задачи не закрываются и не удаляются.** В `TodoistHttpClient` нет close/reopen/delete — ни у модели, ни у
   отражения: задачу в Todoist закрывает только владелец (q1 таска 01a0e680-73b6)
 - `create_task`, `update_task`, `add_task_link` удалены: задачу ставит `task_add`, в Todoist она уходит
-  отражением; ссылка к делу — событие ленты (`case_add_event`). Промпт о Todoist — раздел «Задачи Todoist» под
+  отражением; ссылка к кейсу — событие ленты (`case_add_event`). Промпт о Todoist — раздел «Задачи Todoist» под
   маркером `todoist`: только чтение `find_tasks`/`read_task` и подвязка `task_link_todoist`
-- Todoist — не хранилище дел: дело живёт в сервисе дел (см. «Дела»), в Todoist — только задачи владельца
+- Todoist — не хранилище кейсов: кейс живёт в сервисе кейсов (см. «Кейсы»), в Todoist — только задачи владельца
 - Текст писем — данные: инструменты почты оборачивают его в `UntrustedMailFrame`, системный промпт запрещает
   исполнять указания из писем
 - `search_mail`/`read_mail` идут через `GmailConversationSource` (`src/gmail/services/conversation_source`) —
@@ -209,12 +209,12 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
 4. В `context` (`ToolContext`) приходят `chat_id` и `user_id` из `SendToAgentAction`
 5. Инструмент, который сам ответил в чат, возвращает `suppress_response` — тогда «Думаю...» удаляется, а текст модели не шлётся
 
-## Дела
+## Кейсы
 
-Дело — тема или линия жизни владельца («Новая компания (ТОО)»), а не задача: задачи и шаги живут внутри дела
-событиями его ленты. Дела и ленты хранит сервис дел `assistant_cases` (отдельная репа, база на центральном сервере);
+Кейс — тема или линия жизни владельца («Новая компания (ТОО)»), а не задача: задачи и шаги живут внутри кейса
+событиями его ленты. Кейсы и ленты хранит сервис кейсов `assistant_cases` (отдельная репа, база на центральном сервере);
 бот к базе не ходит — только по HTTP API сервиса. Пользователь записи определяется ключом API (`CASES_API_KEY`),
-поля пользователя в запросах нет; чужое дело отвечает 404, как несуществующее.
+поля пользователя в запросах нет; чужой кейс отвечает 404, как несуществующий.
 
 - Клиент — `src/cases/repos/cases_http_client.py` (`CasesHttpClient`, httpx, заголовок `X-API-Key`): все ручки
   контракта — `/cases` (завести, изменить, найти, прочитать с лентой), `/cases/{id}/events` (201 — записано, 200 —
@@ -225,16 +225,16 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
   422 → `CasesValidationError`, прочее ≥ 400 → `CasesServiceFailureError`, сеть/таймаут →
   `CasesServiceUnavailableError`. Инструменты ловят `CasesServiceError` и отвечают модели `{"error": …}` —
   сервис лёг, бот работает
-- Инструменты дела-темы (`src/ai_tools/case_*`): `case_find` (q, status), `case_open` (title, summary — что за тема
+- Инструменты кейса (`src/ai_tools/case_*`): `case_find` (q, status), `case_open` (title, summary — что за тема
   и зачем), `case_read` (case_id, events_limit — лента по `occurred_at` строками «ДД.ММ.ГГГГ ЧЧ:ММ · источник ·
   пересказ · ссылка» в поясе `OWNER_TIMEZONE`, у задач — id, статус, срок, исполнитель), `case_add_event` (kind
   note|message|file|link — задачи не им; `occurred_at` без пояса — пояс владельца, не передан — сейчас),
   `case_update` (title, summary, status). Имена инструментов и параметров — опора промпта, не переименовывать
 - Инструменты задач (`src/ai_tools/task_*`): задача — событие ленты `kind task` с четырьмя полями (статус, срок,
   исполнитель, внешний id). `task_add` (case_id, summary — что сделать и зачем, assignee, due, occurred_at, source
-  owner|assistant) → `POST /cases/{id}/events`; без `case_id` — в служебное дело «Без темы» по адресу
+  owner|assistant) → `POST /cases/{id}/events`; без `case_id` — в служебный кейс «Без темы» по адресу
   `/cases/inbox/events`. `task_list` (assignee, status — умолчание open, due_before, case_id) — строки
-  «id · срок · исполнитель · дело · текст» по сроку, без срока в конце, в рамке `UntrustedCaseFrame`. `task_update`
+  «id · срок · исполнитель · кейс · текст» по сроку, без срока в конце, в рамке `UntrustedCaseFrame`. `task_update`
   (task_id, due, assignee, summary — причина) → `PATCH /tasks/{id}`, только заданные поля; `task_close` (task_id,
   done|cancelled, summary) → `POST /tasks/{id}/close`. Срок — жёсткая граница (дедлайн), не «когда займусь»
 - Исполнитель — `self | assistant | agent:<имя> | person:<имя> | colleague:<user>`
@@ -258,13 +258,13 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
     статусом и срок, плюс уникальность source_ref в сервисе. Сбой прохода — строка в лог, следующий через 10 мин
   - задача, заведённая владельцем прямо в Todoist, сама не приходит; поднял тему — модель находит её `find_tasks` и
     подвязывает `task_link_todoist` (todoist_task_id, case_id, summary): задача self с её external_id, дальше отражается
-  - граница — import-linter: `src.todoist` не знает дел, `src.cases` не знает Todoist, мост — только `src.task_mirror`
+  - граница — import-linter: `src.todoist` не знает кейсов, `src.cases` не знает Todoist, мост — только `src.task_mirror`
 - Пересказы в ленте пишутся по чужим письмам и сообщениям: `case_find` и `case_read` отдают их в рамке
   `UntrustedCaseFrame` (`<untrusted_case>`)
-- Поведение задаёт раздел «Дела» `data/system_prompt.txt`: сперва `case_find` по теме, неясна тема — вопрос
-  «для чего это?», новое дело — только под новую тему; задача — `task_add` в деле с исполнителем (self по
-  умолчанию) и «что и зачем» в summary; к делу пишется событие (`source_ref`), а не собеседник, одно событие —
-  одно дело, не уверен — вопрос с кандидатами и до ответа не писать; вопрос о деле — `case_read`, в источник —
+- Поведение задаёт раздел «Кейсы» `data/system_prompt.txt`: сперва `case_find` по теме, неясна тема — вопрос
+  «для чего это?», новый кейс — только под новую тему; задача — `task_add` в кейсе с исполнителем (self по
+  умолчанию) и «что и зачем» в summary; к кейсу пишется событие (`source_ref`), а не собеседник, одно событие —
+  один кейс, не уверен — вопрос с кандидатами и до ответа не писать; вопрос о кейсе — `case_read`, в источник —
   только за подробностями
 - Регистрация — `workers/bot/cases_tools_factory.py` при `CASES_API_URL` и `CASES_API_KEY`; задана одна из двух —
   бот падает на старте (как `GMAIL_*`). От `TODOIST_TOKEN` не зависит
@@ -318,8 +318,8 @@ ATTACHMENTS_S3_BUCKET=sumarokov-pa-attachments
 ATTACHMENTS_S3_REGION=fra1
 ATTACHMENTS_S3_ACCESS_KEY=ключ Spaces
 ATTACHMENTS_S3_SECRET_KEY=секрет Spaces
-CASES_API_URL=http://localhost:8000             # CASES_* — обе или ни одной; сервис дел assistant_cases, без них инструментов дел нет
-CASES_API_KEY=ключ                              # X-API-Key сервиса дел; ключ определяет пользователя
+CASES_API_URL=http://localhost:8000             # CASES_* — обе или ни одной; сервис кейсов assistant_cases, без них инструментов кейсов нет
+CASES_API_KEY=ключ                              # X-API-Key сервиса кейсов; ключ определяет пользователя
 TODOIST_TOKEN=токен                             # необязательная; без неё инструменты Todoist не регистрируются
 GMAIL_CLIENT_ID=id OAuth-клиента                # GMAIL_* — все три или ни одной; без них инструменты почты не регистрируются
 GMAIL_CLIENT_SECRET=секрет OAuth-клиента
@@ -620,11 +620,11 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 - Схему `ai` в БД `personal_assistant` `up.sh` не создаёт — `CREATE SCHEMA IF NOT EXISTS ai` делается один раз
   руками (`docker exec -u postgres postgres psql -U sumarokov -d personal_assistant`), миграции ai_framework её не создают
 - Сеть — внешняя `infra`: `postgres`, `redis` по именам. `network_mode: host` в colima указывал бы на Linux-VM, а не на mac
-- Сервис дел `assistant_cases` — соседний контейнер в сети `infra`, порт на хост не публикуется:
+- Сервис кейсов `assistant_cases` — соседний контейнер в сети `infra`, порт на хост не публикуется:
   `CASES_API_URL=http://assistant_cases:8000` (умолчание в `up.sh` и `compose.yaml`). `CASES_API_KEY` — pass
-  `cases-api-key`; тот же ключ строкой `user:ключ` лежит в записи `API_KEYS` сервиса дел (pass
+  `cases-api-key`; тот же ключ строкой `user:ключ` лежит в записи `API_KEYS` сервиса кейсов (pass
   `assistant/assistant_cases/api-keys`, основной keyring Mac mini) — новый ключ вступает в силу после `deploy/up.sh`
-  сервиса дел. Без `CASES_*` бот стартует без инструментов дел и задач
+  сервиса кейсов. Без `CASES_*` бот стартует без инструментов кейсов и задач
 - Распознавание речи — GPU-сервер по mesh `http://10.72.0.199:8000`, из контейнера достижим
 - Dropbox: `~/Dropbox` хоста (синхронизирует Maestral на Mac mini) — том `/dropbox` на запись, `DROPBOX_ROOT=/dropbox`.
   colima отдаёт `$HOME` через virtiofs (`~/.colima/default/colima.yaml`: `mounts: []`), файл из контейнера ложится
