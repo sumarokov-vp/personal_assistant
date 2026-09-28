@@ -86,7 +86,13 @@ from src.memory.repos import (
 )
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
+from src.cases.repos.cases_http_client import CasesHttpClient
 from src.gmail.repos.gmail_client import GmailClient
+from workers.bot.cases_tools_factory import (
+    CASES_VARIABLES,
+    build_cases_client,
+    build_cases_tools,
+)
 from workers.bot.file_tools_factory import build_file_tools
 from workers.bot.gmail_tools_factory import (
     GMAIL_VARIABLES,
@@ -359,6 +365,14 @@ def build_configured_gmail_client() -> GmailClient | None:
     )
 
 
+def build_configured_cases_client() -> CasesHttpClient | None:
+    if not any(getenv(name) for name in CASES_VARIABLES):
+        return None
+    return build_cases_client(
+        api_url=require_env("CASES_API_URL"), api_key=require_env("CASES_API_KEY")
+    )
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent.parent
     load_dotenv(dotenv_path=project_root / ".env")
@@ -420,6 +434,10 @@ def main() -> None:
             timezone=owner_timezone,
         )
     )
+
+    cases = build_configured_cases_client()
+    if cases is not None:
+        tools.extend(build_cases_tools(cases, owner_timezone))
 
     todoist_token = getenv("TODOIST_TOKEN")
     if todoist_token:

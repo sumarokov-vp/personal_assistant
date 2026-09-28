@@ -19,6 +19,7 @@ Telegram <-> bot_framework <-> SendToAgentAction <-> ai_framework.AIApplication 
 workers/bot/
 ├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
+├── cases_tools_factory.py   # клиент сервиса дел по CASES_* + case_find, case_open, case_read, case_add_event, case_update
 ├── todoist_tools_factory.py # find_tasks, create_task, read_task, add_task_link, update_task поверх TodoistTaskService
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
 ├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
@@ -43,6 +44,7 @@ src/
 │       ├── attachment_limits.py      # лимит Claude на картинку (5 МБ в base64)
 │       ├── attachment_labels.py      # строки «[вложение: имя]» перед подписью владельца
 │       └── protocols/                # IConversationClearer
+├── cases/                   # CasesHttpClient — клиент сервиса дел assistant_cases (модели, ошибки, UntrustedCaseFrame)
 ├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete), TodoistTaskService: дела, подзадачи, ссылки-комментарии
 ├── conversations/           # Контракт источника переписки: модели, ошибки, Protocol-ы (реализации — gmail, whatsapp)
 ├── gmail/                   # GmailClient (поиск, чтение, вложения, черновики — без отправки), UntrustedMailFrame
@@ -194,6 +196,34 @@ OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, 
 4. В `context` (`ToolContext`) приходят `chat_id` и `user_id` из `SendToAgentAction`
 5. Инструмент, который сам ответил в чат, возвращает `suppress_response` — тогда «Думаю...» удаляется, а текст модели не шлётся
 
+## Дела
+
+Дело — тема или линия жизни владельца («Новая компания (ТОО)»), а не задача: задачи и шаги живут внутри дела
+событиями его ленты. Дела и ленты хранит сервис дел `assistant_cases` (отдельная репа, база на центральном сервере);
+бот к базе не ходит — только по HTTP API сервиса. Пользователь записи определяется ключом API (`CASES_API_KEY`),
+поля пользователя в запросах нет; чужое дело отвечает 404, как несуществующее.
+
+- Клиент — `src/cases/repos/cases_http_client.py` (`CasesHttpClient`, httpx, заголовок `X-API-Key`): все ручки
+  контракта — `/cases` (завести, изменить, найти, прочитать с лентой), `/cases/{id}/events` (201 — записано, 200 —
+  такое событие уже есть: `EventAddition.created`), `/tasks` (выборка, PATCH, `close`, `reopen`). PATCH шлёт только
+  заданные поля (`exclude_unset`), остальные запросы — без пустых
+- Ошибки — `src/cases/errors/`, общий предок `CasesServiceError`: 404 `case_not_found`/`task_not_found` →
+  `CaseNotFoundError`/`TaskNotFoundError`, 401 → `CasesUnauthorizedError`, 409 → `ExternalIdTakenError`,
+  422 → `CasesValidationError`, прочее ≥ 400 → `CasesServiceFailureError`, сеть/таймаут →
+  `CasesServiceUnavailableError`. Инструменты ловят `CasesServiceError` и отвечают модели `{"error": …}` —
+  сервис лёг, бот работает
+- Инструменты дела-темы (`src/ai_tools/case_*`): `case_find` (q, status), `case_open` (title, summary — что за тема
+  и зачем), `case_read` (case_id, events_limit — лента по `occurred_at` строками «ДД.ММ.ГГГГ ЧЧ:ММ · источник ·
+  пересказ · ссылка» в поясе `OWNER_TIMEZONE`, у задач — id, статус, срок, исполнитель), `case_add_event` (kind
+  note|message|file|link — задачи не им; `occurred_at` без пояса — пояс владельца, не передан — сейчас),
+  `case_update` (title, summary, status). Имена инструментов и параметров — опора промпта, не переименовывать
+- Пересказы в ленте пишутся по чужим письмам и сообщениям: `case_find` и `case_read` отдают их в рамке
+  `UntrustedCaseFrame` (`<untrusted_case>`)
+- Регистрация — `workers/bot/cases_tools_factory.py` при `CASES_API_URL` и `CASES_API_KEY`; задана одна из двух —
+  бот падает на старте (как `GMAIL_*`). От `TODOIST_TOKEN` не зависит
+- Граница — import-linter «cases client stands alone»: `src.cases` не импортирует соседей; инструменты берут у него
+  модели и ошибки, Protocol-ы — свои, в `src/ai_tools/case_*/protocols/`
+
 ## Вики
 
 Слой `src/wiki` — локальная git-копия `obsidian_wiki` (`WIKI_DIR`): первый вызов делает clone по `WIKI_REMOTE_URL`
@@ -241,6 +271,8 @@ ATTACHMENTS_S3_BUCKET=sumarokov-pa-attachments
 ATTACHMENTS_S3_REGION=fra1
 ATTACHMENTS_S3_ACCESS_KEY=ключ Spaces
 ATTACHMENTS_S3_SECRET_KEY=секрет Spaces
+CASES_API_URL=http://localhost:8000             # CASES_* — обе или ни одной; сервис дел assistant_cases, без них инструментов дел нет
+CASES_API_KEY=ключ                              # X-API-Key сервиса дел; ключ определяет пользователя
 TODOIST_TOKEN=токен                             # необязательная; без неё инструменты Todoist не регистрируются
 GMAIL_CLIENT_ID=id OAuth-клиента                # GMAIL_* — все три или ни одной; без них инструменты почты не регистрируются
 GMAIL_CLIENT_SECRET=секрет OAuth-клиента
@@ -251,7 +283,7 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
 ```
 
 Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`, `WIKI_DIR`,
-`WIKI_REMOTE_URL`, `ATTACHMENTS_S3_*`. `TODOIST_TOKEN`, `GMAIL_*` и `WHATSAPP_MACOS_SNAPSHOT_DIR` в коде бота необязательны (нет — нет инструментов),
+`WIKI_REMOTE_URL`, `ATTACHMENTS_S3_*`. `CASES_*`, `TODOIST_TOKEN`, `GMAIL_*` и `WHATSAPP_MACOS_SNAPSHOT_DIR` в коде бота необязательны (нет — нет инструментов),
 в проде их требует compose. Их же читают `workers.checkup` (`TODOIST_TOKEN` обязателен) и `workers.memory_fill` (`GMAIL_*` необязательны)
 
 ## Распознавание речи
