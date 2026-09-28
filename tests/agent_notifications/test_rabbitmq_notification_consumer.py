@@ -5,6 +5,7 @@ from pika.spec import Basic
 
 from src.agent_notifications.services.entities import (
     DeliveryOutcome,
+    IncomingAttachment,
     IncomingNotification,
 )
 from src.agent_notifications.services.rabbitmq_consumer import (
@@ -35,13 +36,15 @@ class RecordingChannel:
 
 
 def consume_one(
-    outcome: DeliveryOutcome, properties: pika.BasicProperties
+    outcome: DeliveryOutcome,
+    properties: pika.BasicProperties,
+    body: bytes = "текст".encode(),
 ) -> tuple[StubDelivery, RecordingChannel]:
     delivery = StubDelivery(outcome)
     channel = RecordingChannel()
     RabbitMqNotificationConsumer(
         rabbitmq_url="amqp://unused", delivery=delivery
-    ).on_message(channel, Basic.Deliver(delivery_tag=7), properties, "текст".encode())
+    ).on_message(channel, Basic.Deliver(delivery_tag=7), properties, body)
     return delivery, channel
 
 
@@ -72,3 +75,56 @@ def test_rejects_without_requeue_when_delivery_refuses() -> None:
 
     assert channel.acked == []
     assert channel.rejected == [(7, False)]
+
+
+def test_file_message_keeps_raw_bytes_and_headers() -> None:
+    pdf = b"%PDF-1.7\xff\xfe\x00"
+    delivery, channel = consume_one(
+        DeliveryOutcome.DELIVERED,
+        pika.BasicProperties(
+            user_id="agent-mac-mini",
+            message_id="f-1",
+            type="file",
+            headers={"filename": "отчёт.pdf".encode(), "caption": "за сентябрь"},
+        ),
+        body=pdf,
+    )
+
+    assert delivery.received == [
+        IncomingNotification(
+            message_id="f-1",
+            sender="agent-mac-mini",
+            body="за сентябрь",
+            published_at=None,
+            attachment=IncomingAttachment(
+                filename="отчёт.pdf", content=pdf, path=None, declared_size=None
+            ),
+        )
+    ]
+    assert channel.acked == [7]
+
+
+def test_file_message_by_path_carries_path_and_declared_size() -> None:
+    delivery, _ = consume_one(
+        DeliveryOutcome.DELIVERED,
+        pika.BasicProperties(
+            user_id="agent-mac-mini",
+            message_id="f-2",
+            type="file",
+            headers={
+                "filename": "big.zip",
+                "path": "Personal Assistant/agents/big.zip",
+                "size": 20971520,
+            },
+        ),
+        body=b"",
+    )
+
+    attachment = delivery.received[0].attachment
+    assert attachment == IncomingAttachment(
+        filename="big.zip",
+        content=b"",
+        path="Personal Assistant/agents/big.zip",
+        declared_size=20971520,
+    )
+    assert delivery.received[0].body == ""

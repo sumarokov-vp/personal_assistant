@@ -13,6 +13,8 @@ class InMemoryNotificationJournal:
         source: str,
         body: str,
         published_at: datetime | None,
+        file_name: str | None = None,
+        file_size: int | None = None,
     ) -> AgentNotification:
         if message_id not in self.notifications:
             self.notifications[message_id] = AgentNotification(
@@ -23,6 +25,8 @@ class InMemoryNotificationJournal:
                 published_at=published_at,
                 received_at=datetime.now(UTC),
                 delivered_at=None,
+                file_name=file_name,
+                file_size=file_size,
             )
         return self.notifications[message_id]
 

@@ -12,6 +12,9 @@ from src.agent_notifications.services.text_splitter import TelegramTextSplitter
 from tests.agent_notifications.in_memory_notification_journal import (
     InMemoryNotificationJournal,
 )
+from tests.agent_notifications.recording_document_sender import (
+    RecordingDocumentSender,
+)
 from tests.agent_notifications.recording_message_sender import RecordingMessageSender
 
 OWNER_CHAT_ID = 42
@@ -34,8 +37,10 @@ def delivery(
     return AgentNotificationDelivery(
         journal=journal,
         message_sender=sender,
+        document_sender=RecordingDocumentSender(),
         splitter=TelegramTextSplitter(),
         owner_chat_id=OWNER_CHAT_ID,
+        file_store=None,
     )
 
 
