@@ -95,6 +95,11 @@ from workers.bot.gmail_tools_factory import (
 )
 from workers.bot.todoist_tools_factory import build_todoist_tools
 from workers.bot.transcriber_factory import build_transcriber
+from workers.bot.whatsapp_tools_factory import (
+    WHATSAPP_MACOS_SNAPSHOT_VARIABLE,
+    build_whatsapp_source,
+    build_whatsapp_tools,
+)
 
 logger = getLogger(__name__)
 
@@ -424,6 +429,13 @@ def main() -> None:
     if mail is not None:
         tools.extend(build_gmail_tools(mail, WorkFolder(work_dir), dropbox_boundary))
 
+    whatsapp = build_whatsapp_source(
+        macos_snapshot_dir=getenv(WHATSAPP_MACOS_SNAPSHOT_VARIABLE),
+        timezone=owner_timezone,
+    )
+    if whatsapp is not None:
+        tools.extend(build_whatsapp_tools(whatsapp, owner_timezone))
+
     tools.extend(
         build_file_tools(
             work_folder=WorkFolder(work_dir),
@@ -431,6 +443,7 @@ def main() -> None:
             chat_attachments=chat_attachments,
             dropbox_boundary=dropbox_boundary,
             mail=mail,
+            whatsapp=whatsapp,
             max_image_bytes=MAX_IMAGE_BYTES,
             document_sender=app.document_sender,
             owner_chat_id=owner_telegram_id,

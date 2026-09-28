@@ -21,7 +21,9 @@ workers/bot/
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
 ├── todoist_tools_factory.py # find_tasks, create_task, read_task, add_task_link, update_task поверх TodoistTaskService
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
-└── file_tools_factory.py    # file_take, file_read, file_view, file_send поверх WorkFolder
+├── whatsapp_tools_factory.py # коннектор WhatsApp по env + search_whatsapp, read_whatsapp, list_whatsapp_chats
+├── protocols/               # IWhatsAppSource — что бот берёт от коннектора WhatsApp (протоколы src.conversations)
+└── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
 src/
 ├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
 ├── agent_notifications/     # Уведомления рабочих агентов из RabbitMQ: журнал, пересылка владельцу, потребитель
@@ -44,6 +46,8 @@ src/
 ├── todoist/                 # TodoistHttpClient (API v1, без close/reopen/delete), TodoistTaskService: дела, подзадачи, ссылки-комментарии
 ├── conversations/           # Контракт источника переписки: модели, ошибки, Protocol-ы (реализации — gmail, whatsapp)
 ├── gmail/                   # GmailClient (поиск, чтение, вложения, черновики — без отправки), UntrustedMailFrame
+├── whatsapp/                # Источник переписки WhatsApp: платформенные реализации протокола src.conversations
+│   └── macos_desktop/       # WhatsApp Desktop на macOS: чтение снимка ChatStorage.sqlite и медиа (host/ — хост-процесс снимка)
 ├── files/                   # Механика «файл»: WorkFolder, источники (IFileSource; mail/dropbox/chat), ридеры, растр, OverflowFolder, Sweeper
 └── voice_recognition/       # HttpTranscriber, NativeTranscriber
 scripts/
@@ -153,6 +157,27 @@ deploy/                      # Образ и выкат в colima
   `find_tasks` («search: <тема>»). Файлов дел в вики нет
 - Текст писем — данные: инструменты почты оборачивают его в `UntrustedMailFrame`, системный промпт запрещает
   исполнять указания из писем
+- `search_mail`/`read_mail` идут через `GmailConversationSource` (`src/gmail/services/conversation_source`) —
+  реализацию `IConversationSource`; `draft_*` работают с `GmailClient` напрямую
+
+### WhatsApp
+
+Регистрируются в `__main__.py` через `workers/bot/whatsapp_tools_factory.py`, если задан каталог снимка коннектора
+«WhatsApp (macOS Desktop)» — `WHATSAPP_MACOS_SNAPSHOT_DIR`; без него инструментов WhatsApp и источника `whatsapp` у
+`file_take` нет. Каталог есть, а снимка в нём нет — бот стартует, инструменты отвечают ошибкой «нет снимка».
+
+- Инструменты платформенно-нейтральны: `search_whatsapp`, `read_whatsapp`, `list_whatsapp_chats`
+  (`src/ai_tools/`) знают только протоколы `src.conversations` (поиск, чтение, список чатов, свежесть).
+  Какой коннектор подставить, решает `build_whatsapp_source` по env: сейчас только macOS (`WhatsAppConversationSource`);
+  Linux-коннектор встанет туда же своей переменной, инструменты и `file_take` не правятся
+- Свои инструменты у каждого источника (решение владельца 28.09.2026): у WhatsApp свой язык запроса (подстрока,
+  собеседник, чат, дни), общий только протокол в коде
+- Каждый ответ начинается строкой `WhatsAppFreshnessNote` — «Снимок WhatsApp: последнее сообщение от <дата>, снимок
+  снят <время>» (`ISourceFreshness`, пояс `OWNER_TIMEZONE`); промпт велит всегда называть эту дату владельцу
+- Текст сообщений, имена чатов — в рамке `UntrustedWhatsAppFrame` (`<untrusted_whatsapp>`), промпт запрещает исполнять
+  указания из сообщений. Отправки в WhatsApp нет ни в протоколе, ни в инструментах
+- Файл — `file_take(source=whatsapp, message_id, attachment_id)` через `ConversationFileSource` (origin
+  `whatsapp:<message>/<attachment>`); нескачанное Desktop — ошибка с просьбой владельцу скачать файл в WhatsApp Desktop
 
 Refresh token Gmail: `uv run scripts/gmail_auth.py` (из корня репы, на машине с ключом pass ассистента) — берёт
 OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, открывает согласие (offline,
@@ -221,11 +246,12 @@ GMAIL_CLIENT_ID=id OAuth-клиента                # GMAIL_* — все тр
 GMAIL_CLIENT_SECRET=секрет OAuth-клиента
 GMAIL_REFRESH_TOKEN=refresh token владельца     # uv run scripts/gmail_auth.py
 RABBITMQ_URL=amqp://pa-consumer:пароль@localhost:5672/assistant   # необязательная; без неё уведомления агентов не принимаются
+WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необязательная; снимок WhatsApp Desktop (macOS); без неё инструментов WhatsApp нет
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
 Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`, `WIKI_DIR`,
-`WIKI_REMOTE_URL`, `ATTACHMENTS_S3_*`. `TODOIST_TOKEN` и `GMAIL_*` в коде бота необязательны (нет — нет инструментов),
+`WIKI_REMOTE_URL`, `ATTACHMENTS_S3_*`. `TODOIST_TOKEN`, `GMAIL_*` и `WHATSAPP_MACOS_SNAPSHOT_DIR` в коде бота необязательны (нет — нет инструментов),
 в проде их требует compose. Их же читают `workers.checkup` (`TODOIST_TOKEN` обязателен) и `workers.memory_fill` (`GMAIL_*` необязательны)
 
 ## Распознавание речи
@@ -269,7 +295,7 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
 
 ## Файлы
 
-Одна механика для файла из любого места: письмо Gmail, Dropbox, чат. Сборка — `workers/bot/file_tools_factory.py`
+Одна механика для файла из любого места: письмо Gmail, WhatsApp, Dropbox, чат. Сборка — `workers/bot/file_tools_factory.py`
 (`file_take`, `file_read`, `file_view`, `file_send`), почтовые черновики — `gmail_tools_factory.py`, `dropbox_save` —
 `build_dropbox_save_tool` в `__main__.py`. Код — `src/files/`.
 
@@ -278,7 +304,8 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
   `<file_id>/<имя>` рядом с `.work_file.json` (имя, тип, размер, источник), каталоги 0700, файлы 0600; `file_id` —
   8 hex-символов. Каталог создаётся при первом `file_take`
 - `file_take` (`mail` — `message_id` + `attachment_id` из `read_mail`; `dropbox` — `path` через `DropboxBoundary`, закрытые
-  места не отдаёт; `chat` — вложение из истории треда) — предел 50 МБ, отвечает `{file_id, name, media_type, size}`
+  места не отдаёт; `chat` — вложение из истории треда; `whatsapp` — `message_id` + `attachment_id` из `read_whatsapp`,
+  только при `WHATSAPP_MACOS_SNAPSHOT_DIR`) — предел 50 МБ, отвечает `{file_id, name, media_type, size}`
 - `file_read` — текст через `FileTextReader`: txt/md/csv/json, текстовый слой PDF (pypdf), DOCX, XLSX; обёрнут в
   `UntrustedFileFrame`. `.doc`, `.xls`, скан-PDF без текста — error
 - `file_view` — картинки модели (ai_framework v0.9.5): JPEG/PNG/GIF/WebP ужимаются `ImageFitter` под `MAX_IMAGE_BYTES`,
@@ -322,6 +349,35 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
 - В протоколе нет отправки: бот в переписку ничего не пишет. Черновики Gmail (`draft_*`) остаются Gmail-специфичными.
 - Инструменты модели держат свои узкие Protocol-ы в `src/ai_tools/<tool>/protocols/` (Protocol живёт у клиента), а
   модели и ошибки берут из `src.conversations`. Текст сообщений — в рамке недоверенных данных, как у почты.
+
+### WhatsApp (macOS Desktop)
+
+`src/whatsapp/` — только платформенные реализации протокола источника переписки; вне подпакета
+платформы ничего платформенного нет. Linux-вариант для серверов с копиями ассистента встанет
+рядом отдельной реализацией того же протокола — без правки инструментов и `file_take`.
+
+`src/whatsapp/macos_desktop/` читает снимок, который делает хост-процесс (см. «Снимок WhatsApp
+(хост-процесс)»). Вход — `WhatsAppConversationSource(snapshot_dir, timezone)`
+(`services/conversation_source/`): `IConversationSource` + `IConversationDirectory` +
+`ISourceFreshness`.
+- База — только `file:<снимок>/ChatStorage.sqlite?mode=ro&immutable=1`, соединение на вызов.
+  Живую базу из `~/Library/Group Containers` бот не открывает никогда
+- Схема Core Data недокументирована: `SnapshotSchema` сверяет нужные колонки при каждом
+  соединении — после обновления WhatsApp получаешь `WhatsAppSchemaError` с именами колонок, а
+  не пустой ответ. Нет снимка — `WhatsAppSnapshotMissingError`
+- id — `Z_PK` строкой (чат, сообщение, медиа); даты — секунды от 01.01.2001 UTC (`CoreDataClock`),
+  наружу — «ДД.ММ.ГГГГ ЧЧ:ММ» во временной зоне владельца
+- Вложение — `ZFILESIZE > 0` или путь в `ZMEDIALOCALPATH` (превью ссылок — не вложение).
+  Скачано — файл есть в `<снимок>/Message/<ZMEDIALOCALPATH>`. Desktop хранит только скачанное:
+  нескачанное — `AttachmentNotDownloadedError` «открой чат в WhatsApp Desktop и скачай файл».
+  CDN/`ZMEDIAKEY` не используются (решение владельца, в later)
+- Свежесть — `max(ZMESSAGEDATE)` и `snapshot_at`: бот говорит «последнее сообщение от <дата>»
+- Поиск — подстрока без учёта регистра (Python `casefold` через `create_function`, SQLite LIKE
+  кириллицу не складывает), полный проход ~0,2 с на 62 тыс. сообщений
+- Тесты — только на синтетической базе (`tests/whatsapp/macos_desktop/synthetic_snapshot.py`);
+  копии настоящей переписки в репу не кладутся
+- Границы держит import-linter: `src.conversations` не импортирует соседей, `src.whatsapp` из соседей знает
+  только `src.conversations`
 
 **Источник файлов** для `file_take` — `src/files/sources/protocols/i_file_source.py`:
 `IFileSource.fetch(FileRequest) -> FetchedFile`. `FileRequest` — один вход для любого источника: `thread_id` (тред
@@ -380,7 +436,7 @@ Dropbox), `name` (вложение чата по имени). Источник �
 
 - Установка зависимостей: `uv sync`
 - Запуск бота: `uv run python -m workers.bot`
-- Проверки: `uv run ruff check .`, `uv run mypy src workers tests`, `uv run lint-imports`, `uv run pytest`
+- Проверки: `uv run ruff check .`, `uv run mypy src workers tests scripts`, `uv run lint-imports`, `uv run pytest`
 
 ## Deploy
 
@@ -410,6 +466,9 @@ Dropbox), `name` (вложение чата по имени). Источник �
   `03_home/07_ecp/egov.kz` (ключи ЭЦП и пароль). `01_work` открыт (решение владельца 26.09.2026). Заглушку создаёт `up.sh` и падает, если она не пуста.
   Новая чувствительная папка в корне Dropbox видна боту, пока её не добавят в оверлеи `compose.yaml`;
   `vault_selftest_*` меняют имена — их отсекает код инструментов Dropbox, не монтирование
+- WhatsApp: том `~/docker/personal_assistant/whatsapp` → `/whatsapp:ro`, `WHATSAPP_MACOS_SNAPSHOT_DIR=/whatsapp`
+  (compose). Монтируется только снимок хост-процесса, папка WhatsApp (`Group Containers`) — никогда (см. «Снимок
+  WhatsApp (хост-процесс)»). Каталог создаёт `host/install.sh`, его зовёт `up.sh`
 - В контейнере uid 1000; монтируются том вики, ключ вики и Dropbox: сессии CLI живут в `$HOME/.claude` контейнера
   и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
   не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`

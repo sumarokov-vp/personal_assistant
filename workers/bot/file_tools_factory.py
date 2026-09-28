@@ -12,6 +12,12 @@ from src.files.overflow.overflow_folder import OverflowFolder
 from src.files.readers.file_text_reader import FileTextReader
 from src.files.sources.chat_attachments.chat_attachments import ChatAttachments
 from src.files.sources.chat_source.chat_file_source import ChatFileSource
+from src.files.sources.conversation_source.conversation_file_source import (
+    ConversationFileSource,
+)
+from src.files.sources.conversation_source.protocols.i_conversation_attachments import (
+    IConversationAttachments,
+)
 from src.files.sources.dropbox_source.dropbox_file_source import DropboxFileSource
 from src.files.sources.dropbox_source.protocols.i_dropbox_file_opener import (
     IDropboxFileOpener,
@@ -37,6 +43,10 @@ CHAT_HINT = (
     "attachment_filename — имя из метки «[вложение: …]» его сообщения или ключ S3, "
     "не указано — последнее"
 )
+WHATSAPP_HINT = (
+    "вложение сообщения WhatsApp: message_id и attachment_id из read_whatsapp; "
+    "берётся только файл, скачанный в WhatsApp Desktop"
+)
 
 
 def build_file_take_tool(
@@ -44,6 +54,7 @@ def build_file_take_tool(
     chat_attachments: ChatAttachments,
     dropbox_boundary: IDropboxFileOpener | None,
     mail: IMailAttachments | None,
+    whatsapp: IConversationAttachments | None = None,
 ) -> FileTakeTool:
     mail_source: IFileSource = (
         MailFileSource(mail, FILE_TAKE_LIMIT_BYTES)
@@ -55,18 +66,24 @@ def build_file_take_tool(
         if dropbox_boundary is not None
         else UnavailableFileSource("Dropbox не подключён — файлы из него не достать")
     )
-    return FileTakeTool(
-        work_files=work_folder,
-        sources=[
-            RegisteredFileSource("mail", MAIL_HINT, mail_source),
-            RegisteredFileSource("dropbox", DROPBOX_HINT, dropbox_source),
+    sources = [
+        RegisteredFileSource("mail", MAIL_HINT, mail_source),
+        RegisteredFileSource("dropbox", DROPBOX_HINT, dropbox_source),
+        RegisteredFileSource(
+            "chat",
+            CHAT_HINT,
+            ChatFileSource(chat_attachments, FILE_TAKE_LIMIT_BYTES),
+        ),
+    ]
+    if whatsapp is not None:
+        sources.append(
             RegisteredFileSource(
-                "chat",
-                CHAT_HINT,
-                ChatFileSource(chat_attachments, FILE_TAKE_LIMIT_BYTES),
-            ),
-        ],
-    )
+                "whatsapp",
+                WHATSAPP_HINT,
+                ConversationFileSource(whatsapp, "whatsapp", FILE_TAKE_LIMIT_BYTES),
+            )
+        )
+    return FileTakeTool(work_files=work_folder, sources=sources)
 
 
 def build_file_tools(
@@ -75,12 +92,15 @@ def build_file_tools(
     chat_attachments: ChatAttachments,
     dropbox_boundary: DropboxBoundary | None,
     mail: GmailClient | None,
+    whatsapp: IConversationAttachments | None,
     max_image_bytes: int,
     document_sender: IDocumentSender,
     owner_chat_id: int,
 ) -> list[BaseTool]:
     return [
-        build_file_take_tool(work_folder, chat_attachments, dropbox_boundary, mail),
+        build_file_take_tool(
+            work_folder, chat_attachments, dropbox_boundary, mail, whatsapp
+        ),
         FileReadTool(
             work_files=work_folder, text_reader=text_reader, frame=UntrustedFileFrame()
         ),
