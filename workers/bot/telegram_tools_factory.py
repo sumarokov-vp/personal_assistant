@@ -14,12 +14,17 @@ from src.telegram_user.services.conversation_source.telegram_conversation_source
 from workers.bot.protocols.i_telegram_source import ITelegramSource
 
 TELEGRAM_USER_SECRETS_VARIABLE = "TELEGRAM_USER_SECRETS_FILE"
+BOT_ID_SEPARATOR = ":"
 
 logger = getLogger(__name__)
 
 
+def bot_conversation_id(bot_token: str) -> str:
+    return bot_token.partition(BOT_ID_SEPARATOR)[0]
+
+
 def build_telegram_source(
-    secrets_file: str | None, timezone: ZoneInfo
+    secrets_file: str | None, timezone: ZoneInfo, bot_token: str
 ) -> ITelegramSource | None:
     if not secrets_file:
         logger.info(
@@ -33,7 +38,9 @@ def build_telegram_source(
             TELEGRAM_USER_SECRETS_VARIABLE,
         )
         return None
-    return TelegramConversationSource.from_secrets_file(path, timezone)
+    return TelegramConversationSource.from_secrets_file(
+        path, timezone, frozenset({bot_conversation_id(bot_token)})
+    )
 
 
 def build_telegram_tools(source: ITelegramSource, timezone: ZoneInfo) -> list[BaseTool]:

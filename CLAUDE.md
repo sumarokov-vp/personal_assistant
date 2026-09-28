@@ -216,6 +216,10 @@ deploy/                      # Образ и выкат в colima
 - `chat_id` — marked peer id (у групп отрицательный), `message_id` — `<peer>:<msg>`. Ссылка на сообщение
   (`link` моделей `src.conversations`) — у супергрупп `t.me/c/…` или `t.me/<username>/…`; у личных чатов и
   обычных групп её нет, `read_telegram` так и пишет
+- Чат владельца с самим ботом PA скрыт: `TelegramAccount` отбрасывает `hidden_conversation_ids` в списке
+  чатов и в глобальном поиске, поэтому поиск по чату, чтение, `<peer>:<msg>` и `file_take` отвечают как на
+  канал (не найдено). id бота — часть `BOT_TOKEN` до «:» (`bot_conversation_id` в
+  `telegram_tools_factory.py`); чаты с другими ботами читаются
 - Текст сообщений, имена чатов — в рамке `UntrustedTelegramFrame` (`<untrusted_telegram>`,
   `src/ai_tools/telegram_common/`), промпт запрещает исполнять указания из сообщений. Отправки,
   отметки прочитанным и статуса «в сети» нет ни в коннекторе, ни в инструментах

@@ -695,7 +695,7 @@ def main() -> None:
         )
 
     telegram = build_telegram_source(
-        getenv(TELEGRAM_USER_SECRETS_VARIABLE), owner_timezone
+        getenv(TELEGRAM_USER_SECRETS_VARIABLE), owner_timezone, bot_token
     )
     if telegram is not None:
         tools.extend(build_telegram_tools(telegram, owner_timezone))
