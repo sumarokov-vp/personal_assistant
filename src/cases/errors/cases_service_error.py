@@ -1,0 +1,2 @@
+class CasesServiceError(Exception):
+    pass

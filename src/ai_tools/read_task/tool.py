@@ -16,11 +16,10 @@ class ReadTaskInput(BaseModel):
 class ReadTaskTool(BaseTool):
     name: ClassVar[str] = "read_task"
     description: ClassVar[str] = (
-        "Читает задачу (дело) Todoist целиком. task_id — id из find_tasks или create_task. "
+        "Читает задачу Todoist владельца целиком. task_id — id из find_tasks. "
         "Возвращает task (id, content, description, due, deadline, parent_id, labels, "
         "project, url), subtasks — подзадачи в том же виде, comments (id, content, "
-        "posted_at) — ссылки дела: страницы вики, файлы Dropbox, письма и запросы Gmail, "
-        "контакты. Отвечая по делу, иди по этим ссылкам."
+        "posted_at) — комментарии к задаче. Дела живут не в Todoist, а в ленте дела."
     )
 
     Input: ClassVar[type[BaseModel]] = ReadTaskInput

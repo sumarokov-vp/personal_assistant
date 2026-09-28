@@ -24,6 +24,7 @@ def test_client_cannot_close_reopen_or_delete_tasks() -> None:
         "update_task",
         "list_comments",
         "add_comment",
+        "list_activities",
     }
     forbidden = ("close", "reopen", "delete", "complete", "archive", "move")
     assert not [name for name in public_methods if any(w in name for w in forbidden)]

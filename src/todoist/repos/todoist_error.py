@@ -1,0 +1,2 @@
+class TodoistError(Exception):
+    pass

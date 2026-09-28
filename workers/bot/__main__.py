@@ -105,7 +105,15 @@ from src.memory.repos import (
 )
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
+from src.cases.repos.cases_http_client import CasesHttpClient
+from src.task_mirror.services.mirror_pass import TodoistMirrorPass
+from src.task_mirror.services.outbound_mirror import TaskMirrorListener
 from src.gmail.repos.gmail_client import GmailClient
+from workers.bot.cases_tools_factory import (
+    CASES_VARIABLES,
+    build_cases_client,
+    build_cases_tools,
+)
 from workers.bot.colleague_mail_tool_gateway import ColleagueMailToolGateway
 from workers.colleague_digest.composition import build_colleague_digest
 from workers.memory_fill.owner_notifier import OwnerNotifier
@@ -115,7 +123,11 @@ from workers.bot.gmail_tools_factory import (
     build_gmail_client,
     build_gmail_tools,
 )
-from workers.bot.todoist_tools_factory import build_todoist_tools
+from workers.bot.todoist_tools_factory import (
+    build_task_mirror,
+    build_todoist_client,
+    build_todoist_tools,
+)
 from workers.bot.transcriber_factory import build_transcriber
 from workers.bot.whatsapp_tools_factory import (
     WHATSAPP_MACOS_SNAPSHOT_VARIABLE,
@@ -137,6 +149,7 @@ GMAIL_HTTP_TIMEOUT_SECONDS = 30.0
 DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
 SWEEP_INTERVAL_SECONDS = 60 * 60
 AGENT_NOTIFICATIONS_RECONNECT_SECONDS = 15
+TODOIST_MIRROR_INTERVAL_SECONDS = 10 * 60
 COLLEAGUE_MAIL_RECONNECT_SECONDS = 15
 AGENT_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 
@@ -325,6 +338,25 @@ def start_agent_notifications(
     return thread
 
 
+def mirror_todoist_forever(mirror_pass: TodoistMirrorPass) -> None:
+    while True:
+        try:
+            mirror_pass.run()
+        except Exception as error:
+            logger.warning("Todoist mirror pass failed, next try later: %s", error)
+        sleep(TODOIST_MIRROR_INTERVAL_SECONDS)
+
+
+def start_todoist_mirror(mirror_pass: TodoistMirrorPass | None) -> None:
+    if mirror_pass is None:
+        logger.info("TODOIST_TOKEN or CASES_* not set, Todoist mirror not started")
+        return
+    Thread(
+        target=mirror_todoist_forever,
+        args=(mirror_pass,),
+        name="todoist-mirror",
+        daemon=True,
+    ).start()
 def read_colleague_mail_settings() -> ColleagueMailSettings | None:
     mail_url = getenv("ASSISTANT_MAIL_URL")
     key = getenv("ASSISTANT_KEY")
@@ -522,6 +554,14 @@ def build_configured_gmail_client() -> GmailClient | None:
     )
 
 
+def build_configured_cases_client() -> CasesHttpClient | None:
+    if not any(getenv(name) for name in CASES_VARIABLES):
+        return None
+    return build_cases_client(
+        api_url=require_env("CASES_API_URL"), api_key=require_env("CASES_API_KEY")
+    )
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent.parent
     load_dotenv(dotenv_path=project_root / ".env")
@@ -588,9 +628,24 @@ def main() -> None:
     if colleague_mail is not None:
         tools.extend(build_colleague_mail_tools(colleague_mail, db_url, owner_timezone))
 
+    cases = build_configured_cases_client()
     todoist_token = getenv("TODOIST_TOKEN")
-    if todoist_token:
-        tools.extend(build_todoist_tools(todoist_token))
+    todoist = build_todoist_client(todoist_token) if todoist_token else None
+    mirror_listener: TaskMirrorListener | None = None
+    mirror_pass: TodoistMirrorPass | None = None
+    if todoist is not None and cases is not None:
+        mirror_listener, mirror_pass = build_task_mirror(todoist, cases)
+    if cases is not None:
+        tools.extend(
+            build_cases_tools(
+                cases,
+                owner_timezone,
+                task_recorded=mirror_listener,
+                task_changed=mirror_listener,
+            )
+        )
+    if todoist is not None:
+        tools.extend(build_todoist_tools(todoist, cases))
 
     mail = build_configured_gmail_client()
     if mail is not None:
@@ -619,9 +674,20 @@ def main() -> None:
 
     logger.info("AI tools: %s", ", ".join(tool.name for tool in tools))
 
+    connectors = [
+        name
+        for name, client in (
+            ("todoist", todoist),
+            ("gmail", mail),
+            ("whatsapp", whatsapp),
+        )
+        if client is not None
+    ]
+    logger.info("Prompt connectors: %s", ", ".join(connectors) or "none")
     system_prompt_builder = SystemPromptBuilder(
         template=(data_dir / "system_prompt.txt").read_text(encoding="utf-8"),
         timezone=owner_timezone,
+        connectors=connectors,
     )
     ai = AIApplication(
         api_key=SUBSCRIPTION_HAS_NO_API_KEY,
@@ -724,6 +790,7 @@ def main() -> None:
     )
 
     apply_migrations(db_url)
+    start_todoist_mirror(mirror_pass)
     start_agent_notifications(
         rabbitmq_url=getenv("RABBITMQ_URL"),
         database_url=db_url,

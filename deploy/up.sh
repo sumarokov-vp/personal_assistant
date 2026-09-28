@@ -81,6 +81,12 @@ require_value "$PASS_ROOT/gmail-refresh-token" "$GMAIL_REFRESH_TOKEN"
 RABBITMQ_URL="$(pass_first_line "$PASS_ROOT/rabbitmq")"
 require_value "$PASS_ROOT/rabbitmq" "$RABBITMQ_URL"
 
+# Сервис дел assistant_cases (соседний контейнер в сети infra): ключ API ассистента. Его же строка
+# «user:ключ» лежит в записи API_KEYS сервиса дел — ключ определяет, чьи это дела
+CASES_API_KEY="$(pass_first_line "$PASS_ROOT/cases-api-key")"
+require_value "$PASS_ROOT/cases-api-key" "$CASES_API_KEY"
+CASES_API_URL="${CASES_API_URL:-http://assistant_cases:8000}"
+
 # Почта ассистентов: URL учётки assistant-sumarokov в vhost assistants.sumarokov (пишет в
 # exchange assistant-mail, читает только inbox.sumarokov). Запись, ящик и учётку заводит
 # deploy/rabbitmq/assistants.sh add-assistant sumarokov
@@ -133,6 +139,7 @@ export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN 
     ATTACHMENTS_S3_ENDPOINT ATTACHMENTS_S3_BUCKET ATTACHMENTS_S3_REGION \
     ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \
     TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN \
-    RABBITMQ_URL ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE
+    RABBITMQ_URL CASES_API_URL CASES_API_KEY \
+    ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE
 
 docker compose -f deploy/compose.yaml up -d --build
