@@ -45,6 +45,7 @@ from src.memory.repos import (
     CommitmentRepository,
     DeadlineRepository,
     IWikiStorage,
+    LocalFolderStorage,
     WhereaboutsRepository,
     WikiPageStorage,
 )
@@ -56,6 +57,7 @@ from workers.memory_fill.gmail_credentials import GmailCredentials
 from workers.memory_fill.memory_fill_env import MemoryFillEnv
 from workers.memory_fill.memory_fill_report import MemoryFillReport
 from workers.memory_fill.memory_fill_run import MemoryFillRun
+from workers.memory_fill.memory_storage_kind import MemoryStorageKind
 from workers.memory_fill.protocols.i_fill_conversation import IFillConversation
 from workers.memory_fill.protocols.i_mail_source import IMailSource
 from workers.memory_fill.protocols.i_watched_page import IWatchedPage
@@ -77,6 +79,14 @@ def build_wiki_storage(settings: WikiSettings) -> IWikiStorage:
         writer=factory.create_writer(),
         page_not_found_error=WikiPageNotFoundError,
     )
+
+
+def build_memory_storage(env: MemoryFillEnv) -> IWikiStorage:
+    if env.memory_storage.kind is MemoryStorageKind.LOCAL:
+        return LocalFolderStorage(env.memory_storage.local_dir)
+    if env.wiki is None:
+        raise ValueError("MEMORY_STORAGE=wiki requires WIKI_REMOTE_URL")
+    return build_wiki_storage(env.wiki)
 
 
 def build_mail_client(http: httpx.Client, credentials: GmailCredentials) -> GmailClient:
@@ -191,7 +201,7 @@ def new_thread_id() -> str:
 
 
 def run_memory_fill(env: MemoryFillEnv, prompt_template: str) -> MemoryFillReport:
-    storage = build_wiki_storage(env.wiki)
+    storage = build_memory_storage(env)
     kickoff = build_kickoff(
         has_dropbox=env.dropbox_root is not None, has_mail=env.gmail is not None
     )
