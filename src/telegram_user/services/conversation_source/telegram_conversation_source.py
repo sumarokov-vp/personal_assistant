@@ -45,10 +45,11 @@ class TelegramConversationSource:
         self,
         client_factory: ITelethonClientFactory,
         timezone: ZoneInfo,
+        hidden_conversation_ids: frozenset[str] = frozenset(),
         request_timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
     ) -> None:
         self._loop = EventLoopThread(LOOP_THREAD_NAME, request_timeout_seconds)
-        self._account = TelegramAccount(client_factory)
+        self._account = TelegramAccount(client_factory, hidden_conversation_ids)
         clock = OwnerClock(timezone)
         mapper = MessageMapper(clock)
         locator = MessageLocator(self._account)
@@ -59,10 +60,15 @@ class TelegramConversationSource:
 
     @classmethod
     def from_secrets_file(
-        cls, secrets_file: Path, timezone: ZoneInfo
+        cls,
+        secrets_file: Path,
+        timezone: ZoneInfo,
+        hidden_conversation_ids: frozenset[str],
     ) -> "TelegramConversationSource":
         credentials = TelegramSecretsFile(secrets_file).read()
-        return cls(TelethonClientFactory(credentials), timezone)
+        return cls(
+            TelethonClientFactory(credentials), timezone, hidden_conversation_ids
+        )
 
     def search(self, query: MessageQuery) -> list[MessageSummary]:
         return self._loop.run(self._account.perform(lambda: self._search.search(query)))

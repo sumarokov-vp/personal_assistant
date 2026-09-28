@@ -29,8 +29,13 @@ FLOOD_ERRORS = (FloodWaitError, FloodPremiumWaitError)
 
 
 class TelegramAccount:
-    def __init__(self, client_factory: ITelethonClientFactory) -> None:
+    def __init__(
+        self,
+        client_factory: ITelethonClientFactory,
+        hidden_conversation_ids: frozenset[str],
+    ) -> None:
         self._client_factory = client_factory
+        self._hidden_conversation_ids = hidden_conversation_ids
         self._client: ITelethonClient | None = None
         self._chats: dict[str, TelegramChat] = {}
         self._connecting = asyncio.Lock()
@@ -46,7 +51,7 @@ class TelegramAccount:
 
     async def chats(self) -> AsyncIterator[TelegramChat]:
         async for dialog in self._current_client().iter_dialogs():
-            chat = chat_from_entity(dialog.entity, dialog.date)
+            chat = self._visible(chat_from_entity(dialog.entity, dialog.date))
             if chat is None:
                 continue
             self._chats[chat.conversation_id] = chat
@@ -89,7 +94,7 @@ class TelegramAccount:
             None, limit, offset_date=until, search=text
         )
         async for message in messages:
-            chat = chat_from_entity(message.chat)
+            chat = self._visible(chat_from_entity(message.chat))
             if chat is None or message.action is not None:
                 continue
             self._chats.setdefault(chat.conversation_id, chat)
@@ -103,6 +108,11 @@ class TelegramAccount:
 
     async def download(self, message: Message) -> bytes | None:
         return await self._current_client().download_media(message, file=bytes)
+
+    def _visible(self, chat: TelegramChat | None) -> TelegramChat | None:
+        if chat is None or chat.conversation_id in self._hidden_conversation_ids:
+            return None
+        return chat
 
     async def _connected(self) -> ITelethonClient:
         async with self._connecting:

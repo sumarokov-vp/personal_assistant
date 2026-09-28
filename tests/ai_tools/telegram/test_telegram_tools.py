@@ -28,11 +28,13 @@ from tests.ai_tools.telegram.fake_telegram_source import (
 )
 from workers.bot.file_tools_factory import build_file_take_tool
 from workers.bot.telegram_tools_factory import (
+    bot_conversation_id,
     build_telegram_source,
     build_telegram_tools,
 )
 
 TIMEZONE = ZoneInfo("Asia/Almaty")
+ASSISTANT_BOT_CREDENTIAL = "7001:synthetic"
 CONTEXT = ToolContext({"chat_id": 1, "user_id": 7})
 SYSTEM_PROMPT = Path(__file__).parents[3] / "data" / "system_prompt.txt"
 TELEGRAM_TOOL_NAMES = ("search_telegram", "read_telegram", "list_telegram_chats")
@@ -185,8 +187,13 @@ def test_no_secrets_file_means_no_telegram(
 ) -> None:
     caplog.set_level(logging.INFO)
 
-    assert build_telegram_source(None, TIMEZONE) is None
-    assert build_telegram_source(str(tmp_path / "telegram_user"), TIMEZONE) is None
+    assert build_telegram_source(None, TIMEZONE, ASSISTANT_BOT_CREDENTIAL) is None
+    assert (
+        build_telegram_source(
+            str(tmp_path / "telegram_user"), TIMEZONE, ASSISTANT_BOT_CREDENTIAL
+        )
+        is None
+    )
     assert "Telegram tools are off" in caplog.text
 
 
@@ -198,12 +205,16 @@ def test_secrets_file_builds_source_without_connecting(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    source = build_telegram_source(str(secrets), TIMEZONE)
+    source = build_telegram_source(str(secrets), TIMEZONE, ASSISTANT_BOT_CREDENTIAL)
 
     assert source is not None
     assert [tool.name for tool in build_telegram_tools(source, TIMEZONE)] == list(
         TELEGRAM_TOOL_NAMES
     )
+
+
+def test_bot_conversation_id_is_token_prefix() -> None:
+    assert bot_conversation_id(ASSISTANT_BOT_CREDENTIAL) == "7001"
 
 
 def test_prompt_without_telegram_drops_its_section() -> None:
