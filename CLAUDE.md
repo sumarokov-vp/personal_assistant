@@ -733,8 +733,17 @@ WhatsApp Desktop на Mac mini держит переписку в `~/Library/Gro
 
 - launchd-агент `com.sumarokov.personal-assistant.whatsapp-web` (`RunAtLoad`, `KeepAlive`, домен
   `gui/<uid>` — Chromium требует GUI-сессии владельца), лог — `~/Library/Logs/personal_assistant/whatsapp_web.log`.
-  `ProgramArguments` — `.venv/bin/whatsapp-web-host` проекта (консольный скрипт из `pyproject.toml`),
-  не `uv run`: launchd не видит `PATH` пользователя, а venv уже собран `install.sh`
+  `ProgramArguments` — `.venv/bin/whatsapp-web-host` (консольный скрипт из `pyproject.toml`), не
+  `uv run`: launchd не видит `PATH` пользователя, а venv уже собран `install.sh`
+- Рантайм — не в checkout `hosts/whatsapp_web/`, а постоянный каталог
+  `~/docker/personal_assistant/whatsapp-web/app` (`APP_DIR`): `install.sh` копирует туда проект
+  `rsync --checksum --delete` (исходники, `pyproject.toml`, `uv.lock`; `.venv`, тесты и сам
+  `install.sh`/`launchd/` исключены и не удаляются) и собирает там `.venv` (`uv sync --locked
+  --no-dev`). Так удаление/переключение worktree или `uv sync` в рабочей копии, из которой
+  когда-то ставили сервис, не ломает прод — `ProgramArguments` в plist смотрит в `APP_DIR`, а не в
+  checkout. `rsync --checksum` сравнивает содержимое, не mtime: второй прогон, в т.ч. из другой
+  рабочей копии с тем же кодом, ничего не копирует и не перезапускает агента; `launchctl kickstart
+  -k` идёт, только если rsync реально что-то поменял в `APP_DIR`
 - Слушает только `127.0.0.1:18790` (`WHATSAPP_WEB_PORT`, см. README) — из контейнера бота
   `http://host.docker.internal:18790`. Профиль Chromium — `~/docker/personal_assistant/whatsapp-web/profile`
   (0700); первый прогон пробного сценария оставил привязанный профиль в `~/whatsapp-web-spike/profile` —
@@ -750,12 +759,15 @@ WhatsApp Desktop на Mac mini держит переписку в `~/Library/Gro
   вне связки ассистента (`$ASSISTANT_GNUPGHOME` её не расшифровывает: там только приватный ключ
   ассистента, а `work/` шифруется на YubiKey/soft key), поэтому `install.sh` читает и заводит её
   с явно снятым `GNUPGHOME` (`env -u`), а не с тем, что экспортировал вызвавший `up.sh`
-- Установка — `hosts/whatsapp_web/install.sh` (вызывает `up.sh`, идемпотентно): `uv sync --locked`,
-  `playwright install chromium`, перенос профиля (если нужен), pass-запись ключа и номера (нет —
-  заводится: ключ `openssl rand -hex 32`, номер вытаскивается из `~/whatsapp-web-spike/scripts/s_num.py`,
-  сам скрипт не запускается — в репозиторий, лог и очередь номер не попадает), учётка RabbitMQ,
-  файл секретов (перезаписывается только при изменении), plist в `~/Library/LaunchAgents/`,
-  `launchctl bootstrap gui/<uid>` (изменился plist — `bootout` + `bootstrap`, иначе без изменений)
+- Установка — `hosts/whatsapp_web/install.sh` (вызывает `up.sh`, идемпотентно): копирует проект в
+  `APP_DIR` (`rsync --checksum --delete`), там `uv sync --locked --no-dev`, `playwright install
+  chromium`, перенос профиля (если нужен), pass-запись ключа и номера (нет — заводится: ключ
+  `openssl rand -hex 32`, номер вытаскивается из `~/whatsapp-web-spike/scripts/s_num.py`, сам
+  скрипт не запускается — в репозиторий, лог и очередь номер не попадает), учётка RabbitMQ,
+  файл секретов (перезаписывается только при изменении), plist в `~/Library/LaunchAgents/`
+  (`ProgramArguments` — путь в `APP_DIR`). `launchctl bootstrap gui/<uid>`: изменился plist —
+  `bootout` + `bootstrap`; не изменился, но `rsync` обновил `APP_DIR` — `kickstart -k`; иначе
+  без изменений
 - Первая проверка привязки — на старте сервиса (`GET /v1/health` до неё сам её делает); дальше
   отдаёт последнее известное состояние, браузер не поднимая. Суточную проверку и сигнал владельцу
   при отвязке (агент-уведомление, код перепривязки) проводит #01a0e7b6-23e6
