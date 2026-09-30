@@ -7,7 +7,7 @@ from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 
 SYSTEM_PROMPT = Path(__file__).parents[2] / "data" / "system_prompt.txt"
 TIMEZONE = ZoneInfo("Asia/Almaty")
-ALL_CONNECTORS = ("todoist", "gmail", "whatsapp")
+ALL_CONNECTORS = ("tasks", "gmail", "whatsapp")
 
 
 def _prompt(connectors: tuple[str, ...]) -> str:
@@ -24,9 +24,10 @@ def test_prompt_without_connectors_keeps_cases_and_drops_connector_sections() ->
     assert "## Кейсы" in prompt
     assert "task_add" in prompt
     for absent in (
-        "Todoist",
+        "## Задачник",
         "find_tasks",
-        "task_link_todoist",
+        "read_task",
+        "task_link",
         "search_mail",
         "draft_mail",
         "WhatsApp",
@@ -36,12 +37,12 @@ def test_prompt_without_connectors_keeps_cases_and_drops_connector_sections() ->
         assert absent not in prompt
 
 
-def test_prompt_with_todoist_has_its_section_only() -> None:
-    prompt = _prompt(("todoist",))
+def test_prompt_with_task_manager_has_its_section_only() -> None:
+    prompt = _prompt(("tasks",))
 
-    assert "## Задачи Todoist" in prompt
+    assert "## Задачник" in prompt
     assert "find_tasks" in prompt
-    assert "task_link_todoist" in prompt
+    assert "task_link" in prompt
     assert "search_mail" not in prompt
     assert "search_whatsapp" not in prompt
     assert "<!--" not in prompt
@@ -56,11 +57,17 @@ def test_prompt_placeholders_are_filled(connectors: tuple[str, ...]) -> None:
     assert "Asia/Almaty" in prompt
 
 
-def test_prompt_never_names_unregistered_todoist_tools() -> None:
+def test_prompt_never_names_removed_task_tools() -> None:
     template = SYSTEM_PROMPT.read_text(encoding="utf-8")
 
-    for removed in ("create_task", "update_task", "add_task_link"):
+    for removed in ("create_task", "update_task", "add_task_link", "task_link_todoist"):
         assert removed not in template
+
+
+def test_prompt_never_names_the_task_manager_implementation() -> None:
+    template = SYSTEM_PROMPT.read_text(encoding="utf-8")
+
+    assert "todoist" not in template.casefold()
 
 
 def test_dropped_section_leaves_no_blank_line_run() -> None:

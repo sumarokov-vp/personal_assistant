@@ -167,7 +167,6 @@ DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
 SWEEP_INTERVAL_SECONDS = 60 * 60
 AGENT_NOTIFICATIONS_RECONNECT_SECONDS = 15
 TODOIST_MIRROR_INTERVAL_SECONDS = 10 * 60
-TASK_MANAGER_PROMPT_KEYS = ("tasks", "todoist")
 COLLEAGUE_MAIL_RECONNECT_SECONDS = 15
 AGENT_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 
@@ -739,7 +738,7 @@ def main() -> None:
     connectors = [
         name
         for name, client in (
-            *((key, todoist) for key in TASK_MANAGER_PROMPT_KEYS),
+            ("tasks", todoist),
             ("gmail", mail),
             ("whatsapp", whatsapp),
             ("telegram", telegram),
