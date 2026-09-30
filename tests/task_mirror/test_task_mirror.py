@@ -56,17 +56,176 @@ def test_task_of_other_assignee_never_reaches_todoist(
     assert todoist_service.requests == []
 
 
-def test_closing_our_task_does_not_close_it_in_todoist(
+def test_owner_closing_mirrored_task_closes_it_once_without_echo(
     mirrored_tools: dict[str, BaseTool],
+    mirror_pass: MirrorPass,
     cases_service: StatefulCasesService,
     todoist_service: StatefulTodoist,
 ) -> None:
     cases_service.add_task("t1", external_id=MIRRORED)
 
     _run(mirrored_tools["task_close"], {"task_id": "t1", "status": "done"})
+    todoist_service.activity(801, "completed")
+    mirror_pass.run()
+
+    assert todoist_service.closed == [TODOIST_TASK_ID]
+    assert cases_service.tasks["t1"]["status"] == "done"
+    assert len(cases_service.transitions) == 1
+
+
+def test_owner_cancelling_mirrored_task_closes_it_not_deletes(
+    mirrored_tools: dict[str, BaseTool],
+    cases_service: StatefulCasesService,
+    todoist_service: StatefulTodoist,
+) -> None:
+    cases_service.add_task("t1", external_id=MIRRORED)
+
+    _run(mirrored_tools["task_close"], {"task_id": "t1", "status": "cancelled"})
+
+    assert todoist_service.closed == [TODOIST_TASK_ID]
+    assert [r.method for r in todoist_service.requests] == ["POST"]
+
+
+def test_assistant_closing_stays_in_case(
+    mirrored_tools: dict[str, BaseTool],
+    cases_service: StatefulCasesService,
+    todoist_service: StatefulTodoist,
+) -> None:
+    cases_service.add_task("t1", external_id=MIRRORED)
+
+    answer = _run(
+        mirrored_tools["task_close"],
+        {"task_id": "t1", "status": "done", "source": "assistant"},
+    )
 
     assert todoist_service.requests == []
     assert cases_service.tasks["t1"]["status"] == "done"
+    assert "осталась открытой" in answer
+
+
+def test_closing_unmirrored_or_foreign_task_never_reaches_todoist(
+    mirrored_tools: dict[str, BaseTool],
+    cases_service: StatefulCasesService,
+    todoist_service: StatefulTodoist,
+) -> None:
+    cases_service.add_task("t1")
+    cases_service.add_task("t2", external_id=MIRRORED, assignee="agent:accountant")
+
+    _run(mirrored_tools["task_close"], {"task_id": "t1", "status": "done"})
+    _run(mirrored_tools["task_close"], {"task_id": "t2", "status": "done"})
+
+    assert todoist_service.requests == []
+
+
+def test_todoist_down_does_not_break_task_close(
+    mirrored_tools: dict[str, BaseTool],
+    cases_service: StatefulCasesService,
+    todoist_service: StatefulTodoist,
+) -> None:
+    cases_service.add_task("t1", external_id=MIRRORED)
+    todoist_service.down = True
+
+    answer = _run(mirrored_tools["task_close"], {"task_id": "t1", "status": "done"})
+
+    assert answer.startswith("Задача закрыта")
+    assert cases_service.tasks["t1"]["status"] == "done"
+
+
+def test_planned_moves_todoist_due_and_notes_case_without_echo(
+    mirrored_tools: dict[str, BaseTool],
+    mirror_pass: MirrorPass,
+    cases_service: StatefulCasesService,
+    todoist_service: StatefulTodoist,
+) -> None:
+    cases_service.add_task("t1", external_id=MIRRORED, due="2026-10-20")
+    todoist_service.tasks[TODOIST_TASK_ID] = todoist_task(
+        TODOIST_TASK_ID, "Получить справку", ["pa"]
+    )
+
+    answer = _run(
+        mirrored_tools["task_update"],
+        {"task_id": "t1", "planned": "2026-10-02", "summary": "владелец просил"},
+    )
+    todoist_service.activity(
+        901,
+        "updated",
+        due_date="2026-10-02",
+        last_due_date=None,
+    )
+    mirror_pass.run()
+
+    [update] = todoist_service.sent("POST", f"/tasks/{TODOIST_TASK_ID}")
+    assert _body(update) == {"due_date": "2026-10-02"}
+    [note] = cases_service.notes
+    assert note["kind"] == "note"
+    assert note["source"] == "owner"
+    assert "02.10.2026" in note["summary"]
+    assert "владелец просил" in note["summary"]
+    assert cases_service.tasks["t1"]["due"] == "2026-10-20"
+    assert cases_service.transitions == []
+    assert "Дата выполнения 02.10.2026" in answer
+    assert "error" not in answer
+
+
+def test_recurring_task_is_not_moved(
+    mirrored_tools: dict[str, BaseTool],
+    cases_service: StatefulCasesService,
+    todoist_service: StatefulTodoist,
+) -> None:
+    cases_service.add_task("t1", external_id=MIRRORED)
+    todoist_service.tasks[TODOIST_TASK_ID] = todoist_task(
+        TODOIST_TASK_ID, "Оплатить аренду", ["pa"]
+    ) | {"due": {"date": "2026-10-01", "string": "every month", "is_recurring": True}}
+
+    answer = _run(
+        mirrored_tools["task_update"],
+        {"task_id": "t1", "planned": "2026-10-05", "summary": "не успеваю"},
+    )
+
+    assert "сломает повтор" in json.loads(answer)["error"]
+    assert todoist_service.sent("POST", f"/tasks/{TODOIST_TASK_ID}") == []
+    assert cases_service.notes == []
+
+
+def test_planned_for_unmirrored_or_foreign_task_is_refused_without_todoist(
+    mirrored_tools: dict[str, BaseTool],
+    cases_service: StatefulCasesService,
+    todoist_service: StatefulTodoist,
+) -> None:
+    cases_service.add_task("t1")
+    cases_service.add_task("t2", external_id=MIRRORED, assignee="agent:accountant")
+
+    for task_id in ("t1", "t2"):
+        answer = _run(
+            mirrored_tools["task_update"],
+            {"task_id": task_id, "planned": "2026-10-05", "summary": "перенос"},
+        )
+        assert "не стоит в задачнике" in json.loads(answer)["error"]
+
+    assert todoist_service.requests == []
+    assert cases_service.notes == []
+
+
+def test_without_task_manager_close_and_update_stay_in_case(
+    standalone_tools: dict[str, BaseTool],
+    cases_service: StatefulCasesService,
+) -> None:
+    cases_service.add_task("t1", external_id=MIRRORED)
+
+    planned = _run(
+        standalone_tools["task_update"],
+        {"task_id": "t1", "planned": "2026-10-05", "summary": "перенос"},
+    )
+    updated = _run(
+        standalone_tools["task_update"],
+        {"task_id": "t1", "due": "2026-10-15", "summary": "нотариус перенёс"},
+    )
+    closed = _run(standalone_tools["task_close"], {"task_id": "t1", "status": "done"})
+
+    assert "не подключён" in json.loads(planned)["error"]
+    assert updated.startswith("Задача обновлена")
+    assert closed == "Задача закрыта: t1 · done · Получить справку в консульстве"
+    assert [r.method for r in cases_service.requests] == ["PATCH", "POST"]
 
 
 def test_due_change_moves_todoist_deadline(
