@@ -3,6 +3,10 @@ from typing import Any
 from src.todoist.models.todoist_comment import TodoistComment
 from src.todoist.models.todoist_task import TodoistTask
 from src.todoist.models.todoist_task_update import TodoistTaskUpdate
+from src.todoist.services.entities.todoist_identity import (
+    ASSISTANT_LABEL,
+    TASK_URL_TEMPLATE,
+)
 from src.todoist.services.todoist_task_service.protocols.i_todoist_client import (
     ITodoistClient,
 )
@@ -12,9 +16,7 @@ from src.todoist.services.todoist_task_service.todoist_project_not_found_error i
     TodoistProjectNotFoundError,
 )
 
-ASSISTANT_LABEL = "pa"
 DUE_LANG = "ru"
-TASK_URL_TEMPLATE = "https://app.todoist.com/app/task/{task_id}"
 
 
 class TodoistTaskService:

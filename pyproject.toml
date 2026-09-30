@@ -162,19 +162,27 @@ type = "forbidden"
 source_modules = ["src.cases"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 
-# Клиент Todoist про кейсы не знает: мост между ними — только src.task_mirror
+# Порт задачника: только модели, ошибки и Protocol-ы — не знает ни реализаций, ни потребителей
 [[tool.importlinter.contracts]]
-name = "todoist client knows nothing about cases"
+name = "task manager contract stands alone"
+type = "forbidden"
+source_modules = ["src.task_manager"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.cases", "src.chat", "src.checkup", "src.colleague_mail", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.telegram_user", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+
+# Todoist — реализация порта задачника: из соседей знает только src.task_manager
+[[tool.importlinter.contracts]]
+name = "todoist depends only on task manager contract"
 type = "forbidden"
 source_modules = ["src.todoist"]
-forbidden_modules = ["src.ai_tools", "src.cases", "src.task_mirror"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.cases", "src.chat", "src.checkup", "src.colleague_mail", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.telegram_user", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 
-# Отражение задач в Todoist знает только клиентов сервиса кейсов и Todoist; инструменты и бот — снаружи
+# Отражение задач знает только клиента сервиса кейсов и порт задачника; реализацию (Todoist) подставляет бот
 [[tool.importlinter.contracts]]
-name = "task mirror bridges only cases and todoist"
+name = "task mirror bridges only cases and task_manager"
 type = "forbidden"
 source_modules = ["src.task_mirror"]
-forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.colleague_mail", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.telegram_user", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+
 # Почта ассистентов — слой без модели и без Telegram: входящее от коллег только ложится в журнал,
 # до модели и владельцу его доносят инструменты и сводка, собранные в composition root
 [[tool.importlinter.contracts]]

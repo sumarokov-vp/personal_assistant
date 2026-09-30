@@ -81,6 +81,8 @@ class FakeTodoist:
         path = request.url.path.removeprefix("/api/v1")
         if request.method == "GET":
             return self._get(path)
+        if path.endswith("/close"):
+            return httpx.Response(204)
         body = json.loads(request.content)
         if path == "/projects":
             return httpx.Response(

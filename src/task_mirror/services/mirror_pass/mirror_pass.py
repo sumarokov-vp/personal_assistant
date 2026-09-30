@@ -14,7 +14,7 @@ OPEN_TASKS_LIMIT = 1000
 SELF_ASSIGNEE = "self"
 
 
-class TodoistMirrorPass:
+class MirrorPass:
     def __init__(
         self,
         outbound: ITaskMirror,

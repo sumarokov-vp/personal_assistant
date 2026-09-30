@@ -5,7 +5,7 @@ import pytest
 from ai_framework import BaseTool
 
 from src.cases.repos.cases_http_client import CasesHttpClient
-from src.task_mirror.services.mirror_pass import TodoistMirrorPass
+from src.task_mirror.services.mirror_pass import MirrorPass
 from src.todoist.repos import TodoistHttpClient
 from tests.task_mirror.fakes import StatefulCasesService, StatefulTodoist
 from workers.bot.cases_tools_factory import build_cases_tools
@@ -53,6 +53,6 @@ def mirrored_tools(
 @pytest.fixture
 def mirror_pass(
     cases: CasesHttpClient, todoist: TodoistHttpClient
-) -> TodoistMirrorPass:
+) -> MirrorPass:
     _, mirror_pass = build_task_mirror(todoist, cases)
     return mirror_pass

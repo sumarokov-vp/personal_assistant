@@ -1,0 +1,2 @@
+class TaskManagerError(Exception):
+    pass

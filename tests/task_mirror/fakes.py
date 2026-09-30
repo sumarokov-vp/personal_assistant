@@ -148,6 +148,14 @@ class StatefulTodoist:
             return httpx.Response(
                 200, json={"results": self.activities, "next_cursor": None}
             )
+        if request.method == "GET" and path == "/projects":
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"id": "inbox", "name": "Inbox"}],
+                    "next_cursor": None,
+                },
+            )
         if request.method == "GET" and path.startswith("/tasks/"):
             return httpx.Response(200, json=self.tasks[path.removeprefix("/tasks/")])
         body = json.loads(request.content)
