@@ -1,3 +1,3 @@
-from src.task_mirror.services.inbound_sync.inbound_sync import TodoistInboundSync
+from src.task_mirror.services.inbound_sync.inbound_sync import InboundSync
 
-__all__ = ["TodoistInboundSync"]
+__all__ = ["InboundSync"]

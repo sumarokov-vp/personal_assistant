@@ -30,7 +30,7 @@ from src.ai_tools.read_telegram import ReadTelegramTool
 from src.ai_tools.search_telegram import SearchTelegramTool
 from src.ai_tools.task_add import TaskAddTool
 from src.ai_tools.task_close import TaskCloseTool
-from src.ai_tools.task_link_todoist import TaskLinkTodoistTool
+from src.ai_tools.task_link import TaskLinkTool
 from src.ai_tools.task_list import TaskListTool
 from src.ai_tools.task_update import TaskUpdateTool
 from src.ai_tools.telegram_common import UntrustedTelegramFrame
@@ -67,7 +67,7 @@ __all__ = [
     "SearchTelegramTool",
     "TaskAddTool",
     "TaskCloseTool",
-    "TaskLinkTodoistTool",
+    "TaskLinkTool",
     "TaskListTool",
     "TaskUpdateTool",
     "UntrustedColleagueMessageFrame",

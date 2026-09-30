@@ -101,6 +101,9 @@ class TodoistHttpClient:
             )
         )
 
+    def close_task(self, task_id: str) -> None:
+        self._request("POST", f"/tasks/{task_id}/close")
+
     def list_comments(self, task_id: str) -> list[TodoistComment]:
         return [
             TodoistComment.model_validate(item)
@@ -148,6 +151,15 @@ class TodoistHttpClient:
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
     ) -> Any:
+        return self._request(method, path, params, json_body).json()
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> httpx.Response:
         with httpx.Client(
             timeout=DEFAULT_TIMEOUT_SECONDS,
             headers=self._headers,
@@ -161,4 +173,4 @@ class TodoistHttpClient:
                 raise TodoistUnavailableError(type(error).__name__) from error
         if response.status_code >= 400:
             raise TodoistApiError(response.status_code, response.text)
-        return response.json()
+        return response

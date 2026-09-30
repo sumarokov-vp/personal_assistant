@@ -15,6 +15,7 @@ from src.checkup.repos import CheckupJournalRepository
 from src.gmail.models.mail_message import MailMessage
 from src.gmail.models.mail_summary import MailSummary
 from src.todoist.models import TodoistTask
+from src.todoist.services.todoist_task_reader import TodoistTaskReader
 from src.todoist.services.todoist_task_service import TodoistTaskService
 from tests.checkup.fakes import FakeTodoistClient
 from tests.memory.in_memory_wiki_storage import InMemoryWikiStorage
@@ -73,8 +74,8 @@ FILL_SCRIPT: list[tuple[str, dict[str, object]]] = [
 
 CHECKUP_SCRIPT: list[tuple[str, dict[str, object]]] = [
     ("memory_show", {"page": "all"}),
-    ("find_tasks", {"query": "@pa"}),
-    ("find_tasks", {"query": "search: ЭЦП"}),
+    ("find_tasks", {"by_assistant": True}),
+    ("find_tasks", {"text": "ЭЦП"}),
     (
         "checkup_create_task",
         {
@@ -215,7 +216,10 @@ class CheckupWorld:
         checkup = CheckupPass(
             memory_fill=memory_fill,
             conversation=LoopConversation(
-                self.checkup_provider, build_checkup_tools(self.wiki, tasks, actions)
+                self.checkup_provider,
+                build_checkup_tools(
+                    self.wiki, TodoistTaskReader(self.todoist), actions
+                ),
             ),
             thread_id="checkup:test",
         )

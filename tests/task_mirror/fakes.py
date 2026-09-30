@@ -7,6 +7,7 @@ CASE_ID = "0199a1b2-5e4f-7a10-9b2c-3d4e5f607c3d"
 CASE_TITLE = "Новая компания (ТОО)"
 TODOIST_TASK_ID = "6X7rfFVPjhvv84XG"
 PREFIX = "/api/v1"
+TASK_FIELDS = ("due", "assignee", "external_id")
 
 
 class StatefulCasesService:
@@ -15,6 +16,7 @@ class StatefulCasesService:
         self.tasks: dict[str, dict[str, Any]] = {}
         self.transitions: list[dict[str, Any]] = []
         self.source_refs: set[str] = set()
+        self.notes: list[dict[str, Any]] = []
 
     def add_task(self, task_id: str, **fields: Any) -> dict[str, Any]:
         task = {
@@ -48,7 +50,7 @@ class StatefulCasesService:
         if task is None:
             return httpx.Response(404, json={"error": "task_not_found"})
         if request.method == "PATCH":
-            task.update(body)
+            task.update({name: body[name] for name in TASK_FIELDS if name in body})
             return httpx.Response(200, json=task)
         if path.endswith("/close"):
             return self._transition(task, body, body["status"])
@@ -64,6 +66,8 @@ class StatefulCasesService:
         ]
 
     def _add_event(self, body: dict[str, Any]) -> httpx.Response:
+        if body["kind"] != "task":
+            return self._add_note(body)
         task_id = f"task-{len(self.tasks) + 1}"
         state = body["task"]
         task = self.add_task(
@@ -97,6 +101,20 @@ class StatefulCasesService:
         }
         return httpx.Response(201, json=event)
 
+    def _add_note(self, body: dict[str, Any]) -> httpx.Response:
+        self.notes.append(body)
+        event = {
+            "id": f"note-{len(self.notes)}",
+            "case_id": CASE_ID,
+            "recorded_at": body["occurred_at"],
+            "source_ref": None,
+            "url": None,
+            "task": None,
+            "task_event_id": None,
+            **body,
+        }
+        return httpx.Response(201, json=event)
+
     def _list(self, params: httpx.QueryParams) -> httpx.Response:
         status = params.get("status", "open")
         items = [
@@ -126,6 +144,7 @@ class StatefulTodoist:
         self.activities: list[dict[str, Any]] = []
         self.tasks: dict[str, dict[str, Any]] = {}
         self.down = False
+        self.closed: list[str] = []
 
     def activity(self, activity_id: int, event_type: str, **extra: Any) -> None:
         self.activities.append(
@@ -148,8 +167,19 @@ class StatefulTodoist:
             return httpx.Response(
                 200, json={"results": self.activities, "next_cursor": None}
             )
+        if request.method == "GET" and path == "/projects":
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"id": "inbox", "name": "Inbox"}],
+                    "next_cursor": None,
+                },
+            )
         if request.method == "GET" and path.startswith("/tasks/"):
             return httpx.Response(200, json=self.tasks[path.removeprefix("/tasks/")])
+        if path.endswith("/close"):
+            self.closed.append(path.removeprefix("/tasks/").removesuffix("/close"))
+            return httpx.Response(204)
         body = json.loads(request.content)
         if path == "/tasks":
             task = todoist_task(TODOIST_TASK_ID, body["content"], body["labels"])
