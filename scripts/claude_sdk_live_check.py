@@ -85,6 +85,7 @@ from src.gmail.services.conversation_source.gmail_message_search import (
     GmailMessageSearch,
 )
 from src.gmail.services.untrusted_frame.untrusted_mail_frame import UntrustedMailFrame
+from src.todoist.services.todoist_task_reader import TodoistTaskReader
 from src.todoist.services.todoist_task_service import TodoistTaskService
 from src.wiki import WikiFactory, WikiSettings
 from tests.checkup.fakes import FakeTodoistClient
@@ -110,7 +111,7 @@ from workers.bot.file_tools_factory import (
 from workers.bot.protocols.i_telegram_source import ITelegramSource
 from workers.bot.protocols.i_whatsapp_source import IWhatsAppSource
 from workers.bot.telegram_tools_factory import build_telegram_tools
-from workers.bot.todoist_tools_factory import build_task_link_todoist_tool
+from workers.bot.todoist_tools_factory import build_task_link_tool
 from workers.bot.whatsapp_tools_factory import (
     build_whatsapp_source,
     build_whatsapp_tools,
@@ -654,11 +655,11 @@ def seed_wiki_remote(remote: Path, scratch: Path) -> None:
 
 
 def todoist_tools(todoist: FakeTodoistClient, cases: CasesHttpClient) -> list[BaseTool]:
-    tasks = TodoistTaskService(todoist)
+    tasks = TodoistTaskReader(todoist)
     return [
         FindTasksTool(finder=tasks),
         ReadTaskTool(reader=tasks),
-        build_task_link_todoist_tool(todoist, cases),
+        build_task_link_tool(todoist, cases),
     ]
 
 
@@ -719,9 +720,11 @@ def bot_tools(
 
 def checkup_tools() -> list[BaseTool]:
     storage = InMemoryWikiStorage()
-    tasks = TodoistTaskService(FakeTodoistClient())
-    actions = build_checkup_actions(storage, tasks, owner_today(TIMEZONE))
-    return build_checkup_tools(storage, tasks, actions)
+    todoist = FakeTodoistClient()
+    actions = build_checkup_actions(
+        storage, TodoistTaskService(todoist), owner_today(TIMEZONE)
+    )
+    return build_checkup_tools(storage, TodoistTaskReader(todoist), actions)
 
 
 def enter_sandbox(scratch: Path) -> None:

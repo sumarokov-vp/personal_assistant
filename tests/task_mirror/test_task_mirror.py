@@ -191,10 +191,10 @@ def test_owner_todoist_task_is_linked_to_case_once(
     todoist_service.tasks[TODOIST_TASK_ID] = todoist_task(
         TODOIST_TASK_ID, "Позвонить нотариусу", []
     ) | {"deadline": {"date": "2026-10-03"}}
-    arguments = {"todoist_task_id": TODOIST_TASK_ID, "case_id": "case-1"}
+    arguments = {"task_ref": MIRRORED, "case_id": "case-1"}
 
-    first = _run(mirrored_tools["task_link_todoist"], arguments)
-    second = _run(mirrored_tools["task_link_todoist"], arguments)
+    first = _run(mirrored_tools["task_link"], arguments)
+    second = _run(mirrored_tools["task_link"], arguments)
 
     [event] = cases_service.sent("POST", "/cases/case-1/events")
     assert _body(event)["task"] == {

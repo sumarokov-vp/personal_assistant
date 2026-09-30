@@ -1,7 +1,8 @@
 from typing import Protocol
 
-from src.todoist.services.todoist_task_service.task_card import TaskCard
+from src.task_manager.models.managed_task import ManagedTask
+from src.task_manager.models.task_search import TaskSearch
 
 
 class ITaskFinder(Protocol):
-    def find(self, query: str, limit: int) -> list[TaskCard]: ...
+    def find_tasks(self, search: TaskSearch) -> list[ManagedTask]: ...
