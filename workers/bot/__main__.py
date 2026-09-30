@@ -110,6 +110,10 @@ from src.wiki.search import WikiSearcher
 from src.cases.repos.cases_http_client import CasesHttpClient
 from src.task_mirror.services.mirror_pass import MirrorPass
 from src.task_mirror.services.outbound_mirror import TaskMirrorListener
+from src.task_mirror.services.task_rescheduling import TaskRescheduler
+from src.todoist.repos import TodoistHttpClient
+from src.todoist.services.todoist_task_reader import TodoistTaskReader
+from src.todoist.services.todoist_task_writer import TodoistTaskWriter
 from src.gmail.repos.gmail_client import GmailClient
 from workers.bot.cases_tools_factory import (
     CASES_VARIABLES,
@@ -350,6 +354,16 @@ def start_agent_notifications(
     )
     thread.start()
     return thread
+
+
+def build_task_rescheduler(
+    todoist: TodoistHttpClient, cases: CasesHttpClient
+) -> TaskRescheduler:
+    return TaskRescheduler(
+        reader=TodoistTaskReader(todoist),
+        writer=TodoistTaskWriter(todoist),
+        cases=cases,
+    )
 
 
 def mirror_todoist_forever(mirror_pass: MirrorPass) -> None:
@@ -663,8 +677,10 @@ def main() -> None:
     todoist = build_todoist_client(todoist_token) if todoist_token else None
     mirror_listener: TaskMirrorListener | None = None
     mirror_pass: MirrorPass | None = None
+    task_rescheduler: TaskRescheduler | None = None
     if todoist is not None and cases is not None:
         mirror_listener, mirror_pass = build_task_mirror(todoist, cases)
+        task_rescheduler = build_task_rescheduler(todoist, cases)
     if cases is not None:
         tools.extend(
             build_cases_tools(
@@ -672,6 +688,8 @@ def main() -> None:
                 owner_timezone,
                 task_recorded=mirror_listener,
                 task_changed=mirror_listener,
+                task_closed=mirror_listener,
+                task_planner=task_rescheduler,
             )
         )
     if todoist is not None:

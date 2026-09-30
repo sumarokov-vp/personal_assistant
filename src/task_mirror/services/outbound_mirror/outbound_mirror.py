@@ -2,6 +2,7 @@ from datetime import date
 from threading import Lock
 
 from src.cases.models.case_event import CaseEvent
+from src.cases.models.case_source import CaseSource
 from src.cases.models.case_task import CaseTask
 from src.cases.models.task_change import TaskChange
 from src.task_manager.models.new_managed_task import NewManagedTask
@@ -13,6 +14,7 @@ from src.task_mirror.services.outbound_mirror.protocols.i_mirror_task_writer imp
 )
 
 SELF_ASSIGNEE = "self"
+OWNER_SOURCE = "owner"
 MIRRORED_SUMMARY = "Задача отражена в {manager}"
 
 
@@ -38,6 +40,12 @@ class OutboundMirror:
             self._tasks.set_deadline(task.external_id, task.due)
         elif task.external_id is None:
             self.mirror(task.id, task.summary, task.due)
+
+    def task_closed(self, task: CaseTask, closed_by: CaseSource) -> None:
+        if closed_by != OWNER_SOURCE or task.assignee != SELF_ASSIGNEE:
+            return
+        if task.external_id is not None and self._tasks.identity.owns(task.external_id):
+            self._tasks.close_task(task.external_id)
 
     def mirror(self, task_id: str, summary: str, due: date | None) -> None:
         with self._lock:

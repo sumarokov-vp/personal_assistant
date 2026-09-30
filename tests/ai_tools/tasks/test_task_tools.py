@@ -138,6 +138,7 @@ def test_task_close_posts_close_and_notifies_listener(
     assert body["summary"] == "Справку получил"
     assert "done" in text
     assert [task.status for task in listener.closed] == ["done"]
+    assert [closure.source for closure in listener.closures] == ["owner"]
 
 
 def test_task_close_service_error_skips_listener(
@@ -223,3 +224,19 @@ def test_task_list_shows_only_open_tasks_sorted_by_due(
     assert task_lines[0] == (
         "t-soon · 01.10.2026 · self · Новая компания (ТОО) · Скорая"
     )
+
+
+def test_task_update_planned_without_task_manager_answers_without_request(
+    client: CasesHttpClient, fake_service: FakeCasesService
+) -> None:
+    tool = TaskUpdateTool(updater=client)
+
+    text = tool.execute(
+        TaskUpdateInput(
+            task_id=TASK_ID, planned=date(2026, 10, 2), summary="Владелец просил"
+        ),
+        CONTEXT,
+    )
+
+    assert "не подключён" in json.loads(text)["error"]
+    assert fake_service.requests == []

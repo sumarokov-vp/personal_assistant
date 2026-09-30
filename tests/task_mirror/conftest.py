@@ -8,6 +8,7 @@ from src.cases.repos.cases_http_client import CasesHttpClient
 from src.task_mirror.services.mirror_pass import MirrorPass
 from src.todoist.repos import TodoistHttpClient
 from tests.task_mirror.fakes import StatefulCasesService, StatefulTodoist
+from workers.bot.__main__ import build_task_rescheduler
 from workers.bot.cases_tools_factory import build_cases_tools
 from workers.bot.todoist_tools_factory import build_task_mirror, build_todoist_tools
 
@@ -44,15 +45,23 @@ def mirrored_tools(
 ) -> dict[str, BaseTool]:
     listener, _ = build_task_mirror(todoist, cases)
     tools = build_cases_tools(
-        cases, ZoneInfo("UTC"), task_recorded=listener, task_changed=listener
+        cases,
+        ZoneInfo("UTC"),
+        task_recorded=listener,
+        task_changed=listener,
+        task_closed=listener,
+        task_planner=build_task_rescheduler(todoist, cases),
     )
     tools.extend(build_todoist_tools(todoist, cases))
     return {tool.name: tool for tool in tools}
 
 
 @pytest.fixture
-def mirror_pass(
-    cases: CasesHttpClient, todoist: TodoistHttpClient
-) -> MirrorPass:
+def mirror_pass(cases: CasesHttpClient, todoist: TodoistHttpClient) -> MirrorPass:
     _, mirror_pass = build_task_mirror(todoist, cases)
     return mirror_pass
+
+
+@pytest.fixture
+def standalone_tools(cases: CasesHttpClient) -> dict[str, BaseTool]:
+    return {tool.name: tool for tool in build_cases_tools(cases, ZoneInfo("UTC"))}

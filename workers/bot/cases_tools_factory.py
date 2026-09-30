@@ -15,7 +15,7 @@ from src.ai_tools import (
 )
 from src.ai_tools.task_add.protocols import ITaskRecordedListener
 from src.ai_tools.task_close.protocols import ITaskClosedListener
-from src.ai_tools.task_update.protocols import ITaskChangedListener
+from src.ai_tools.task_update.protocols import ITaskChangedListener, ITaskPlanner
 from src.cases.repos.cases_http_client import CasesHttpClient
 from src.cases.services.untrusted_frame.untrusted_case_frame import UntrustedCaseFrame
 
@@ -32,6 +32,7 @@ def build_cases_tools(
     task_recorded: ITaskRecordedListener | None = None,
     task_changed: ITaskChangedListener | None = None,
     task_closed: ITaskClosedListener | None = None,
+    task_planner: ITaskPlanner | None = None,
 ) -> list[BaseTool]:
     frame = UntrustedCaseFrame()
     return [
@@ -42,6 +43,6 @@ def build_cases_tools(
         CaseUpdateTool(updater=cases),
         TaskAddTool(adder=cases, timezone=timezone, listener=task_recorded),
         TaskListTool(lister=cases, frame=frame),
-        TaskUpdateTool(updater=cases, listener=task_changed),
+        TaskUpdateTool(updater=cases, listener=task_changed, planner=task_planner),
         TaskCloseTool(closer=cases, timezone=timezone, listener=task_closed),
     ]

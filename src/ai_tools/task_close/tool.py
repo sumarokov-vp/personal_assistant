@@ -14,6 +14,12 @@ from src.cases.errors.cases_service_error import CasesServiceError
 from src.cases.models.task_closure import TaskClosure
 
 
+ASSISTANT_CLOSURE_NOTE = (
+    "В задачнике владельца задача осталась открытой: там закрываю только по слову "
+    "владельца (source owner)."
+)
+
+
 class TaskCloseInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -41,7 +47,8 @@ class TaskCloseTool(BaseTool):
     name: ClassVar[str] = "task_close"
     description: ClassVar[str] = (
         "Закрывает задачу: done — сделана, cancelled — отменена. В ленту кейса ложится "
-        "событие закрытия; уже закрытая задача второго события не даёт."
+        "событие закрытия; уже закрытая задача второго события не даёт. Задача, которая "
+        "стоит в задачнике владельца, закрывается и там — только при source owner."
     )
     Input: ClassVar[type[BaseModel]] = TaskCloseInput
 
@@ -67,8 +74,11 @@ class TaskCloseTool(BaseTool):
         except CasesServiceError as error:
             return json.dumps({"error": str(error)}, ensure_ascii=False)
         if self._listener is not None:
-            self._listener.task_closed(task)
-        return f"Задача закрыта: {task.id} · {task.status} · {task.summary}"
+            self._listener.task_closed(task, closure)
+        answer = f"Задача закрыта: {task.id} · {task.status} · {task.summary}"
+        if self._listener is not None and task.external_id and input.source != "owner":
+            answer += f"\n{ASSISTANT_CLOSURE_NOTE}"
+        return answer
 
     def _aware(self, moment: datetime | None) -> datetime:
         if moment is None:
