@@ -3,7 +3,7 @@ from typing import Any
 
 from ai_framework import BaseTool, ToolContext
 
-from src.task_mirror.services.mirror_pass import TodoistMirrorPass
+from src.task_mirror.services.mirror_pass import MirrorPass
 from tests.task_mirror.fakes import (
     TODOIST_TASK_ID,
     StatefulCasesService,
@@ -90,7 +90,7 @@ def test_due_change_moves_todoist_deadline(
 
 def test_todoist_down_does_not_break_task_add_and_next_pass_mirrors(
     mirrored_tools: dict[str, BaseTool],
-    mirror_pass: TodoistMirrorPass,
+    mirror_pass: MirrorPass,
     cases_service: StatefulCasesService,
     todoist_service: StatefulTodoist,
 ) -> None:
@@ -107,7 +107,7 @@ def test_todoist_down_does_not_break_task_add_and_next_pass_mirrors(
 
 
 def test_completed_in_todoist_closes_our_task_once(
-    mirror_pass: TodoistMirrorPass,
+    mirror_pass: MirrorPass,
     cases_service: StatefulCasesService,
     todoist_service: StatefulTodoist,
 ) -> None:
@@ -129,7 +129,7 @@ def test_completed_in_todoist_closes_our_task_once(
 
 
 def test_uncompleted_reopens_and_deleted_cancels(
-    mirror_pass: TodoistMirrorPass,
+    mirror_pass: MirrorPass,
     cases_service: StatefulCasesService,
     todoist_service: StatefulTodoist,
 ) -> None:
@@ -149,7 +149,7 @@ def test_uncompleted_reopens_and_deleted_cancels(
 
 
 def test_deadline_change_in_todoist_patches_due_once(
-    mirror_pass: TodoistMirrorPass,
+    mirror_pass: MirrorPass,
     cases_service: StatefulCasesService,
     todoist_service: StatefulTodoist,
 ) -> None:
@@ -171,7 +171,7 @@ def test_deadline_change_in_todoist_patches_due_once(
 
 
 def test_activities_of_foreign_tasks_are_ignored(
-    mirror_pass: TodoistMirrorPass,
+    mirror_pass: MirrorPass,
     cases_service: StatefulCasesService,
     todoist_service: StatefulTodoist,
 ) -> None:

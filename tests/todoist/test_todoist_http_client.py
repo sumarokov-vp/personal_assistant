@@ -8,7 +8,7 @@ from src.todoist.repos.todoist_http_client import TodoistHttpClient
 from tests.todoist.conftest import FakeTodoist, task_payload
 
 
-def test_client_cannot_close_reopen_or_delete_tasks() -> None:
+def test_client_closes_but_cannot_reopen_or_delete_tasks() -> None:
     public_methods = {
         name
         for name in dir(TodoistHttpClient)
@@ -22,11 +22,12 @@ def test_client_cannot_close_reopen_or_delete_tasks() -> None:
         "list_subtasks",
         "add_task",
         "update_task",
+        "close_task",
         "list_comments",
         "add_comment",
         "list_activities",
     }
-    forbidden = ("close", "reopen", "delete", "complete", "archive", "move")
+    forbidden = ("reopen", "delete", "archive", "move")
     assert not [name for name in public_methods if any(w in name for w in forbidden)]
 
 
@@ -167,3 +168,25 @@ def test_api_error_raises(client: TodoistHttpClient, fake_todoist: FakeTodoist) 
         client.list_projects()
 
     assert error.value.status_code == 403
+
+
+def test_close_posts_to_close_endpoint_without_body(
+    client: TodoistHttpClient, fake_todoist: FakeTodoist
+) -> None:
+    client.close_task("6X7rfFVPjhvv84XG")
+
+    [request] = fake_todoist.requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/tasks/6X7rfFVPjhvv84XG/close"
+    assert request.content == b""
+
+
+def test_due_date_change_posts_only_due_date(
+    client: TodoistHttpClient, fake_todoist: FakeTodoist
+) -> None:
+    fake_todoist.tasks["1"] = task_payload("1", "Позвонить нотариусу")
+
+    client.update_task("1", TodoistTaskUpdate(due_date="2026-10-02"))
+
+    [request] = fake_todoist.sent_to("POST", "/api/v1/tasks/1")
+    assert json.loads(request.content) == {"due_date": "2026-10-02"}

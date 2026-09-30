@@ -108,7 +108,7 @@ from src.memory.repos import (
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
 from src.cases.repos.cases_http_client import CasesHttpClient
-from src.task_mirror.services.mirror_pass import TodoistMirrorPass
+from src.task_mirror.services.mirror_pass import MirrorPass
 from src.task_mirror.services.outbound_mirror import TaskMirrorListener
 from src.gmail.repos.gmail_client import GmailClient
 from workers.bot.cases_tools_factory import (
@@ -163,6 +163,7 @@ DEFAULT_WORK_DIR = Path(gettempdir()) / "personal_assistant" / "files"
 SWEEP_INTERVAL_SECONDS = 60 * 60
 AGENT_NOTIFICATIONS_RECONNECT_SECONDS = 15
 TODOIST_MIRROR_INTERVAL_SECONDS = 10 * 60
+TASK_MANAGER_PROMPT_KEYS = ("tasks", "todoist")
 COLLEAGUE_MAIL_RECONNECT_SECONDS = 15
 AGENT_FILE_LIMIT_BYTES = 50 * 1024 * 1024
 
@@ -351,7 +352,7 @@ def start_agent_notifications(
     return thread
 
 
-def mirror_todoist_forever(mirror_pass: TodoistMirrorPass) -> None:
+def mirror_todoist_forever(mirror_pass: MirrorPass) -> None:
     while True:
         try:
             mirror_pass.run()
@@ -360,7 +361,7 @@ def mirror_todoist_forever(mirror_pass: TodoistMirrorPass) -> None:
         sleep(TODOIST_MIRROR_INTERVAL_SECONDS)
 
 
-def start_todoist_mirror(mirror_pass: TodoistMirrorPass | None) -> None:
+def start_todoist_mirror(mirror_pass: MirrorPass | None) -> None:
     if mirror_pass is None:
         logger.info("TODOIST_TOKEN or CASES_* not set, Todoist mirror not started")
         return
@@ -661,7 +662,7 @@ def main() -> None:
     todoist_token = getenv("TODOIST_TOKEN")
     todoist = build_todoist_client(todoist_token) if todoist_token else None
     mirror_listener: TaskMirrorListener | None = None
-    mirror_pass: TodoistMirrorPass | None = None
+    mirror_pass: MirrorPass | None = None
     if todoist is not None and cases is not None:
         mirror_listener, mirror_pass = build_task_mirror(todoist, cases)
     if cases is not None:
@@ -720,7 +721,7 @@ def main() -> None:
     connectors = [
         name
         for name, client in (
-            ("todoist", todoist),
+            *((key, todoist) for key in TASK_MANAGER_PROMPT_KEYS),
             ("gmail", mail),
             ("whatsapp", whatsapp),
             ("telegram", telegram),

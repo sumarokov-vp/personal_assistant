@@ -53,7 +53,6 @@ from src.ai_tools import (
     FileViewTool,
     FindTasksTool,
     ReadTaskTool,
-    TaskLinkTodoistTool,
 )
 from src.ai_tools.draft_mail.protocols.i_draft_file import IDraftFile
 from src.ai_tools.dropbox_propose_moves import DropboxProposeMovesTool
@@ -86,7 +85,6 @@ from src.gmail.services.conversation_source.gmail_message_search import (
     GmailMessageSearch,
 )
 from src.gmail.services.untrusted_frame.untrusted_mail_frame import UntrustedMailFrame
-from src.task_mirror.services.todoist_adoption import TodoistTaskAdoption
 from src.todoist.services.todoist_task_service import TodoistTaskService
 from src.wiki import WikiFactory, WikiSettings
 from tests.checkup.fakes import FakeTodoistClient
@@ -112,6 +110,7 @@ from workers.bot.file_tools_factory import (
 from workers.bot.protocols.i_telegram_source import ITelegramSource
 from workers.bot.protocols.i_whatsapp_source import IWhatsAppSource
 from workers.bot.telegram_tools_factory import build_telegram_tools
+from workers.bot.todoist_tools_factory import build_task_link_todoist_tool
 from workers.bot.whatsapp_tools_factory import (
     build_whatsapp_source,
     build_whatsapp_tools,
@@ -659,7 +658,7 @@ def todoist_tools(todoist: FakeTodoistClient, cases: CasesHttpClient) -> list[Ba
     return [
         FindTasksTool(finder=tasks),
         ReadTaskTool(reader=tasks),
-        TaskLinkTodoistTool(adopter=TodoistTaskAdoption(todoist=todoist, cases=cases)),
+        build_task_link_todoist_tool(todoist, cases),
     ]
 
 

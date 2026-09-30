@@ -4,7 +4,7 @@ from src.todoist.models.todoist_task import TodoistTask
 from src.todoist.models.todoist_task_update import TodoistTaskUpdate
 
 
-class ITodoistTaskWriter(Protocol):
+class ITodoistWriteClient(Protocol):
     def add_task(
         self,
         content: str,
@@ -18,3 +18,5 @@ class ITodoistTaskWriter(Protocol):
     ) -> TodoistTask: ...
 
     def update_task(self, task_id: str, update: TodoistTaskUpdate) -> TodoistTask: ...
+
+    def close_task(self, task_id: str) -> None: ...
