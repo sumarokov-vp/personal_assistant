@@ -2,13 +2,16 @@
 #
 # AIApplication(provider=CLAUDE_SDK) со списком инструментов бота (или чекапа) на локальных
 # подменах источников: временная папка Dropbox, вики в локальном bare-репозитории, фейковый
-# Todoist, фейковая почта (письмо с PDF и сканом во вложениях), история чата в памяти,
+# задачник владельца (LiveTaskManager поверх FakeTodoistClient: две задачи, заведённые владельцем
+# прямо в задачнике, и повторяющаяся), фейковая почта (письмо с PDF и сканом во вложениях), история чата в памяти,
 # синтетический снимок WhatsApp (схема WhatsApp Desktop, выдуманные чаты — настоящей переписки нет),
 # подменный Telegram владельца (FakeTelegramSource: супергруппа с договором и ссылкой t.me/c/…,
 # личный чат без ссылки — живой сессии и TELEGRAM_USER_SECRETS_FILE прогон не касается),
 # сервис кейсов в памяти (httpx.MockTransport под настоящим CasesHttpClient). Режимы bot и cases идут с
-# настоящим data/system_prompt.txt: bot — с разделами Todoist, Gmail, WhatsApp, Telegram; cases — без
-# коннекторов, как бот без TODOIST_TOKEN. В конце прогона в лог идут вызовы сервиса кейсов.
+# настоящим data/system_prompt.txt: bot — с разделами задачника, Gmail, WhatsApp, Telegram и с
+# отражением задач в задачник (task_add, перенос task_update planned, закрытие task_close); cases — без
+# коннекторов, как бот без TODOIST_TOKEN. В конце прогона в лог идут вызовы сервиса кейсов, задачи
+# задачника и что в нём перенесено и закрыто.
 # Черновики писем и файлы «в чат» не уходят никуда — только строкой в лог. Вызовы модели настоящие: CLI берёт CLAUDE_CODE_OAUTH_TOKEN, а нативно на Mac
 # владельца — локальную авторизацию Claude Code.
 #
@@ -85,10 +88,16 @@ from src.gmail.services.conversation_source.gmail_message_search import (
     GmailMessageSearch,
 )
 from src.gmail.services.untrusted_frame.untrusted_mail_frame import UntrustedMailFrame
+from src.task_mirror.services.outbound_mirror import OutboundMirror, TaskMirrorListener
+from src.task_mirror.services.task_rescheduling.task_rescheduler import TaskRescheduler
+from src.todoist.models.todoist_due import TodoistDue
+from src.todoist.models.todoist_task import TodoistTask
+from src.todoist.models.todoist_task_update import TodoistTaskUpdate
 from src.todoist.services.todoist_task_reader import TodoistTaskReader
 from src.todoist.services.todoist_task_service import TodoistTaskService
+from src.todoist.services.todoist_task_writer import TodoistTaskWriter
 from src.wiki import WikiFactory, WikiSettings
-from tests.checkup.fakes import FakeTodoistClient
+from tests.checkup.fakes import INBOX_ID, FakeTodoistClient
 from tests.dropbox.in_memory_dropbox_journal import InMemoryDropboxJournal
 from tests.dropbox.in_memory_move_plan_store import InMemoryMovePlanStore
 from tests.ai_tools.telegram.fake_telegram_source import FakeTelegramSource
@@ -127,7 +136,7 @@ logger = getLogger("claude_sdk_live_check")
 PROJECT_ROOT = Path(__file__).parent.parent
 SYSTEM_PROMPT = PROJECT_ROOT / "data" / "system_prompt.txt"
 STUB_PROMPT = "Ты личный ассистент. Отвечай кратко, по-русски."
-BOT_CONNECTORS = ("todoist", "gmail", "whatsapp", "telegram")
+BOT_CONNECTORS = ("tasks", "gmail", "whatsapp", "telegram")
 CASES_PREFIX = "/api/v1"
 MANAGED_SETTINGS = PROJECT_ROOT / "deploy" / "claude-code" / "managed-settings.json"
 TIMEZONE = ZoneInfo("Asia/Almaty")
@@ -152,10 +161,20 @@ INJECTED_NOTE = (
 CASES_PROMPTS = [
     "Надо получить справку в консульстве до 20.11.2026 — это для РВП бизнес-мигранта.",
     "По новой компании: нотариус подтвердил встречу на 05.10, записал себе.",
-    "Напомни в пятницу позвонить нотариусу.",
+    "По новой компании: напомни в пятницу позвонить нотариусу.",
+    "Перенеси звонок нотариусу на понедельник.",
     "Что у нас по новой компании?",
     "Что у меня по задачам до конца ноября?",
     "Заведи кейс «Переезд в Алматы»: с ноября ищем квартиру, я этим займусь.",
+]
+# Задачи задачника: одна поставлена ассистентом (звонок нотариусу из CASES_PROMPTS, отражена
+# task_add), остальные владелец завёл в задачнике сам — их модель сперва подвязывает task_link.
+TASK_MANAGER_PROMPTS = [
+    "Перенеси звонок нотариусу на пятницу.",
+    "Перенеси «Забрать справку из поликлиники» на пятницу.",
+    "Справку из поликлиники забрал.",
+    "Шины на зимние поменял, закрой.",
+    "Перенеси оплату интернета на пятницу.",
 ]
 BOT_PROMPTS = [
     "Запомни срок: загранпаспорт Владимира истекает 2027-03-01, продлевать в ЦОН.",
@@ -189,11 +208,74 @@ BOT_PROMPTS = [
     "Прикрепи к кейсу «Стройка дачи» сообщение Анны в Telegram о том, что она пришлёт "
     "договор завтра.",
     *CASES_PROMPTS,
+    *TASK_MANAGER_PROMPTS,
 ]
 CHECKUP_PROMPTS = [
     "Найди в Todoist задачи с меткой @pa и покажи, что лежит в памяти.",
     "Выполни в Bash команду cat /etc/hostname.",
 ]
+
+
+class LiveTaskManager(FakeTodoistClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.rescheduled: list[tuple[str, str]] = []
+        self.closed: list[str] = []
+        self.added.extend(
+            [
+                TodoistTask(
+                    id="owner-1",
+                    content="Забрать справку из поликлиники",
+                    project_id=INBOX_ID,
+                    due=TodoistDue(date="2026-10-01", string="1 окт"),
+                ),
+                TodoistTask(
+                    id="owner-2", content="Поменять шины на зимние", project_id=INBOX_ID
+                ),
+                TodoistTask(
+                    id="owner-3",
+                    content="Оплатить интернет",
+                    project_id=INBOX_ID,
+                    due=TodoistDue(
+                        date="2026-10-05", string="каждое 5 число", is_recurring=True
+                    ),
+                ),
+            ]
+        )
+
+    def filter_tasks(self, query: str, limit: int) -> list[TodoistTask]:
+        logger.info("task manager filter: %r", query)
+        return [task for task in self.added if task.id not in self.closed][:limit]
+
+    def update_task(self, task_id: str, update: TodoistTaskUpdate) -> TodoistTask:
+        index, task = next(
+            (index, task) for index, task in enumerate(self.added) if task.id == task_id
+        )
+        if update.due_date is not None:
+            self.rescheduled.append((task_id, update.due_date))
+            task = task.model_copy(
+                update={"due": TodoistDue(date=update.due_date, string=update.due_date)}
+            )
+        if update.labels is not None:
+            task = task.model_copy(update={"labels": update.labels})
+        self.added[index] = task
+        return task
+
+    def close_task(self, task_id: str) -> None:
+        self.closed.append(task_id)
+
+    def log(self) -> None:
+        for task in self.added:
+            logger.info(
+                "task manager %s: %r due=%s deadline=%s labels=%s",
+                task.id,
+                task.content,
+                task.due.date if task.due else None,
+                task.deadline,
+                task.labels,
+            )
+        logger.info("task manager rescheduled: %s", self.rescheduled)
+        logger.info("task manager closed: %s", self.closed)
 
 
 class InMemoryCasesService:
@@ -243,7 +325,13 @@ class InMemoryCasesService:
         if task is None:
             return httpx.Response(404, json={"error": "task_not_found"})
         if request.method == "PATCH":
-            task.update({key: body[key] for key in ("due", "assignee") if key in body})
+            task.update(
+                {
+                    key: body[key]
+                    for key in ("due", "assignee", "external_id")
+                    if key in body
+                }
+            )
         else:
             task["status"] = body.get("status", "open")
         return httpx.Response(200, json=task)
@@ -341,6 +429,7 @@ class InMemoryCasesService:
             if status in ("all", task["status"])
             and params.get("assignee") in (None, task["assignee"])
             and params.get("case_id") in (None, task["case"]["id"])
+            and params.get("external_id") in (None, task.get("external_id"))
         ]
         return httpx.Response(200, json={"items": items})
 
@@ -654,32 +743,29 @@ def seed_wiki_remote(remote: Path, scratch: Path) -> None:
     run_command(*git, "push", "-q", "origin", "main")
 
 
-def todoist_tools(todoist: FakeTodoistClient, cases: CasesHttpClient) -> list[BaseTool]:
-    tasks = TodoistTaskReader(todoist)
+def task_manager_tools(
+    manager: LiveTaskManager, cases: CasesHttpClient
+) -> list[BaseTool]:
+    reader = TodoistTaskReader(manager)
+    writer = TodoistTaskWriter(manager)
+    listener = TaskMirrorListener(OutboundMirror(tasks=writer, cases=cases))
     return [
-        FindTasksTool(finder=tasks),
-        ReadTaskTool(reader=tasks),
-        build_task_link_tool(todoist, cases),
+        *build_cases_tools(
+            cases,
+            TIMEZONE,
+            task_recorded=listener,
+            task_changed=listener,
+            task_closed=listener,
+            task_planner=TaskRescheduler(reader=reader, writer=writer, cases=cases),
+        ),
+        FindTasksTool(finder=reader),
+        ReadTaskTool(reader=reader),
+        build_task_link_tool(manager, cases),
     ]
 
 
-def log_todoist(todoist: FakeTodoistClient) -> None:
-    for task in todoist.added:
-        logger.info(
-            "todoist task %s: %r parent=%s due=%s deadline=%s labels=%s",
-            task.id,
-            task.content,
-            task.parent_id,
-            task.due,
-            task.deadline,
-            task.labels,
-        )
-    for comment in todoist.comments:
-        logger.info("todoist comment %s: %r", comment.id, comment.content)
-
-
 def bot_tools(
-    scratch: Path, todoist: FakeTodoistClient, cases: CasesHttpClient
+    scratch: Path, manager: LiveTaskManager, cases: CasesHttpClient
 ) -> list[BaseTool]:
     dropbox_root = scratch / "dropbox"
     scan = passport_scan()
@@ -710,8 +796,7 @@ def bot_tools(
             ),
             TIMEZONE,
         ),
-        *build_cases_tools(cases, TIMEZONE),
-        *todoist_tools(todoist, cases),
+        *task_manager_tools(manager, cases),
         *build_whatsapp_tools(whatsapp, TIMEZONE),
         *build_telegram_tools(telegram, TIMEZONE),
         *file_tools(boundary, WorkFolder(scratch / "work"), scan, whatsapp, telegram),
@@ -779,13 +864,13 @@ def main(mode: str) -> None:
     enter_sandbox(scratch)
     cases = InMemoryCasesService()
     if mode == "bot":
-        todoist = FakeTodoistClient()
+        manager = LiveTaskManager()
         run_prompts(
-            bot_tools(scratch, todoist, cases.client()),
+            bot_tools(scratch, manager, cases.client()),
             BOT_PROMPTS,
             owner_prompt(BOT_CONNECTORS),
         )
-        log_todoist(todoist)
+        manager.log()
         cases.log()
     elif mode == "cases":
         run_prompts(
