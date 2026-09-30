@@ -19,6 +19,7 @@ from src.memory.repos import (
     WhereaboutsRepository,
 )
 from src.todoist.repos import TodoistHttpClient
+from src.todoist.services.todoist_task_reader import TodoistTaskReader
 from src.todoist.services.todoist_task_service import TodoistTaskService
 from workers.checkup.checkup_env import CheckupEnv
 from workers.checkup.checkup_pass import CheckupPass
@@ -43,7 +44,7 @@ def build_checkup_actions(
 
 
 def build_checkup_tools(
-    storage: IWikiStorage, tasks: TodoistTaskService, actions: CheckupActionService
+    storage: IWikiStorage, finder: TodoistTaskReader, actions: CheckupActionService
 ) -> list[BaseTool]:
     return [
         MemoryShowTool(
@@ -51,7 +52,7 @@ def build_checkup_tools(
             whereabouts=WhereaboutsRepository(storage),
             commitments=CommitmentRepository(storage),
         ),
-        FindTasksTool(finder=tasks),
+        FindTasksTool(finder=finder),
         CheckupCreateTaskTool(actions),
         CheckupSkipTool(actions),
     ]
@@ -74,7 +75,8 @@ def run_checkup(
 ) -> CheckupReport:
     fill_env = env.memory_fill
     storage = build_memory_storage(fill_env)
-    tasks = TodoistTaskService(TodoistHttpClient(env.todoist_token))
+    todoist = TodoistHttpClient(env.todoist_token)
+    tasks = TodoistTaskService(todoist)
     actions = build_checkup_actions(
         storage, tasks, owner_today(fill_env.owner_timezone)
     )
@@ -86,7 +88,7 @@ def run_checkup(
             checkup_prompt_template, fill_env.owner_timezone
         ),
         database_url=fill_env.ai_db_url,
-        tools=build_checkup_tools(storage, tasks, actions),
+        tools=build_checkup_tools(storage, TodoistTaskReader(todoist), actions),
         max_tool_rounds=env.max_tool_rounds,
     )
     checkup = CheckupPass(

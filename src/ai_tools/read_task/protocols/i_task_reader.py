@@ -1,7 +1,7 @@
 from typing import Protocol
 
-from src.todoist.services.todoist_task_service.task_details import TaskDetails
+from src.task_manager.models.managed_task_details import ManagedTaskDetails
 
 
 class ITaskReader(Protocol):
-    def read_task(self, task_id: str) -> TaskDetails: ...
+    def read_task(self, ref: str) -> ManagedTaskDetails: ...

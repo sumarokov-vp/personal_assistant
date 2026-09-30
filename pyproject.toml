@@ -183,6 +183,14 @@ type = "forbidden"
 source_modules = ["src.task_mirror"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.colleague_mail", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.telegram_user", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 
+# Инструменты модели знают порт задачника, а не его реализацию (Todoist) и не отражение:
+# задачник и подвязку к кейсу им подставляет composition root через Protocol-ы
+[[tool.importlinter.contracts]]
+name = "ai tools know task manager port, not todoist or task mirror"
+type = "forbidden"
+source_modules = ["src.ai_tools"]
+forbidden_modules = ["src.todoist", "src.task_mirror"]
+
 # Почта ассистентов — слой без модели и без Telegram: входящее от коллег только ложится в журнал,
 # до модели и владельцу его доносят инструменты и сводка, собранные в composition root
 [[tool.importlinter.contracts]]
