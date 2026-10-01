@@ -108,6 +108,7 @@ from src.memory.repos import (
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
 from src.cases.repos.cases_http_client import CasesHttpClient
+from src.scheduler.repos.scheduler_http_client import SchedulerHttpClient
 from src.task_mirror.services.mirror_pass import MirrorPass
 from src.task_mirror.services.outbound_mirror import TaskMirrorListener
 from src.task_mirror.services.task_rescheduling import TaskRescheduler
@@ -119,6 +120,11 @@ from workers.bot.cases_tools_factory import (
     CASES_VARIABLES,
     build_cases_client,
     build_cases_tools,
+)
+from workers.bot.scheduler_tools_factory import (
+    SCHEDULER_API_VARIABLES,
+    build_scheduler_client,
+    build_scheduler_tools,
 )
 from workers.bot.colleague_mail_tool_gateway import ColleagueMailToolGateway
 from workers.colleague_digest.composition import build_colleague_digest
@@ -605,6 +611,15 @@ def build_configured_cases_client() -> CasesHttpClient | None:
     )
 
 
+def build_configured_scheduler_client() -> SchedulerHttpClient | None:
+    if not any(getenv(name) for name in SCHEDULER_API_VARIABLES):
+        return None
+    return build_scheduler_client(
+        api_url=require_env("SCHEDULER_API_URL"),
+        api_key=require_env("SCHEDULER_API_KEY"),
+    )
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent.parent
     load_dotenv(dotenv_path=project_root / ".env")
@@ -697,6 +712,10 @@ def main() -> None:
     if todoist is not None:
         tools.extend(build_todoist_tools(todoist, cases))
 
+    scheduler_api = build_configured_scheduler_client()
+    if scheduler_api is not None:
+        tools.extend(build_scheduler_tools(scheduler_api, owner_timezone, cases))
+
     mail = build_configured_gmail_client()
     if mail is not None:
         tools.extend(build_gmail_tools(mail, WorkFolder(work_dir), dropbox_boundary))
@@ -745,6 +764,7 @@ def main() -> None:
             ("gmail", mail),
             ("whatsapp", whatsapp),
             ("telegram", telegram),
+            ("scheduler", scheduler_api),
         )
         if client is not None
     ]

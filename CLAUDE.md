@@ -20,6 +20,7 @@ workers/bot/
 ├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
 ├── cases_tools_factory.py   # клиент сервиса кейсов по CASES_* + case_* и task_add, task_list, task_update, task_close
+├── scheduler_tools_factory.py # клиент сервиса расписаний по SCHEDULER_API_* + schedule_add, schedule_list, schedule_cancel
 ├── todoist_tools_factory.py # Todoist как задачник: find_tasks, read_task, task_link; build_task_mirror — отражение задач
 ├── gmail_tools_factory.py   # search_mail, read_mail, draft_reply, draft_mail поверх GmailClient (OAuth refresh token)
 ├── whatsapp_tools_factory.py # коннектор WhatsApp по env (+ клиент WhatsApp Web по WHATSAPP_WEB_*) + search_whatsapp, read_whatsapp, list_whatsapp_chats
@@ -51,6 +52,7 @@ src/
 │       ├── attachment_labels.py      # строки «[вложение: имя]» перед подписью владельца
 │       └── protocols/                # IConversationClearer
 ├── cases/                   # CasesHttpClient — клиент сервиса кейсов assistant_cases (модели, ошибки, UntrustedCaseFrame)
+├── scheduler/               # SchedulerHttpClient — клиент сервиса расписаний assistant_scheduler (модели, ошибки)
 ├── task_manager/            # Порт задачника: модели, ошибки, Protocol-ы (реализация — src/todoist), без реализаций
 ├── todoist/                 # TodoistHttpClient (API v1, close без reopen/delete; activities) и реализация порта: TodoistTask{Reader,Writer}, TodoistChangeFeed
 ├── task_mirror/             # Отражение задач self в задачник через порт: наружу — слушатель инструментов задач и перенос, внутрь — поток по журналу
@@ -112,10 +114,10 @@ deploy/                      # Образ и выкат в colima
 ### Разделы промпта по коннекторам
 
 Раздел коннектора в `data/system_prompt.txt` обрамлён строками `<!-- connector:<ключ> -->` и
-`<!-- /connector:<ключ> -->` (ключи `tasks`, `gmail`, `whatsapp`, `telegram`; обрамлять можно и отдельные строки внутри
+`<!-- /connector:<ключ> -->` (ключи `tasks`, `gmail`, `whatsapp`, `telegram`, `scheduler`; обрамлять можно и отдельные строки внутри
 чужого раздела — так сделаны строки «Файлов» про почту и WhatsApp). `SystemPromptBuilder(connectors=…)` один раз
 на старте оставляет тело разделов зарегистрированных коннекторов и вырезает остальные вместе с маркерами; серии
-пустых строк схлопываются. Список собирает `__main__.py` по построенным клиентам (`tasks` — задачник, сейчас клиент Todoist; `mail`, `whatsapp`, `telegram`)
+пустых строк схлопываются. Список собирает `__main__.py` по построенным клиентам (`tasks` — задачник, сейчас клиент Todoist; `mail`, `whatsapp`, `telegram`, `scheduler` — клиент сервиса расписаний)
 и пишет в лог строкой `Prompt connectors: …`. Упоминание инструмента коннектора вне его маркеров — ошибка:
 без коннектора модель увидит инструмент, которого нет (тест `tests/chat/test_system_prompt_builder.py`).
 Раздел «Кейсы» от коннекторов не зависит.
@@ -142,13 +144,16 @@ deploy/                      # Образ и выкат в colima
 - `uv run python -m scripts.claude_cli_tools_check` — список инструментов из init CLI, без вызова модели;
   в образе: `docker run --rm -v "$PWD/scripts:/app/scripts:ro" --entrypoint python personal_assistant-bot:latest -m scripts.claude_cli_tools_check`.
   Должно быть ровно `mcp__ai-framework-tools__…`
-- `uv run python -m scripts.claude_sdk_live_check bot|cases|checkup` — живой прогон `AIApplication(CLAUDE_SDK)` со
+- `uv run python -m scripts.claude_sdk_live_check bot|cases|scheduler|checkup` — живой прогон `AIApplication(CLAUDE_SDK)` со
   списком инструментов бота или чекапа на локальных подменах источников (задачник — `LiveTaskManager` поверх
   `FakeTodoistClient`: задачи, заведённые владельцем прямо в задачнике, и повторяющаяся; сервис кейсов —
-  `InMemoryCasesService` на `httpx.MockTransport` под настоящим `CasesHttpClient`; в конце прогона в лог идут
+  `InMemoryCasesService` на `httpx.MockTransport` под настоящим `CasesHttpClient`; сервис расписаний —
+  `InMemorySchedulerService` так же под настоящим `SchedulerHttpClient`, ближайших у cron не считает; в конце прогона в лог идут
   вызовы сервиса кейсов, записанные события, задачи задачника, перенесённые и закрытые в нём), вызовы модели
   настоящие. `bot` — с отражением и переносом, как в проде (реплики «перенеси … на пятницу», «… сделал»);
-  `cases` — только инструменты кейсов и задач и промпт без коннекторов, как бот без `TODOIST_TOKEN`
+  `cases` — только инструменты кейсов и задач и промпт без коннекторов, как бот без `TODOIST_TOKEN`;
+  `scheduler` — инструменты кейсов и расписаний с разделом «Расписания» (реплики «в пятницу в 10 проверь, ответил ли
+  нотариус», первый понедельник месяца, список, отмена; они же в конце `bot`)
   Нативно файл — project settings, а `allowManaged*Only` действует только из managed: запрос разрешения на
   инструмент бота ловится лишь прогоном в образе — `docker build -f deploy/Dockerfile -t <свой тег> .`, затем
   `docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/tests:/app/tests:ro" -v "$PWD/deploy:/app/deploy:ro" --entrypoint python <тег> -m scripts.claude_sdk_live_check bot`
@@ -421,13 +426,15 @@ WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необяз
 WHATSAPP_WEB_URL=http://host.docker.internal:18790  # необязательная; сервис WhatsApp Web на Mac mini — запасной путь для документов, удалённых с CDN
 WHATSAPP_WEB_TOKEN=                                 # ключ сервиса WhatsApp Web (Authorization: Bearer)
 TELEGRAM_USER_SECRETS_FILE=/path/to/telegram_user  # необязательная; файл session=/api_id=/api_hash= Telegram владельца; нет файла — нет инструментов Telegram
+SCHEDULER_API_URL=http://localhost:8000         # SCHEDULER_API_* — обе или ни одной; сервис расписаний assistant_scheduler, без них нет schedule_* и раздела «Расписания»
+SCHEDULER_API_KEY=ключ                          # X-API-Key сервиса расписаний; ключ определяет пользователя
 SCHEDULER_AMQP_URL=amqp://schedule-sumarokov:пароль@localhost:5672/assistant  # запуски по расписанию; с SCHEDULER_QUEUE — обе или ни одной
 SCHEDULER_QUEUE=schedule.sumarokov              # очередь «пора» этого пользователя (exchange schedule-due сервиса assistant_scheduler)
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
 Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`,
-`ATTACHMENTS_S3_*`; `WIKI_DIR` и `WIKI_REMOTE_URL` — при `MEMORY_STORAGE=wiki` (иначе `WIKI_*` необязательны). `CASES_*`, `TODOIST_TOKEN`, `GMAIL_*`, `WHATSAPP_MACOS_SNAPSHOT_DIR` и `TELEGRAM_USER_SECRETS_FILE` в коде бота необязательны (нет — нет инструментов),
+`ATTACHMENTS_S3_*`; `WIKI_DIR` и `WIKI_REMOTE_URL` — при `MEMORY_STORAGE=wiki` (иначе `WIKI_*` необязательны). `CASES_*`, `SCHEDULER_API_*`, `TODOIST_TOKEN`, `GMAIL_*`, `WHATSAPP_MACOS_SNAPSHOT_DIR` и `TELEGRAM_USER_SECRETS_FILE` в коде бота необязательны (нет — нет инструментов),
 в проде их требует compose. Их же читают `workers.checkup` (`TODOIST_TOKEN` обязателен) и `workers.memory_fill` (`GMAIL_*` необязательны)
 
 ## Распознавание речи
@@ -701,6 +708,37 @@ RabbitMQ сообщение «пора» (exchange `schedule-due`, ключ — 
   кейсом и инструкцией. ack — после отправки и `delivered_at`; упала отправка — сообщение вернётся, прогон повторится
 - Тест миграции (`tests/scheduled_runs/test_scheduled_runs_migration.py`) идёт на `TEST_DATABASE_URL` — отдельной
   пустой базе; без переменной пропускается
+
+### Заведение расписаний (инструменты)
+
+Заводит, показывает и отменяет расписания модель в разговоре с владельцем — через HTTP API того же сервиса
+(контракт — таск 01a0f0c3-7380 и CLAUDE.md репы `assistant_scheduler`). Пользователь — из ключа
+(`SCHEDULER_API_KEY`), чужое расписание отвечает 404, как несуществующее.
+
+- Клиент — `src/scheduler/repos/scheduler_http_client.py` (`SchedulerHttpClient`, httpx, `X-API-Key`):
+  `POST /schedules` (тело без пустых полей), `GET /schedules` (`status`, `case_id`, `limit`), `POST /schedules/{id}/cancel`.
+  Граница — import-linter «scheduler client stands alone»: `src.scheduler` не знает ни соседей, ни модели, ни Telegram
+- Ошибки — `src/scheduler/errors/`, общий предок `SchedulerServiceError`, текст — указание модели: 401 →
+  `SchedulerUnauthorizedError`; 404 `schedule_not_found` / `case_not_found` → `ScheduleNotFoundError` /
+  `ScheduleCaseNotFoundError` («найди кейс через case_find»); 409 `schedule_finished` → `ScheduleFinishedError`;
+  422 `too_frequent` → `TooFrequentError` (порог из ответа), `limit_reached` → `LimitReachedError` (лимит из ответа),
+  `validation` с `detail[0].type` `in_past` / `never_fires` → `ScheduleInPastError` / `ScheduleNeverFiresError`, иначе
+  `SchedulerValidationError`; 503 `cases_unavailable` → `CasesUnavailableError`; прочее ≥ 400 → `SchedulerFailureError`;
+  сеть/таймаут → `SchedulerUnavailableError`. Инструменты отвечают модели `{"error": …}`
+- `schedule_add` (case_id — id из `case_find` или `inbox`, instruction, `at` | `cron`, timezone — умолчание
+  `OWNER_TIMEZONE`): ровно одно из at/cron и известный IANA-пояс проверяются до запроса; `at` без пояса — в поясе
+  timezone (то есть владельца). Ответ — id и ближайшие срабатывания из `upcoming` в поясе владельца («пт 02.10.2026
+  10:00»), у периодического — до трёх
+- `schedule_list` (case_id, status — умолчание `live`) — строки «id · [статус] · когда · кейс · инструкция», статус —
+  если не active; когда — момент разового или «cron … (пояс), ближайшее …». Названия кейсов — одним `find_cases`
+  (status all, 100) клиента кейсов; кейсов нет или сервис лёг — вместо названия case_id
+- `schedule_cancel` (schedule_id) — `POST …/cancel`; отменённое повторно — 200
+- Регистрация — `workers/bot/scheduler_tools_factory.py` при `SCHEDULER_API_URL` и `SCHEDULER_API_KEY`; задана одна из
+  двух — бот падает на старте. Есть клиент — в промпте остаётся раздел «Расписания» (`connector:scheduler`): кейс —
+  сперва `case_find`, естественный язык → at/cron (`1#1` — первый понедельник), очевидное не переспрашивать, ответ —
+  ближайшие срабатывания из ответа инструмента. «Напомни позвонить» (шаг владельца) — задача, «напиши мне в срок» и
+  «проверь в срок» — расписание
+- Имена начинаются с `schedule_` — по префиксу их отсекает прогон по расписанию (`scheduled_run_tools`)
 
 ## Почта ассистентов
 

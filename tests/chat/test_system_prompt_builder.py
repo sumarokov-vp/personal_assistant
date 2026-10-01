@@ -7,7 +7,7 @@ from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 
 SYSTEM_PROMPT = Path(__file__).parents[2] / "data" / "system_prompt.txt"
 TIMEZONE = ZoneInfo("Asia/Almaty")
-ALL_CONNECTORS = ("tasks", "gmail", "whatsapp")
+ALL_CONNECTORS = ("tasks", "gmail", "whatsapp", "telegram", "scheduler")
 
 
 def _prompt(connectors: tuple[str, ...]) -> str:
@@ -32,6 +32,8 @@ def test_prompt_without_connectors_keeps_cases_and_drops_connector_sections() ->
         "draft_mail",
         "WhatsApp",
         "search_whatsapp",
+        "## Расписания",
+        "schedule_",
         "<!--",
     ):
         assert absent not in prompt
@@ -45,6 +47,17 @@ def test_prompt_with_task_manager_has_its_section_only() -> None:
     assert "task_link" in prompt
     assert "search_mail" not in prompt
     assert "search_whatsapp" not in prompt
+    assert "<!--" not in prompt
+
+
+def test_prompt_with_scheduler_has_its_section_only() -> None:
+    prompt = _prompt(("scheduler",))
+
+    assert "## Расписания" in prompt
+    for tool in ("schedule_add", "schedule_list", "schedule_cancel"):
+        assert tool in prompt
+    assert "1#1" in prompt
+    assert "find_tasks" not in prompt
     assert "<!--" not in prompt
 
 
