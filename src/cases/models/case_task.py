@@ -3,7 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 from src.cases.models.case_ref import CaseRef
-from src.cases.models.case_source import CaseSource
+from src.cases.models.case_source import RecordedSource
 from src.cases.models.task_status import TaskStatus
 
 
@@ -12,7 +12,7 @@ class CaseTask(BaseModel):
     case: CaseRef
     summary: str
     occurred_at: datetime
-    source: CaseSource
+    source: RecordedSource
     source_ref: str | None = None
     url: str | None = None
     status: TaskStatus

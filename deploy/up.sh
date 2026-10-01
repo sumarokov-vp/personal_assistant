@@ -100,6 +100,15 @@ CASES_API_KEY="$(pass_first_line "$PASS_ROOT/cases-api-key")"
 require_value "$PASS_ROOT/cases-api-key" "$CASES_API_KEY"
 CASES_API_URL="${CASES_API_URL:-http://assistant_cases:8000}"
 
+# Сервис расписаний assistant_scheduler (соседний контейнер в сети infra). SCHEDULER_API_KEY — ключ
+# пользователя sumarokov из записи api-keys сервиса (инструменты schedule_*); SCHEDULER_AMQP_URL — учётка
+# schedule-sumarokov (только чтение schedule.sumarokov в vhost assistant), её заводит топология
+# assistant_scheduler (deploy/rabbitmq/setup.sh той репы). Адрес и очередь — в compose.yaml
+SCHEDULER_API_KEY="$(pass_first_line "$PASS_ROOT/scheduler-api-key")"
+require_value "$PASS_ROOT/scheduler-api-key" "$SCHEDULER_API_KEY"
+SCHEDULER_AMQP_URL="$(pass_first_line "$PASS_ROOT/scheduler-amqp")"
+require_value "$PASS_ROOT/scheduler-amqp" "$SCHEDULER_AMQP_URL"
+
 # Почта ассистентов: URL учётки assistant-sumarokov в vhost assistants.sumarokov (пишет в
 # exchange assistant-mail, читает только inbox.sumarokov). Запись, ящик и учётку заводит
 # deploy/rabbitmq/assistants.sh add-assistant sumarokov
@@ -193,6 +202,7 @@ export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN 
     ATTACHMENTS_S3_ACCESS_KEY ATTACHMENTS_S3_SECRET_KEY \
     TODOIST_TOKEN GMAIL_CLIENT_ID GMAIL_CLIENT_SECRET GMAIL_REFRESH_TOKEN \
     RABBITMQ_URL CASES_API_URL CASES_API_KEY \
+    SCHEDULER_API_KEY SCHEDULER_AMQP_URL \
     ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE \
     WHATSAPP_WEB_URL WHATSAPP_WEB_TOKEN \
     TELEGRAM_SECRETS_DIR

@@ -1,0 +1,2 @@
+class SchedulerServiceError(Exception):
+    pass

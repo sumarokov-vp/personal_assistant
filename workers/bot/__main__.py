@@ -108,6 +108,7 @@ from src.memory.repos import (
 from src.wiki import WikiFactory, WikiPageNotFoundError, WikiSettings
 from src.wiki.search import WikiSearcher
 from src.cases.repos.cases_http_client import CasesHttpClient
+from src.scheduler.repos.scheduler_http_client import SchedulerHttpClient
 from src.task_mirror.services.mirror_pass import MirrorPass
 from src.task_mirror.services.outbound_mirror import TaskMirrorListener
 from src.task_mirror.services.task_rescheduling import TaskRescheduler
@@ -119,6 +120,11 @@ from workers.bot.cases_tools_factory import (
     CASES_VARIABLES,
     build_cases_client,
     build_cases_tools,
+)
+from workers.bot.scheduler_tools_factory import (
+    SCHEDULER_API_VARIABLES,
+    build_scheduler_client,
+    build_scheduler_tools,
 )
 from workers.bot.colleague_mail_tool_gateway import ColleagueMailToolGateway
 from workers.colleague_digest.composition import build_colleague_digest
@@ -145,6 +151,8 @@ from workers.bot.telegram_tools_factory import (
     build_telegram_tools,
 )
 from workers.bot.transcriber_factory import build_transcriber
+from workers.scheduled_run.composition import start_scheduled_runs
+from workers.scheduled_run.scheduler_settings import read_scheduler_settings
 from workers.bot.whatsapp_tools_factory import (
     WHATSAPP_MACOS_SNAPSHOT_VARIABLE,
     WHATSAPP_WEB_URL_VARIABLE,
@@ -603,6 +611,15 @@ def build_configured_cases_client() -> CasesHttpClient | None:
     )
 
 
+def build_configured_scheduler_client() -> SchedulerHttpClient | None:
+    if not any(getenv(name) for name in SCHEDULER_API_VARIABLES):
+        return None
+    return build_scheduler_client(
+        api_url=require_env("SCHEDULER_API_URL"),
+        api_key=require_env("SCHEDULER_API_KEY"),
+    )
+
+
 def main() -> None:
     project_root = Path(__file__).parent.parent.parent
     load_dotenv(dotenv_path=project_root / ".env")
@@ -616,6 +633,7 @@ def main() -> None:
     ai_model = require_env("AI_MODEL")
     owner_timezone = ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty"))
     colleague_mail = read_colleague_mail_settings()
+    scheduler = read_scheduler_settings()
     colleague_digest_at = time.fromisoformat(getenv("COLLEAGUE_DIGEST_AT", "09:00"))
 
     voice_recognition_url = getenv("VOICE_RECOGNITION_URL", "http://localhost:8000")
@@ -694,6 +712,10 @@ def main() -> None:
     if todoist is not None:
         tools.extend(build_todoist_tools(todoist, cases))
 
+    scheduler_api = build_configured_scheduler_client()
+    if scheduler_api is not None:
+        tools.extend(build_scheduler_tools(scheduler_api, owner_timezone, cases))
+
     mail = build_configured_gmail_client()
     if mail is not None:
         tools.extend(build_gmail_tools(mail, WorkFolder(work_dir), dropbox_boundary))
@@ -742,6 +764,7 @@ def main() -> None:
             ("gmail", mail),
             ("whatsapp", whatsapp),
             ("telegram", telegram),
+            ("scheduler", scheduler_api),
         )
         if client is not None
     ]
@@ -872,6 +895,19 @@ def main() -> None:
     )
 
     with ai:
+        start_scheduled_runs(
+            settings=scheduler,
+            database_url=db_url,
+            ai_model=ai_model,
+            ai_database_url=ai_db_url,
+            bot_tools=tools,
+            attachment_store=attachment_store,
+            bot_prompt=system_prompt_builder,
+            cases=cases,
+            timezone=owner_timezone,
+            sender=app.message_sender,
+            owner_chat_id=owner_telegram_id,
+        )
         logger.info("Starting polling...")
         app.run()
 

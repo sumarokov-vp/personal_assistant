@@ -7,10 +7,11 @@
 # синтетический снимок WhatsApp (схема WhatsApp Desktop, выдуманные чаты — настоящей переписки нет),
 # подменный Telegram владельца (FakeTelegramSource: супергруппа с договором и ссылкой t.me/c/…,
 # личный чат без ссылки — живой сессии и TELEGRAM_USER_SECRETS_FILE прогон не касается),
-# сервис кейсов в памяти (httpx.MockTransport под настоящим CasesHttpClient). Режимы bot и cases идут с
+# сервис кейсов в памяти (httpx.MockTransport под настоящим CasesHttpClient), сервис расписаний в памяти
+# (так же под настоящим SchedulerHttpClient; ближайших у cron не считает). Режимы bot, cases и scheduler идут с
 # настоящим data/system_prompt.txt: bot — с разделами задачника, Gmail, WhatsApp, Telegram и с
 # отражением задач в задачник (task_add, перенос task_update planned, закрытие task_close); cases — без
-# коннекторов, как бот без TODOIST_TOKEN. В конце прогона в лог идут вызовы сервиса кейсов, задачи
+# коннекторов, как бот без TODOIST_TOKEN; scheduler — кейсы и расписания с разделом «Расписания». В конце прогона в лог идут вызовы сервиса кейсов, задачи
 # задачника и что в нём перенесено и закрыто.
 # Черновики писем и файлы «в чат» не уходят никуда — только строкой в лог. Вызовы модели настоящие: CLI берёт CLAUDE_CODE_OAUTH_TOKEN, а нативно на Mac
 # владельца — локальную авторизацию Claude Code.
@@ -21,6 +22,7 @@
 #
 #     uv run python -m scripts.claude_sdk_live_check bot
 #     uv run python -m scripts.claude_sdk_live_check cases
+#     uv run python -m scripts.claude_sdk_live_check scheduler
 #     uv run python -m scripts.claude_sdk_live_check checkup
 
 import asyncio
@@ -65,6 +67,7 @@ from src.ai_tools.file_read import UntrustedFileFrame
 from src.ai_tools.read_mail.tool import ReadMailTool
 from src.ai_tools.search_mail.tool import SearchMailTool
 from src.cases.repos.cases_http_client import CasesHttpClient
+from src.scheduler.repos.scheduler_http_client import SchedulerHttpClient
 from src.chat.actions.system_prompt_builder import SystemPromptBuilder
 from src.dropbox.models.move_plan import MovePlan
 from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
@@ -110,6 +113,7 @@ from workers.bot.__main__ import (
     build_memory_tools,
 )
 from workers.bot.cases_tools_factory import build_cases_tools
+from workers.bot.scheduler_tools_factory import build_scheduler_tools
 from workers.memory_fill.memory_storage_kind import MemoryStorageKind
 from workers.memory_fill.memory_storage_settings import MemoryStorageSettings
 from workers.bot.file_tools_factory import (
@@ -136,7 +140,7 @@ logger = getLogger("claude_sdk_live_check")
 PROJECT_ROOT = Path(__file__).parent.parent
 SYSTEM_PROMPT = PROJECT_ROOT / "data" / "system_prompt.txt"
 STUB_PROMPT = "Ты личный ассистент. Отвечай кратко, по-русски."
-BOT_CONNECTORS = ("tasks", "gmail", "whatsapp", "telegram")
+BOT_CONNECTORS = ("tasks", "gmail", "whatsapp", "telegram", "scheduler")
 CASES_PREFIX = "/api/v1"
 MANAGED_SETTINGS = PROJECT_ROOT / "deploy" / "claude-code" / "managed-settings.json"
 TIMEZONE = ZoneInfo("Asia/Almaty")
@@ -176,6 +180,13 @@ TASK_MANAGER_PROMPTS = [
     "Шины на зимние поменял, закрой.",
     "Перенеси оплату интернета на пятницу.",
 ]
+# Расписания: разовое к кейсу, периодическое, список и отмена — на подменном сервисе.
+SCHEDULER_PROMPTS = [
+    "В пятницу в 10 проверь, ответил ли нотариус.",
+    "Каждый первый понедельник месяца в 10 сверяй оплату аренды квартиры по выписке.",
+    "Какие у меня расписания?",
+    "Отмени проверку нотариуса.",
+]
 BOT_PROMPTS = [
     "Запомни срок: загранпаспорт Владимира истекает 2027-03-01, продлевать в ЦОН.",
     "Какие сроки сейчас лежат у меня в памяти? Ответь по данным памяти.",
@@ -209,6 +220,7 @@ BOT_PROMPTS = [
     "договор завтра.",
     *CASES_PROMPTS,
     *TASK_MANAGER_PROMPTS,
+    *SCHEDULER_PROMPTS,
 ]
 CHECKUP_PROMPTS = [
     "Найди в Todoist задачи с меткой @pa и покажи, что лежит в памяти.",
@@ -287,7 +299,7 @@ class InMemoryCasesService:
         self._open(
             "Новая компания (ТОО)",
             "Своё ТОО после ухода от партнёров: РВП "
-            "бизнес-мигранта, регистрация, счёт в банке",
+            "бизнес-мигранта, регистрация у нотариуса, счёт в банке",
         )
         self._open("Аренда квартиры", "Квартира на Весенней, 1: договор, оплата")
 
@@ -349,6 +361,10 @@ class InMemoryCasesService:
                     event.get("source_ref"),
                     event.get("url"),
                 )
+
+    def resolve(self, alias: str) -> str | None:
+        case_id = self._case_id(alias)
+        return case_id if case_id in self.cases else None
 
     def _case_id(self, alias: str) -> str:
         if alias != "inbox":
@@ -430,6 +446,79 @@ class InMemoryCasesService:
             and params.get("assignee") in (None, task["assignee"])
             and params.get("case_id") in (None, task["case"]["id"])
             and params.get("external_id") in (None, task.get("external_id"))
+        ]
+        return httpx.Response(200, json={"items": items})
+
+
+class InMemorySchedulerService:
+    def __init__(self, cases: InMemoryCasesService) -> None:
+        self._cases = cases
+        self.schedules: dict[str, dict[str, Any]] = {}
+        self.calls: list[str] = []
+
+    def client(self) -> SchedulerHttpClient:
+        return SchedulerHttpClient(
+            base_url="http://scheduler.live-check",
+            api_key="live-check",
+            transport=httpx.MockTransport(self.handle),
+        )
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path.removeprefix(CASES_PREFIX)
+        body = json.loads(request.content) if request.content else {}
+        self.calls.append(
+            f"{request.method} {path} {json.dumps(body, ensure_ascii=False)}"
+        )
+        parts = path.strip("/").split("/")
+        if parts == ["schedules"] and request.method == "POST":
+            return self._create(body)
+        if parts == ["schedules"]:
+            return self._list(request.url.params)
+        schedule = self.schedules.get(parts[1])
+        if schedule is None:
+            return httpx.Response(404, json={"error": "schedule_not_found"})
+        schedule.update({"status": "cancelled", "next_run_at": None, "upcoming": []})
+        return httpx.Response(200, json=schedule)
+
+    def log(self) -> None:
+        logger.info("scheduler calls: %s", self.calls)
+
+    def _create(self, body: dict[str, Any]) -> httpx.Response:
+        case_id = self._cases.resolve(body["case_id"])
+        if case_id is None:
+            return httpx.Response(404, json={"error": "case_not_found"})
+        at = datetime.fromisoformat(body["at"]) if body.get("at") else None
+        if at is not None and at <= datetime.now(tz=UTC):
+            return httpx.Response(
+                422, json={"error": "validation", "detail": [{"type": "in_past"}]}
+            )
+        run_at = at.astimezone(UTC).isoformat() if at else None
+        schedule = {
+            "id": str(uuid4()),
+            "case_id": case_id,
+            "task_event_id": None,
+            "kind": "once" if at else "periodic",
+            "run_at": run_at,
+            "cron": body.get("cron"),
+            "timezone": body.get("timezone", "UTC"),
+            "instruction": body["instruction"],
+            "status": "active",
+            "next_run_at": run_at,
+            "upcoming": [run_at] if run_at else [],
+            "last_run_at": None,
+            "created_at": datetime.now(tz=UTC).isoformat(),
+        }
+        self.schedules[schedule["id"]] = schedule
+        return httpx.Response(201, json=schedule)
+
+    def _list(self, params: httpx.QueryParams) -> httpx.Response:
+        status = params.get("status", "live")
+        wanted = {"live": ("active", "paused"), "all": ()}.get(status, (status,))
+        items = [
+            schedule
+            for schedule in self.schedules.values()
+            if (not wanted or schedule["status"] in wanted)
+            and params.get("case_id") in (None, schedule["case_id"])
         ]
         return httpx.Response(200, json={"items": items})
 
@@ -765,7 +854,10 @@ def task_manager_tools(
 
 
 def bot_tools(
-    scratch: Path, manager: LiveTaskManager, cases: CasesHttpClient
+    scratch: Path,
+    manager: LiveTaskManager,
+    cases: CasesHttpClient,
+    scheduler: SchedulerHttpClient,
 ) -> list[BaseTool]:
     dropbox_root = scratch / "dropbox"
     scan = passport_scan()
@@ -797,6 +889,7 @@ def bot_tools(
             TIMEZONE,
         ),
         *task_manager_tools(manager, cases),
+        *build_scheduler_tools(scheduler, TIMEZONE, cases),
         *build_whatsapp_tools(whatsapp, TIMEZONE),
         *build_telegram_tools(telegram, TIMEZONE),
         *file_tools(boundary, WorkFolder(scratch / "work"), scan, whatsapp, telegram),
@@ -863,15 +956,28 @@ def main(mode: str) -> None:
     scratch = Path(tempfile.mkdtemp(prefix="pa-live-check-"))
     enter_sandbox(scratch)
     cases = InMemoryCasesService()
+    scheduler = InMemorySchedulerService(cases)
     if mode == "bot":
         manager = LiveTaskManager()
         run_prompts(
-            bot_tools(scratch, manager, cases.client()),
+            bot_tools(scratch, manager, cases.client(), scheduler.client()),
             BOT_PROMPTS,
             owner_prompt(BOT_CONNECTORS),
         )
         manager.log()
         cases.log()
+        scheduler.log()
+    elif mode == "scheduler":
+        run_prompts(
+            [
+                *build_cases_tools(cases.client(), TIMEZONE),
+                *build_scheduler_tools(scheduler.client(), TIMEZONE, cases.client()),
+            ],
+            SCHEDULER_PROMPTS,
+            owner_prompt(("scheduler",)),
+        )
+        cases.log()
+        scheduler.log()
     elif mode == "cases":
         run_prompts(
             build_cases_tools(cases.client(), TIMEZONE), CASES_PROMPTS, owner_prompt(())
@@ -880,7 +986,7 @@ def main(mode: str) -> None:
     elif mode == "checkup":
         run_prompts(checkup_tools(), CHECKUP_PROMPTS)
     else:
-        raise ValueError(f"mode must be bot, cases or checkup, got {mode!r}")
+        raise ValueError(f"mode must be bot, cases, scheduler or checkup, got {mode!r}")
 
 
 if __name__ == "__main__":

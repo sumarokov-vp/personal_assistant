@@ -114,7 +114,7 @@ layers = ["workers", "src"]
 [[tool.importlinter.contracts]]
 name = "src contexts independence"
 type = "independence"
-modules = ["src.chat", "src.ai_tools", "src.voice_recognition", "src.gmail", "src.agent_notifications", "src.colleague_mail"]
+modules = ["src.chat", "src.ai_tools", "src.voice_recognition", "src.gmail", "src.agent_notifications", "src.colleague_mail", "src.scheduled_runs"]
 
 # Рабочая папка, папка «Personal Assistant» и уборка не знают реализаций соседних
 # контекстов: Dropbox им отдаёт composition root через Protocol
@@ -162,6 +162,13 @@ type = "forbidden"
 source_modules = ["src.cases"]
 forbidden_modules = ["src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.chat", "src.checkup", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.task_mirror", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 
+# Клиент сервиса расписаний не знает ни соседей, ни потребителей: инструменты берут у него модели и ошибки
+[[tool.importlinter.contracts]]
+name = "scheduler client stands alone"
+type = "forbidden"
+source_modules = ["src.scheduler"]
+forbidden_modules = ["ai_framework", "bot_framework", "src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.cases", "src.chat", "src.checkup", "src.colleague_mail", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.scheduled_runs", "src.task_manager", "src.task_mirror", "src.telegram_user", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
+
 # Порт задачника: только модели, ошибки и Protocol-ы — не знает ни реализаций, ни потребителей
 [[tool.importlinter.contracts]]
 name = "task manager contract stands alone"
@@ -198,6 +205,14 @@ name = "colleague mail knows neither the model nor Telegram"
 type = "forbidden"
 source_modules = ["src.colleague_mail"]
 forbidden_modules = ["ai_framework", "bot_framework"]
+
+# Исполнитель расписаний — без модели и без Telegram: прогон, кейс и владельца ему подставляет
+# composition root (workers/scheduled_run) через Protocol-ы, чтобы унести его в отдельный воркер
+[[tool.importlinter.contracts]]
+name = "scheduled runs know neither the model nor Telegram"
+type = "forbidden"
+source_modules = ["src.scheduled_runs"]
+forbidden_modules = ["ai_framework", "bot_framework", "src.cases", "src.scheduler"]
 
 [tool.uv.sources]
 ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.5" }
