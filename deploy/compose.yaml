@@ -54,6 +54,12 @@
 #    публикуется, адрес http://assistant_cases:8000. CASES_API_KEY — из pass cases-api-key; тот же
 #    ключ строкой «user:ключ» зарегистрирован в API_KEYS сервиса кейсов. Без CASES_* у бота нет
 #    инструментов кейсов и задач.
+#  * Расписания: сервис assistant_scheduler — соседний контейнер в сети infra, порт на хост не
+#    публикуется, адрес http://assistant_scheduler:8000. SCHEDULER_API_KEY — pass scheduler-api-key
+#    (тот же ключ строкой «sumarokov:ключ» в api-keys сервиса) — инструменты schedule_*.
+#    SCHEDULER_AMQP_URL — pass scheduler-amqp, учётка schedule-sumarokov: только чтение очереди
+#    schedule.sumarokov в vhost assistant (поток scheduled-runs). Все четыре обязательны: без
+#    расписаний бот на проде не выкатывается.
 name: personal_assistant
 
 services:
@@ -101,6 +107,10 @@ services:
       TELEGRAM_USER_SECRETS_FILE: /run/secrets/telegram/telegram_user
       CASES_API_URL: ${CASES_API_URL:-http://assistant_cases:8000}
       CASES_API_KEY: ${CASES_API_KEY:?}
+      SCHEDULER_API_URL: http://assistant_scheduler:8000
+      SCHEDULER_API_KEY: ${SCHEDULER_API_KEY:?}
+      SCHEDULER_AMQP_URL: ${SCHEDULER_AMQP_URL:?}
+      SCHEDULER_QUEUE: schedule.sumarokov
     volumes:
       - ${PA_DATA_DIR:?}/wiki:/wiki
       - ${WIKI_DEPLOY_KEY_FILE:?}:/run/secrets/wiki_deploy_key:ro

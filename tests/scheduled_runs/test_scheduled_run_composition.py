@@ -81,3 +81,15 @@ def test_unread_case_does_not_stop_the_run():
 
     assert brief.title is None
     assert brief.text.startswith("Кейс не прочитан:")
+
+
+class _BrokenFeedCases:
+    def read_case(self, case_id: str, events_limit: int) -> CaseFeed:
+        raise ValueError("ответ сервиса не по модели")
+
+
+def test_case_read_failure_of_any_kind_does_not_stop_the_run():
+    brief = CasesBriefing(_BrokenFeedCases(), ZoneInfo("Asia/Almaty")).brief("c-1")
+
+    assert brief.title is None
+    assert brief.text == "Кейс не прочитан: ValueError"

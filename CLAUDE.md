@@ -818,13 +818,13 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   `claude-agent-sdk` со встроенными инструментами, выключенными managed settings (см. выше); git и openssh-client —
   для вики, ключи хоста github.com — из `deploy/ssh/known_hosts` (системный known_hosts); typst и jq нет.
   Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
-- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,whatsapp-web,telegram-user,telegram-app}`,
+- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,scheduler-api-key,scheduler-amqp,whatsapp-web,telegram-user,telegram-app}`,
   `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента), собирает из `db` переменную
   `AI_DB_URL` (`options=-csearch_path%3Dai`), разбирает `spaces-attachments` (первая строка — secret key → `ATTACHMENTS_S3_SECRET_KEY`,
   строки `access_key=`, `bucket=`, `region=`, `endpoint=` → остальные `ATTACHMENTS_S3_*`), из `gmail-oauth-client`
 (JSON `client_secret_*.json` целиком) достаёт `installed.client_id`/`installed.client_secret` через `python3` → `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`,
-первые строки `todoist-token`, `gmail-refresh-token`, `rabbitmq` и `cases-api-key` → `TODOIST_TOKEN`, `GMAIL_REFRESH_TOKEN`,
-`RABBITMQ_URL`, `CASES_API_KEY` (пустое значение останавливает выкат), и запускает `docker compose -f deploy/compose.yaml up -d --build`.
+первые строки `todoist-token`, `gmail-refresh-token`, `rabbitmq`, `cases-api-key`, `scheduler-api-key` и `scheduler-amqp` → `TODOIST_TOKEN`, `GMAIL_REFRESH_TOKEN`,
+`RABBITMQ_URL`, `CASES_API_KEY`, `SCHEDULER_API_KEY`, `SCHEDULER_AMQP_URL` (пустое значение останавливает выкат), и запускает `docker compose -f deploy/compose.yaml up -d --build`.
   Секреты идут переменными окружения, в файлы не пишутся — кроме deploy-ключа вики: ssh читает ключ только из
   файла, `up.sh` кладёт его в `~/docker/personal_assistant/secrets/wiki_deploy_key` (0600, каталог 0700), в
   контейнер он монтируется read-only как `/run/secrets/wiki_deploy_key` (`WIKI_SSH_KEY_PATH`) — и сессии
@@ -848,6 +848,14 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   `cases-api-key`; тот же ключ строкой `user:ключ` лежит в записи `API_KEYS` сервиса кейсов (pass
   `assistant/assistant_cases/api-keys`, основной keyring Mac mini) — новый ключ вступает в силу после `deploy/up.sh`
   сервиса кейсов. Без `CASES_*` бот стартует без инструментов кейсов и задач
+- Сервис расписаний `assistant_scheduler` — соседний контейнер в сети `infra`, порт на хост не публикуется:
+  `SCHEDULER_API_URL=http://assistant_scheduler:8000` и `SCHEDULER_QUEUE=schedule.sumarokov` — прямо в `compose.yaml`;
+  `SCHEDULER_API_KEY` — pass `scheduler-api-key` (тот же ключ строкой `sumarokov:ключ` в pass
+  `assistant/assistant_scheduler/api-keys` сервиса), `SCHEDULER_AMQP_URL` — pass `scheduler-amqp` (учётка
+  `schedule-sumarokov`, только чтение `schedule.sumarokov` в vhost `assistant`; учётку и очередь заводит
+  `deploy/rabbitmq/setup.sh` репы `assistant_scheduler`). На проде все четыре обязательны (`${VAR:?}`): в логе старта
+  `AI tools:` с `schedule_add`/`schedule_list`/`schedule_cancel`, `Prompt connectors:` со `scheduler` и поток
+  `scheduled-runs`
 - Распознавание речи — GPU-сервер по mesh `http://10.72.0.199:8000`, из контейнера достижим
 - Dropbox: `~/Dropbox` хоста (синхронизирует Maestral на Mac mini) — том `/dropbox` на запись, `DROPBOX_ROOT=/dropbox`.
   colima отдаёт `$HOME` через virtiofs (`~/.colima/default/colima.yaml`: `mounts: []`), файл из контейнера ложится
@@ -866,7 +874,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
   не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x TELEGRAM_SECRETS_DIR=x docker compose -f deploy/compose.yaml build`.
+  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x SCHEDULER_API_KEY=x SCHEDULER_AMQP_URL=x TELEGRAM_SECRETS_DIR=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
