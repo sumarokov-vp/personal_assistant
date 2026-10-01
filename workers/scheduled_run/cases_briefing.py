@@ -28,6 +28,11 @@ class CasesBriefing:
         except CasesServiceError as error:
             logger.warning("Scheduled run case %s not read: %s", case_id, error)
             return CaseBrief(title=None, text=f"Кейс не прочитан: {error}")
+        except Exception as error:  # noqa: BLE001 — ответ сервиса не по модели и прочее: прогон без кейса
+            logger.exception("Scheduled run case %s not read", case_id)
+            return CaseBrief(
+                title=None, text=f"Кейс не прочитан: {type(error).__name__}"
+            )
         text = CaseReadTool(
             reader=_ReadFeed(feed), frame=UntrustedCaseFrame(), timezone=self._timezone
         ).execute(CaseReadInput(case_id=case_id), ToolContext())

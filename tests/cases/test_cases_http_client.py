@@ -113,6 +113,25 @@ def test_read_case_passes_events_limit_and_parses_task_event(
     assert feed.events[0].task.due == date(2026, 10, 20)
 
 
+def test_read_case_accepts_events_written_by_scheduler(
+    client: CasesHttpClient, fake_service: FakeCasesService
+) -> None:
+    fake_service.on(
+        "GET",
+        f"{CASES}/{CASE_ID}",
+        200,
+        {
+            "case": case_payload(),
+            "events": [event_payload(source="scheduler", source_ref="run:r-1")],
+            "has_earlier": False,
+        },
+    )
+
+    feed = client.read_case(CASE_ID, 10)
+
+    assert feed.events[0].source == "scheduler"
+
+
 def test_add_task_event_posts_task_fields_by_contract(
     client: CasesHttpClient, fake_service: FakeCasesService
 ) -> None:

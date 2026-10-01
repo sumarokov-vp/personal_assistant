@@ -2,7 +2,7 @@ from src.cases.models.case import Case
 from src.cases.models.case_event import CaseEvent
 from src.cases.models.case_feed import CaseFeed
 from src.cases.models.case_ref import CaseRef
-from src.cases.models.case_source import CaseSource
+from src.cases.models.case_source import CaseSource, RecordedSource
 from src.cases.models.case_status import CaseStatus
 from src.cases.models.case_task import CaseTask
 from src.cases.models.case_update import CaseUpdate
@@ -30,6 +30,7 @@ __all__ = [
     "EventKind",
     "NewEvent",
     "NewTask",
+    "RecordedSource",
     "TaskChange",
     "TaskClosure",
     "TaskQuery",
