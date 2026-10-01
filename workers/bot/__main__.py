@@ -145,6 +145,8 @@ from workers.bot.telegram_tools_factory import (
     build_telegram_tools,
 )
 from workers.bot.transcriber_factory import build_transcriber
+from workers.scheduled_run.composition import start_scheduled_runs
+from workers.scheduled_run.scheduler_settings import read_scheduler_settings
 from workers.bot.whatsapp_tools_factory import (
     WHATSAPP_MACOS_SNAPSHOT_VARIABLE,
     WHATSAPP_WEB_URL_VARIABLE,
@@ -616,6 +618,7 @@ def main() -> None:
     ai_model = require_env("AI_MODEL")
     owner_timezone = ZoneInfo(getenv("OWNER_TIMEZONE", "Asia/Almaty"))
     colleague_mail = read_colleague_mail_settings()
+    scheduler = read_scheduler_settings()
     colleague_digest_at = time.fromisoformat(getenv("COLLEAGUE_DIGEST_AT", "09:00"))
 
     voice_recognition_url = getenv("VOICE_RECOGNITION_URL", "http://localhost:8000")
@@ -872,6 +875,19 @@ def main() -> None:
     )
 
     with ai:
+        start_scheduled_runs(
+            settings=scheduler,
+            database_url=db_url,
+            ai_model=ai_model,
+            ai_database_url=ai_db_url,
+            bot_tools=tools,
+            attachment_store=attachment_store,
+            bot_prompt=system_prompt_builder,
+            cases=cases,
+            timezone=owner_timezone,
+            sender=app.message_sender,
+            owner_chat_id=owner_telegram_id,
+        )
         logger.info("Starting polling...")
         app.run()
 

@@ -28,9 +28,11 @@ workers/bot/
 ├── protocols/               # IWhatsAppSource, ITelegramSource — что бот берёт от коннекторов переписки (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
 workers/colleague_digest/    # Сводка почты коллег: build_colleague_digest (её же зовёт бот) и ручной запуск
+workers/scheduled_run/       # Исполнитель расписаний: сборка потока scheduled-runs, свой AIApplication, набор инструментов прогона
 src/
 ├── access/                  # OwnerUpdateGate + UpdateGateInstaller: вход только владельцу
 ├── agent_notifications/     # Уведомления рабочих агентов из RabbitMQ: журнал, пересылка владельцу, потребитель
+├── scheduled_runs/          # Запуски по расписанию из RabbitMQ (schedule.due): разбор, журнал, исполнитель, потребитель — без модели и Telegram
 ├── colleague_mail/          # Почта ассистентов коллег (RabbitMQ): формат, журнал, справочник, отправка, приём, сводка — без модели
 ├── ai_tools/                # Инструменты модели: пакет на инструмент, класс — наследник BaseTool
 ├── chat/
@@ -64,6 +66,7 @@ scripts/
 └── gmail_auth.py            # Получение refresh token Gmail владельца в pass (standalone, uv run)
 data/
 ├── system_prompt.txt        # Системный промпт ассистента; {today}, {now}, {timezone} подставляются на каждый запрос
+├── schedule_run_prompt.txt  # Раздел промпта прогона по расписанию — дописывается к системному промпту бота
 ├── phrases.json, roles.json, languages.json
 deploy/                      # Образ и выкат в colima
 ```
@@ -418,6 +421,8 @@ WHATSAPP_MACOS_SNAPSHOT_DIR=~/docker/personal_assistant/whatsapp  # необяз
 WHATSAPP_WEB_URL=http://host.docker.internal:18790  # необязательная; сервис WhatsApp Web на Mac mini — запасной путь для документов, удалённых с CDN
 WHATSAPP_WEB_TOKEN=                                 # ключ сервиса WhatsApp Web (Authorization: Bearer)
 TELEGRAM_USER_SECRETS_FILE=/path/to/telegram_user  # необязательная; файл session=/api_id=/api_hash= Telegram владельца; нет файла — нет инструментов Telegram
+SCHEDULER_AMQP_URL=amqp://schedule-sumarokov:пароль@localhost:5672/assistant  # запуски по расписанию; с SCHEDULER_QUEUE — обе или ни одной
+SCHEDULER_QUEUE=schedule.sumarokov              # очередь «пора» этого пользователя (exchange schedule-due сервиса assistant_scheduler)
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
@@ -660,6 +665,42 @@ UTF-8), необязательный `caption`; байты — либо тело
   хранятся. Размер печатает `human_size` (1024-основание, «1,2 МБ») через `AgentNotification.file_label` — одна
   функция и для владельца, и для инструмента `agent_notifications`: у файла строка «время · источник · файл <имя>
   (<размер>) — подпись»
+
+## Запуски по расписанию
+
+Расписания хранит и отсчитывает сервис `assistant_scheduler` (своя репа); когда срок подошёл, он публикует в
+RabbitMQ сообщение «пора» (exchange `schedule-due`, ключ — пользователь → очередь `schedule.<user>`, vhost
+`assistant`; топология — в репе сервиса). Логики расписаний в боте нет: только «получил — выполнил — отдал
+владельцу». Контекст `src/scheduled_runs/` не знает ни модели, ни Telegram, ни клиента кейсов (import-linter):
+их подставляет `workers/scheduled_run/composition.py` — так исполнитель уносится в отдельный воркер без правки.
+
+- Поток `scheduled-runs` (`start_scheduled_runs`), стартует внутри `with ai:` бота. Нет `SCHEDULER_AMQP_URL` и
+  `SCHEDULER_QUEUE` — не стартует, строка `…scheduled runs are off` в лог; задана одна из двух — бот падает на старте.
+  Очередь не объявляется. pika, prefetch 1, обрыв — лог и переподключение через 15 с. Сердцебиение AMQP выключено
+  (`heartbeat=0`): прогон модели идёт минуты внутри обработчика, а `BlockingConnection` там сердцебиение не шлёт
+- Контракт — таск цикла опроса сервиса: свойства `message_id` = id запуска, `user_id` = учётка брокера `scheduler`,
+  `type` = `schedule.due`; тело JSON v1 (`ScheduleDue`): `run_id`, `schedule_id`, `user`, `case_id`,
+  `task_event_id?`, `instruction`, `kind` (`once|periodic`), `cron?`, `timezone` (IANA), `scheduled_for`, `fired_at`
+  (с поясом), `late`. `user_id` не `scheduler`, другой `type`, нет `message_id` или он ≠ `run_id`, тело не по
+  схеме — лог и `basic_reject` без повтора
+- Журнал — `scheduled_runs` (миграция `0005`): `run_id` UNIQUE, `schedule_id`, `case_id`, `started_at`,
+  `finished_at`, `delivered_at`, `error` (тип ошибки прогона). Доставленный `run_id` пришёл снова — ack без прогона;
+  недоставленный (упали посреди) — прогоняется заново
+- Прогон — отдельный `AIApplication` (`build_scheduled_run_ai`), тред `schedule:<run_id>`, промпт —
+  системный промпт бота (с теми же разделами коннекторов) и `data/schedule_run_prompt.txt` после него, на каждый
+  прогон заново (дата). Запрос: id запуска, вид расписания, время срабатывания в поясе расписания (и опоздание),
+  инструкция владельца, кейс в виде `case_read` (последние 50 событий, рамка `UntrustedCaseFrame`). Кейс не
+  прочитался или нет `CASES_*` — прогон идёт без ленты, так и сказано в запросе. `tool_context` — чат владельца
+- Инструменты — все инструменты бота, кроме `colleague_send` и любых `schedule_*` (`scheduled_run_tools`, решение
+  владельца 01.10.2026): владельца в разговоре нет, подтвердить отправку коллеге некому, и расписание не плодит
+  расписаний. Промпт велит записать итог в ленту кейса: `case_add_event`, source `assistant`,
+  source_ref `run:<id>:result`
+- Владельцу — `app.message_sender`, `ParseMode.PLAIN`, длинное режет `TelegramTextSplitter`: «По расписанию ·
+  <название кейса>:» и с новой строки ответ; при `late` — «(с опозданием на N мин)» после названия (N — от
+  `scheduled_for` до `fired_at`). Сбой прогона — «Запуск по расписанию не выполнился: <тип ошибки>» и строка с
+  кейсом и инструкцией. ack — после отправки и `delivered_at`; упала отправка — сообщение вернётся, прогон повторится
+- Тест миграции (`tests/scheduled_runs/test_scheduled_runs_migration.py`) идёт на `TEST_DATABASE_URL` — отдельной
+  пустой базе; без переменной пропускается
 
 ## Почта ассистентов
 
