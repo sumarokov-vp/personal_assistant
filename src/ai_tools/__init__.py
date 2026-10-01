@@ -27,6 +27,9 @@ from src.ai_tools.memory_upsert_deadline import MemoryUpsertDeadlineTool
 from src.ai_tools.memory_upsert_trip import MemoryUpsertTripTool
 from src.ai_tools.read_task import ReadTaskTool
 from src.ai_tools.read_telegram import ReadTelegramTool
+from src.ai_tools.schedule_add import ScheduleAddTool
+from src.ai_tools.schedule_cancel import ScheduleCancelTool
+from src.ai_tools.schedule_list import ScheduleListTool
 from src.ai_tools.search_telegram import SearchTelegramTool
 from src.ai_tools.task_add import TaskAddTool
 from src.ai_tools.task_close import TaskCloseTool
@@ -64,6 +67,9 @@ __all__ = [
     "MemoryUpsertTripTool",
     "ReadTaskTool",
     "ReadTelegramTool",
+    "ScheduleAddTool",
+    "ScheduleCancelTool",
+    "ScheduleListTool",
     "SearchTelegramTool",
     "TaskAddTool",
     "TaskCloseTool",
