@@ -21,7 +21,8 @@ class DropboxReadInput(BaseModel):
 class DropboxReadTool(BaseTool):
     name: ClassVar[str] = "dropbox_read"
     description: ClassVar[str] = (
-        "Читает текст файла Dropbox. path — путь к файлу относительно корня Dropbox, "
+        "Читает текст файла Dropbox пользователя; только чтение. "
+        "path — путь к файлу относительно корня Dropbox, "
         "как его вернули dropbox_search или dropbox_tree. Читаются txt, md, csv, json, "
         "текстовый слой PDF, DOCX (абзацы, затем таблицы строками через таб) и XLSX "
         "(каждый лист — «## <имя листа>», строки через таб); .doc, .xls, картинки, "

@@ -33,13 +33,15 @@ class FindTasksInput(BaseModel):
 class FindTasksTool(BaseTool):
     name: ClassVar[str] = "find_tasks"
     description: ClassVar[str] = (
-        "Ищет активные задачи в задачнике владельца. Условия складываются через «и»: "
+        "Ищет активные задачи в задачнике пользователя; только чтение — задачу этот "
+        "инструмент не заводит, не меняет и не закрывает. Условия складываются через «и»: "
         "text — слова из текста задачи, due_before — дата выполнения раньше дня, "
         "overdue — только просроченные, by_assistant — только поставленные ассистентом; "
         "без условий — все активные задачи. limit — сколько задач вернуть максимум. "
         "Возвращает tasks (ref, title, description, due — дата выполнения, deadline, "
-        "recurring, by_assistant, labels, project, parent_ref, url) и count; "
-        "ref — адрес задачи для read_task и task_link."
+        "recurring, by_assistant, labels, project, parent_ref, url) и count. "
+        "ref — адрес задачи для read_task; url — ссылка на задачу, её можно дать "
+        "пользователю. Сбой задачника вернёт error."
     )
 
     Input: ClassVar[type[BaseModel]] = FindTasksInput

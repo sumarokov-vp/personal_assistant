@@ -22,11 +22,12 @@ class DropboxTreeInput(BaseModel):
 class DropboxTreeTool(BaseTool):
     name: ClassVar[str] = "dropbox_tree"
     description: ClassVar[str] = (
-        "Показывает дерево папок Dropbox владельца. "
+        "Показывает дерево папок Dropbox пользователя; только чтение. "
         "path — папка относительно корня Dropbox (пусто — корень), например 03_home/09_travel. "
         "depth — сколько уровней вложенных папок раскрыть (0–5, по умолчанию 2). "
         "include_files — перечислить имена файлов в раскрытых папках. "
         "У каждой папки есть file_count (файлы прямо в ней) и total_file_count (со вложенными). "
+        "Пути из ответа годятся как path для dropbox_tree и within для dropbox_search. "
         "Закрытые части Dropbox в дереве не видны; запрос к ним вернёт error."
     )
 
