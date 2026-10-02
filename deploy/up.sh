@@ -6,6 +6,9 @@
 set -euo pipefail
 
 export GNUPGHOME="$HOME/docker/personal_assistant/gnupg"
+# Новую запись в assistant/ шифруют публичные ключи всех получателей — они в связке оператора,
+# а не в связке ассистента (там только секретная половина ключа ассистента)
+OPERATOR_GNUPGHOME="$HOME/.config/gnupg"
 
 PASS_ROOT="assistant/personal_assistant"
 PA_DATA_DIR="$HOME/docker/personal_assistant"
@@ -16,6 +19,8 @@ ASSISTANT_DIRECTORY_FILE="$PA_DATA_DIR/directory.yaml"
 WIKI_DEPLOY_KEY_FILE="$SECRETS_DIR/wiki_deploy_key"
 TELEGRAM_SECRETS_DIR="$SECRETS_DIR/telegram"
 TELEGRAM_USER_SECRETS_FILE="$TELEGRAM_SECRETS_DIR/telegram_user"
+MCP_KEY_ENTRY="assistant/personal_assistant/mcp-key"
+MCP_JOURNAL_DIR="$PA_DATA_DIR/mcp"
 
 cd "$(dirname "$0")/.."
 
@@ -195,6 +200,19 @@ hosts/whatsapp_web/install.sh
 WHATSAPP_WEB_URL="http://host.docker.internal:18790"
 WHATSAPP_WEB_TOKEN="$(pass_first_line "$PASS_ROOT/whatsapp-web")"
 
+# Ядро MCP (сервис mcp в compose.yaml): статический ключ волны 0 — Authorization: Bearer <ключ>.
+# Нет записи mcp-key — заводится здесь (openssl rand, как hosts/whatsapp_web/install.sh); значение
+# идёт через pipe, ни в аргументы процессов, ни в вывод не попадает. Каталог журнала — на хосте,
+# переживает пересборку контейнера
+if ! pass_entry_exists "$MCP_KEY_ENTRY"; then
+    openssl rand -hex 32 | GNUPGHOME="$OPERATOR_GNUPGHOME" pass insert --multiline "$MCP_KEY_ENTRY" > /dev/null
+    echo "up.sh: pass $MCP_KEY_ENTRY создана"
+fi
+MCP_STATIC_KEY="$(pass_first_line "$MCP_KEY_ENTRY")"
+require_value "$MCP_KEY_ENTRY" "$MCP_STATIC_KEY"
+MCP_ALLOWED_PROJECTS="${MCP_ALLOWED_PROJECTS:-assistant}"
+mkdir -p "$MCP_JOURNAL_DIR"
+
 export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
     CLAUDE_CODE_EFFORT_LEVEL \
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
@@ -205,6 +223,7 @@ export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN 
     SCHEDULER_API_KEY SCHEDULER_AMQP_URL \
     ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE \
     WHATSAPP_WEB_URL WHATSAPP_WEB_TOKEN \
-    TELEGRAM_SECRETS_DIR
+    TELEGRAM_SECRETS_DIR \
+    MCP_STATIC_KEY MCP_ALLOWED_PROJECTS
 
 docker compose -f deploy/compose.yaml up -d --build

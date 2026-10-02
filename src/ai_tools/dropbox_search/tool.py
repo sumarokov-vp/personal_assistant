@@ -20,13 +20,15 @@ class DropboxSearchInput(BaseModel):
 class DropboxSearchTool(BaseTool):
     name: ClassVar[str] = "dropbox_search"
     description: ClassVar[str] = (
-        "Ищет файлы и папки Dropbox по имени и пути (не по содержимому). "
+        "Ищет файлы и папки Dropbox пользователя по имени и пути (не по содержимому); "
+        "только чтение. "
         "query — слова через пробел, все должны встретиться в пути без учёта регистра "
         "(например «itinerary cnx» или «паспорт»). Имена файлов часто латиницей — "
         "если по-русски не нашлось, попробуй английские слова. "
         "within — искать только внутри папки (путь от корня Dropbox), пусто — везде. "
         "limit — сколько совпадений вернуть. Возвращает hits (path, is_folder, size, "
-        "modified_at) и total — сколько совпало всего. Закрытые части Dropbox не ищутся."
+        "modified_at) и total — сколько совпало всего; path файла годится для "
+        "dropbox_read. Закрытые части Dropbox не ищутся, within в них вернёт error."
     )
 
     Input: ClassVar[type[BaseModel]] = DropboxSearchInput

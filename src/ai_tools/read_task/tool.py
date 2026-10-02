@@ -18,11 +18,12 @@ class ReadTaskInput(BaseModel):
 class ReadTaskTool(BaseTool):
     name: ClassVar[str] = "read_task"
     description: ClassVar[str] = (
-        "Читает задачу задачника владельца целиком. task_ref — ref из find_tasks. "
-        "Возвращает task (ref, title, description, due — дата выполнения, deadline, "
-        "recurring, by_assistant, labels, project, parent_ref, url), subtasks — "
-        "подзадачи в том же виде, comments (text, posted_at) — комментарии к задаче. "
-        "Кейсы живут не в задачнике, а в ленте кейса."
+        "Читает задачу задачника пользователя целиком; только чтение. "
+        "task_ref — ref задачи ровно так, как его вернул find_tasks (сам ref не "
+        "составляй). Возвращает task (ref, title, description, due — дата выполнения, "
+        "deadline, recurring, by_assistant, labels, project, parent_ref, url), "
+        "subtasks — подзадачи в том же виде, comments (text, posted_at) — комментарии "
+        "к задаче. Неизвестный ref или сбой задачника вернёт error."
     )
 
     Input: ClassVar[type[BaseModel]] = ReadTaskInput

@@ -60,6 +60,7 @@
 #    SCHEDULER_AMQP_URL — pass scheduler-amqp, учётка schedule-sumarokov: только чтение очереди
 #    schedule.sumarokov в vhost assistant (поток scheduled-runs). Все четыре обязательны: без
 #    расписаний бот на проде не выкатывается.
+#  * Ядро MCP — сервис mcp ниже (см. комментарий у него), из того же образа.
 name: personal_assistant
 
 services:
@@ -119,6 +120,40 @@ services:
       - ${TELEGRAM_SECRETS_DIR:?}:/run/secrets/telegram:ro
       - ${ASSISTANT_DIRECTORY_FILE:?}:/run/config/directory.yaml:ro
       # Пустые заглушки поверх закрытых папок; docker монтирует родителя раньше вложенных
+      - ${PA_DATA_DIR:?}/empty:/dropbox/Vault:ro
+      - ${PA_DATA_DIR:?}/empty:/dropbox/03_home/07_ecp/egov.kz:ro
+
+  # Ядро MCP (workers.mcp): тот же образ, свой composition root, Streamable HTTP на /mcp.
+  # Порт — только на 127.0.0.1 Mac mini (colima пробрасывает его на localhost хоста); наружу —
+  # туннелем волны 1. Доступ — Authorization: Bearer <MCP_STATIC_KEY> (pass mcp-key, up.sh).
+  # Dropbox — тот же том, что у bot, но только на чтение, с теми же оверлеями закрытых папок.
+  # При :ro docker не создаёт точку монтирования оверлея: папка обязана быть в ~/Dropbox, иначе
+  # контейнер не стартует (отказ в закрытую сторону, а не открытая папка).
+  # Журнал запросов — JSON-строка на запрос в томе ~/docker/personal_assistant/mcp.
+  # MCP_ALLOWED_PROJECTS — проекты, которые модель может передать параметром project
+  # (X-Project от клиента не сверяется); пусто — любой project параметром отклоняется.
+  mcp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: personal_assistant-bot:latest
+    container_name: personal_assistant_mcp
+    restart: unless-stopped
+    command: ["python", "-m", "workers.mcp"]
+    environment:
+      TODOIST_TOKEN: ${TODOIST_TOKEN:?}
+      DROPBOX_ROOT: /dropbox
+      MCP_STATIC_KEY: ${MCP_STATIC_KEY:?}
+      MCP_JOURNAL_FILE: /mcp/requests.jsonl
+      MCP_ALLOWED_PROJECTS: ${MCP_ALLOWED_PROJECTS:-assistant}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8790"
+      LOG_LEVEL: INFO
+    ports:
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - ${PA_DATA_DIR:?}/mcp:/mcp
+      - ${DROPBOX_DIR:?}:/dropbox:ro
       - ${PA_DATA_DIR:?}/empty:/dropbox/Vault:ro
       - ${PA_DATA_DIR:?}/empty:/dropbox/03_home/07_ecp/egov.kz:ro
 

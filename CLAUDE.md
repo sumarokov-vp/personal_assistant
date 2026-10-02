@@ -28,6 +28,7 @@ workers/bot/
 ├── telegram_tools_factory.py # коннектор Telegram владельца по TELEGRAM_USER_SECRETS_FILE + search_telegram, read_telegram, list_telegram_chats
 ├── protocols/               # IWhatsAppSource, ITelegramSource — что бот берёт от коннекторов переписки (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
+workers/mcp/                 # Ядро MCP (python -m workers.mcp): FastMCP, Streamable HTTP, свои фабрики — см. «Ядро MCP»
 workers/colleague_digest/    # Сводка почты коллег: build_colleague_digest (её же зовёт бот) и ручной запуск
 workers/scheduled_run/       # Исполнитель расписаний: сборка потока scheduled-runs, свой AIApplication, набор инструментов прогона
 src/
@@ -98,6 +99,75 @@ deploy/                      # Образ и выкат в colima
 - Зависимость — `ai-bot-framework[claude-sdk,s3]` тега `v0.9.5` (v0.9.2 не брать). С v0.9.5 `Attachment` в результате
   инструмента (`execute` возвращает `list[str | Attachment]`) уходит модели image-контентом MCP — на этом стоит `file_view`
 - Все хендлеры — только роль `admin` (второй слой после фильтра владельца, см. «Безопасность»)
+
+## Ядро MCP
+
+Второй composition root над тем же `src/`: инструменты из `src/ai_tools` по сети как удалённый MCP-сервер для
+агентских приложений (Claude, ChatGPT). Модели и диалога в ядре нет. Бот не затронут: `workers.mcp` не
+импортирует `workers.bot` и наоборот (контракт independence в import-linter), фабрики у ядра свои.
+
+- Запуск: `uv run python -m workers.mcp`. FastMCP 4.x, транспорт Streamable HTTP, путь `/mcp`,
+  адрес `MCP_HOST:MCP_PORT` (умолчание `127.0.0.1:8790`; в контейнере — `0.0.0.0`)
+- Набор — ровно пять: `find_tasks`, `read_task` (порт задачника, реализация `TodoistTaskReader`),
+  `dropbox_tree`, `dropbox_search`, `dropbox_read` (через `DropboxBoundary`) — `core_tools_factory.py`
+- `BaseToolAdapter` (`base_tool_adapter.py`) — FastMCP `Tool` над `BaseTool`: имя, description и input_schema
+  из `BaseTool` (`parameters` можно подменить), `Input(**args)`, `execute` с пустым `ToolContext` в потоке.
+  Результат — как `_to_mcp_content` ai_framework (`tool_output_content.py`). Ошибка `execute` и неверные
+  аргументы — результат с `isError` и текстом, а не протокольная ошибка: модель видит, что поправить
+- Доступ волны 0 — статический ключ: `Authorization: Bearer <MCP_STATIC_KEY>`, сверка `hmac.compare_digest`
+  (`StaticKeyVerifier` — `TokenVerifier` FastMCP); без ключа или с чужим — 401
+- Сборка — `build_core_server(tools, auth, middleware=())` и `build_core_app(server)`
+  (`core_server_factory.py`): middleware FastMCP передаются списком; набор ядра —
+  `build_core_middleware(journal, allowed_projects)`: снаружи журнал, внутри проект (порядок важен — журнал
+  видит отказ проекта)
+- Проект (`project/`): заголовок `X-Project` сильнее всего и не сверяется (его шлёт настроенный нами клиент);
+  иначе параметр `project`, который `with_project_parameter` добавляет в input_schema каждого инструмента, а
+  адаптер снимает перед `Input(**args)`. `project` вне `MCP_ALLOWED_PROJECTS` — `ProjectGate` отвечает
+  `isError` «Проект не разрешён», инструмент не зовётся. Нет ни того, ни другого — вызов идёт, проект пуст.
+  Итог (`ProjectResolution`: project, source header|param|none, allowed) лежит в request-state FastMCP
+  под `PROJECT_RESOLUTION_STATE_KEY` — оттуда его берёт журнал. До инструментов проект пока не доходит
+- Журнал (`journal/`): `RequestJournal` (`on_message`) пишет JSON-строку на каждый входящий запрос, включая
+  notifications и запросы, упавшие исключением (try/finally). Поля: `time` (UTC), `method`, `client`
+  (clientInfo: из initialize, дальше — из `client_params` сессии), `headers`, `meta` (wire `_meta` запроса),
+  `tool`, `project`, `project_source` (null вне tools/call), `outcome` ok|error|denied. Заголовки с `auth`,
+  `cookie`, `token`, `secret`, `api-key`, `apikey`, `password` в имени — значением `***`. Запись —
+  `JsonLinesFile`: append с закрытием файла на каждую строку, без ротации
+- Env: `TODOIST_TOKEN`, `DROPBOX_ROOT`, `MCP_STATIC_KEY`, `MCP_JOURNAL_FILE` (путь к файлу журнала, каталог
+  создаётся при старте) обязательны — без любого ядро не стартует; `MCP_ALLOWED_PROJECTS` (через запятую,
+  пусто — любой `project` параметром отклоняется), `MCP_HOST`, `MCP_PORT`, `LOG_LEVEL` необязательны
+- Тест — `tests/mcp/`: ядро на подменах, клиент mcp SDK по Streamable HTTP (`running_core`); журнал и
+  проект — `test_request_journal.py`
+- Прод (Mac mini): сервис `mcp` в `deploy/compose.yaml`, контейнер `personal_assistant_mcp` из того же образа
+  `personal_assistant-bot:latest`, `command: python -m workers.mcp`, выкат вместе с ботом через `deploy/up.sh`.
+  Порт — только `127.0.0.1:8790` хоста (`MCP_HOST=0.0.0.0` внутри контейнера). Dropbox — тот же `~/Dropbox`, но
+  `/dropbox:ro`, с теми же оверлеями закрытых папок (при `:ro` docker не создаёт точку монтирования — папка оверлея
+  обязана существовать в `~/Dropbox`, иначе контейнер не стартует). Журнал — том `~/docker/personal_assistant/mcp` → `/mcp`,
+  `MCP_JOURNAL_FILE=/mcp/requests.jsonl`. `MCP_ALLOWED_PROJECTS` — env compose (умолчание `assistant`).
+  Ключ — pass `assistant/personal_assistant/mcp-key` (первая строка); нет записи — `up.sh` заводит её сам
+  (`openssl rand -hex 32`). Проверка: `docker ps --filter name=personal_assistant_mcp`,
+  `docker logs --tail 20 personal_assistant_mcp` (строки `MCP tools:` и `MCP journal:`),
+  `tail ~/docker/personal_assistant/mcp/requests.jsonl`
+- Подключение Claude Code — `.mcp.json` в папке проекта. Ключ не пишется в файл: его печатает `headersHelper`
+  (shell-команда, stdout — JSON-объект заголовков, перекрывает одноимённые `headers`; запускается на каждое
+  подключение, таймаут 10 с, у проектного `.mcp.json` — только после принятия доверия папке). `X-Project` —
+  статическим заголовком:
+
+  ```json
+  {
+    "mcpServers": {
+      "assistant-core": {
+        "type": "http",
+        "url": "http://127.0.0.1:8790/mcp",
+        "headers": {"X-Project": "assistant"},
+        "headersHelper": "printf '{\"Authorization\": \"Bearer %s\"}' \"$(GNUPGHOME=$HOME/docker/personal_assistant/gnupg pass show assistant/personal_assistant/mcp-key | head -n 1)\""
+      }
+    }
+  }
+  ```
+
+  `GNUPGHOME` — связка ассистента (без пина, работает и из `claude -p`). Сервер из проектного `.mcp.json` Claude
+  Code включает после одобрения (`enabledMcpjsonServers` в `.claude/settings.local.json`), инструменты —
+  `mcp__assistant-core__*`
 
 ## Инструменты (tools)
 
@@ -430,6 +500,11 @@ SCHEDULER_API_URL=http://localhost:8000         # SCHEDULER_API_* — обе и�
 SCHEDULER_API_KEY=ключ                          # X-API-Key сервиса расписаний; ключ определяет пользователя
 SCHEDULER_AMQP_URL=amqp://schedule-sumarokov:пароль@localhost:5672/assistant  # запуски по расписанию; с SCHEDULER_QUEUE — обе или ни одной
 SCHEDULER_QUEUE=schedule.sumarokov              # очередь «пора» этого пользователя (exchange schedule-due сервиса assistant_scheduler)
+MCP_STATIC_KEY=ключ                             # ядро MCP: Authorization: Bearer <ключ>; с TODOIST_TOKEN и DROPBOX_ROOT обязательна для workers.mcp
+MCP_HOST=127.0.0.1                              # необязательная (дефолт 127.0.0.1); адрес ядра MCP
+MCP_JOURNAL_FILE=/path/to/requests.jsonl        # ядро MCP: журнал запросов (JSON-строка на запрос); обязательна для workers.mcp
+MCP_ALLOWED_PROJECTS=assistant                  # необязательная; проекты, разрешённые параметром project (через запятую); пусто — любой отклоняется
+MCP_PORT=8790                                   # необязательная (дефолт 8790); порт ядра MCP
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
@@ -801,6 +876,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 - Python 3.13+
 - bot-framework[all]==0.8.2 — фреймворк для Telegram-ботов
 - ai-bot-framework[claude-sdk,s3] (git-тег v0.9.5) — AIApplication, память, ClaudeSdkProvider, вложения в S3, картинки в результате инструмента
+- fastmcp 4.x — ядро MCP (Streamable HTTP поверх mcp 2.x)
 - pika — потребитель уведомлений агентов и почта ассистентов (RabbitMQ)
 - PyYAML — справочник коллег
 - pypdf, python-docx, openpyxl — текст PDF/DOCX/XLSX; pypdfium2 — скан-PDF в PNG; Pillow — ужать картинку под 5 МБ
@@ -810,15 +886,18 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 
 - Установка зависимостей: `uv sync`
 - Запуск бота: `uv run python -m workers.bot`
+- Запуск ядра MCP: `uv run python -m workers.mcp`
 - Проверки: `uv run ruff check .`, `uv run mypy src workers tests scripts`, `uv run lint-imports`, `uv run pytest`
 
 ## Deploy
 
+- Рядом с ботом из того же образа — ядро MCP, контейнер `personal_assistant_mcp` (см. «Ядро MCP»), `up.sh`
+  выкатывает оба
 - Бот работает контейнером в colima на Mac mini (linux/arm64). В образе CLI Claude Code из колеса
   `claude-agent-sdk` со встроенными инструментами, выключенными managed settings (см. выше); git и openssh-client —
   для вики, ключи хоста github.com — из `deploy/ssh/known_hosts` (системный known_hosts); typst и jq нет.
   Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
-- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,scheduler-api-key,scheduler-amqp,whatsapp-web,telegram-user,telegram-app}`,
+- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,scheduler-api-key,scheduler-amqp,whatsapp-web,telegram-user,telegram-app,mcp-key}`,
   `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента), собирает из `db` переменную
   `AI_DB_URL` (`options=-csearch_path%3Dai`), разбирает `spaces-attachments` (первая строка — secret key → `ATTACHMENTS_S3_SECRET_KEY`,
   строки `access_key=`, `bucket=`, `region=`, `endpoint=` → остальные `ATTACHMENTS_S3_*`), из `gmail-oauth-client`
@@ -874,7 +953,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
   не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x SCHEDULER_API_KEY=x SCHEDULER_AMQP_URL=x TELEGRAM_SECRETS_DIR=x docker compose -f deploy/compose.yaml build`.
+  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x SCHEDULER_API_KEY=x SCHEDULER_AMQP_URL=x TELEGRAM_SECRETS_DIR=x MCP_STATIC_KEY=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
