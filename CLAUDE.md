@@ -117,10 +117,26 @@ deploy/                      # Образ и выкат в colima
 - Доступ волны 0 — статический ключ: `Authorization: Bearer <MCP_STATIC_KEY>`, сверка `hmac.compare_digest`
   (`StaticKeyVerifier` — `TokenVerifier` FastMCP); без ключа или с чужим — 401
 - Сборка — `build_core_server(tools, auth, middleware=())` и `build_core_app(server)`
-  (`core_server_factory.py`): middleware FastMCP (журнал, проект) передаются списком
-- Env: `TODOIST_TOKEN`, `DROPBOX_ROOT`, `MCP_STATIC_KEY` обязательны — без любого ядро не стартует;
-  `MCP_HOST`, `MCP_PORT`, `LOG_LEVEL` необязательны
-- Тест — `tests/mcp/`: ядро на подменах, клиент mcp SDK по Streamable HTTP
+  (`core_server_factory.py`): middleware FastMCP передаются списком; набор ядра —
+  `build_core_middleware(journal, allowed_projects)`: снаружи журнал, внутри проект (порядок важен — журнал
+  видит отказ проекта)
+- Проект (`project/`): заголовок `X-Project` сильнее всего и не сверяется (его шлёт настроенный нами клиент);
+  иначе параметр `project`, который `with_project_parameter` добавляет в input_schema каждого инструмента, а
+  адаптер снимает перед `Input(**args)`. `project` вне `MCP_ALLOWED_PROJECTS` — `ProjectGate` отвечает
+  `isError` «Проект не разрешён», инструмент не зовётся. Нет ни того, ни другого — вызов идёт, проект пуст.
+  Итог (`ProjectResolution`: project, source header|param|none, allowed) лежит в request-state FastMCP
+  под `PROJECT_RESOLUTION_STATE_KEY` — оттуда его берёт журнал. До инструментов проект пока не доходит
+- Журнал (`journal/`): `RequestJournal` (`on_message`) пишет JSON-строку на каждый входящий запрос, включая
+  notifications и запросы, упавшие исключением (try/finally). Поля: `time` (UTC), `method`, `client`
+  (clientInfo: из initialize, дальше — из `client_params` сессии), `headers`, `meta` (wire `_meta` запроса),
+  `tool`, `project`, `project_source` (null вне tools/call), `outcome` ok|error|denied. Заголовки с `auth`,
+  `cookie`, `token`, `secret`, `api-key`, `apikey`, `password` в имени — значением `***`. Запись —
+  `JsonLinesFile`: append с закрытием файла на каждую строку, без ротации
+- Env: `TODOIST_TOKEN`, `DROPBOX_ROOT`, `MCP_STATIC_KEY`, `MCP_JOURNAL_FILE` (путь к файлу журнала, каталог
+  создаётся при старте) обязательны — без любого ядро не стартует; `MCP_ALLOWED_PROJECTS` (через запятую,
+  пусто — любой `project` параметром отклоняется), `MCP_HOST`, `MCP_PORT`, `LOG_LEVEL` необязательны
+- Тест — `tests/mcp/`: ядро на подменах, клиент mcp SDK по Streamable HTTP (`running_core`); журнал и
+  проект — `test_request_journal.py`
 
 ## Инструменты (tools)
 
