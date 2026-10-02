@@ -137,6 +137,37 @@ deploy/                      # Образ и выкат в colima
   пусто — любой `project` параметром отклоняется), `MCP_HOST`, `MCP_PORT`, `LOG_LEVEL` необязательны
 - Тест — `tests/mcp/`: ядро на подменах, клиент mcp SDK по Streamable HTTP (`running_core`); журнал и
   проект — `test_request_journal.py`
+- Прод (Mac mini): сервис `mcp` в `deploy/compose.yaml`, контейнер `personal_assistant_mcp` из того же образа
+  `personal_assistant-bot:latest`, `command: python -m workers.mcp`, выкат вместе с ботом через `deploy/up.sh`.
+  Порт — только `127.0.0.1:8790` хоста (`MCP_HOST=0.0.0.0` внутри контейнера). Dropbox — тот же `~/Dropbox`, но
+  `/dropbox:ro`, с теми же оверлеями закрытых папок (при `:ro` docker не создаёт точку монтирования — папка оверлея
+  обязана существовать в `~/Dropbox`, иначе контейнер не стартует). Журнал — том `~/docker/personal_assistant/mcp` → `/mcp`,
+  `MCP_JOURNAL_FILE=/mcp/requests.jsonl`. `MCP_ALLOWED_PROJECTS` — env compose (умолчание `assistant`).
+  Ключ — pass `assistant/personal_assistant/mcp-key` (первая строка); нет записи — `up.sh` заводит её сам
+  (`openssl rand -hex 32`). Проверка: `docker ps --filter name=personal_assistant_mcp`,
+  `docker logs --tail 20 personal_assistant_mcp` (строки `MCP tools:` и `MCP journal:`),
+  `tail ~/docker/personal_assistant/mcp/requests.jsonl`
+- Подключение Claude Code — `.mcp.json` в папке проекта. Ключ не пишется в файл: его печатает `headersHelper`
+  (shell-команда, stdout — JSON-объект заголовков, перекрывает одноимённые `headers`; запускается на каждое
+  подключение, таймаут 10 с, у проектного `.mcp.json` — только после принятия доверия папке). `X-Project` —
+  статическим заголовком:
+
+  ```json
+  {
+    "mcpServers": {
+      "assistant-core": {
+        "type": "http",
+        "url": "http://127.0.0.1:8790/mcp",
+        "headers": {"X-Project": "assistant"},
+        "headersHelper": "printf '{\"Authorization\": \"Bearer %s\"}' \"$(GNUPGHOME=$HOME/docker/personal_assistant/gnupg pass show assistant/personal_assistant/mcp-key | head -n 1)\""
+      }
+    }
+  }
+  ```
+
+  `GNUPGHOME` — связка ассистента (без пина, работает и из `claude -p`). Сервер из проектного `.mcp.json` Claude
+  Code включает после одобрения (`enabledMcpjsonServers` в `.claude/settings.local.json`), инструменты —
+  `mcp__assistant-core__*`
 
 ## Инструменты (tools)
 
@@ -471,6 +502,8 @@ SCHEDULER_AMQP_URL=amqp://schedule-sumarokov:пароль@localhost:5672/assista
 SCHEDULER_QUEUE=schedule.sumarokov              # очередь «пора» этого пользователя (exchange schedule-due сервиса assistant_scheduler)
 MCP_STATIC_KEY=ключ                             # ядро MCP: Authorization: Bearer <ключ>; с TODOIST_TOKEN и DROPBOX_ROOT обязательна для workers.mcp
 MCP_HOST=127.0.0.1                              # необязательная (дефолт 127.0.0.1); адрес ядра MCP
+MCP_JOURNAL_FILE=/path/to/requests.jsonl        # ядро MCP: журнал запросов (JSON-строка на запрос); обязательна для workers.mcp
+MCP_ALLOWED_PROJECTS=assistant                  # необязательная; проекты, разрешённые параметром project (через запятую); пусто — любой отклоняется
 MCP_PORT=8790                                   # необязательная (дефолт 8790); порт ядра MCP
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
@@ -858,11 +891,13 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 
 ## Deploy
 
+- Рядом с ботом из того же образа — ядро MCP, контейнер `personal_assistant_mcp` (см. «Ядро MCP»), `up.sh`
+  выкатывает оба
 - Бот работает контейнером в colima на Mac mini (linux/arm64). В образе CLI Claude Code из колеса
   `claude-agent-sdk` со встроенными инструментами, выключенными managed settings (см. выше); git и openssh-client —
   для вики, ключи хоста github.com — из `deploy/ssh/known_hosts` (системный known_hosts); typst и jq нет.
   Деплой — `deploy/up.sh` (скилл `/deploy`), локально, без SSH
-- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,scheduler-api-key,scheduler-amqp,whatsapp-web,telegram-user,telegram-app}`,
+- `up.sh` берёт секреты из pass (`assistant/personal_assistant/{bot-token,owner-telegram-id,db,claude-oauth-token,voice-recognition-key,obsidian-wiki-deploy-key,spaces-attachments,todoist-token,gmail-oauth-client,gmail-refresh-token,rabbitmq,cases-api-key,scheduler-api-key,scheduler-amqp,whatsapp-web,telegram-user,telegram-app,mcp-key}`,
   `GNUPGHOME=~/docker/personal_assistant/gnupg` — свой GPG-ключ ассистента), собирает из `db` переменную
   `AI_DB_URL` (`options=-csearch_path%3Dai`), разбирает `spaces-attachments` (первая строка — secret key → `ATTACHMENTS_S3_SECRET_KEY`,
   строки `access_key=`, `bucket=`, `region=`, `endpoint=` → остальные `ATTACHMENTS_S3_*`), из `gmail-oauth-client`
@@ -918,7 +953,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   и пропадают с ним. Рабочая папка файлов — `/tmp/personal_assistant/files` контейнера, без тома (`PA_WORK_DIR` в compose
   не задаётся — дефолт кода); проверить: `docker exec personal_assistant_bot ls -la /tmp/personal_assistant/files`
 - `docker compose build` без `up.sh` требует заглушки секретов, compose интерполирует `${VAR:?}` и при сборке:
-  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x SCHEDULER_API_KEY=x SCHEDULER_AMQP_URL=x TELEGRAM_SECRETS_DIR=x docker compose -f deploy/compose.yaml build`.
+  `OWNER_TELEGRAM_ID=x TODOIST_TOKEN=x GMAIL_CLIENT_ID=x GMAIL_CLIENT_SECRET=x GMAIL_REFRESH_TOKEN=x BOT_TOKEN=x BOT_DB_URL=x AI_DB_URL=x CLAUDE_CODE_OAUTH_TOKEN=x VOICE_RECOGNITION_API_KEY=x PA_DATA_DIR=x WIKI_DEPLOY_KEY_FILE=x ATTACHMENTS_S3_ENDPOINT=x ATTACHMENTS_S3_BUCKET=x ATTACHMENTS_S3_REGION=x ATTACHMENTS_S3_ACCESS_KEY=x ATTACHMENTS_S3_SECRET_KEY=x DROPBOX_DIR=x RABBITMQ_URL=x ASSISTANT_MAIL_URL=x ASSISTANT_KEY=x ASSISTANT_DIRECTORY_FILE=x CASES_API_KEY=x SCHEDULER_API_KEY=x SCHEDULER_AMQP_URL=x TELEGRAM_SECRETS_DIR=x MCP_STATIC_KEY=x docker compose -f deploy/compose.yaml build`.
   Эта команда перетегирует `personal_assistant-bot:latest`; проверить сборку, не задевая прод, — `docker build -f deploy/Dockerfile -t <свой тег> .`
 - Одна копия бота на Telegram-токен: нативный запуск и контейнер одновременно не держать
 - Redis база: 4
