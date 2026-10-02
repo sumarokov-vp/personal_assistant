@@ -28,6 +28,7 @@ workers/bot/
 ├── telegram_tools_factory.py # коннектор Telegram владельца по TELEGRAM_USER_SECRETS_FILE + search_telegram, read_telegram, list_telegram_chats
 ├── protocols/               # IWhatsAppSource, ITelegramSource — что бот берёт от коннекторов переписки (протоколы src.conversations)
 └── file_tools_factory.py    # file_take (источники регистрацией), file_read, file_view, file_send поверх WorkFolder
+workers/mcp/                 # Ядро MCP (python -m workers.mcp): FastMCP, Streamable HTTP, свои фабрики — см. «Ядро MCP»
 workers/colleague_digest/    # Сводка почты коллег: build_colleague_digest (её же зовёт бот) и ручной запуск
 workers/scheduled_run/       # Исполнитель расписаний: сборка потока scheduled-runs, свой AIApplication, набор инструментов прогона
 src/
@@ -98,6 +99,28 @@ deploy/                      # Образ и выкат в colima
 - Зависимость — `ai-bot-framework[claude-sdk,s3]` тега `v0.9.5` (v0.9.2 не брать). С v0.9.5 `Attachment` в результате
   инструмента (`execute` возвращает `list[str | Attachment]`) уходит модели image-контентом MCP — на этом стоит `file_view`
 - Все хендлеры — только роль `admin` (второй слой после фильтра владельца, см. «Безопасность»)
+
+## Ядро MCP
+
+Второй composition root над тем же `src/`: инструменты из `src/ai_tools` по сети как удалённый MCP-сервер для
+агентских приложений (Claude, ChatGPT). Модели и диалога в ядре нет. Бот не затронут: `workers.mcp` не
+импортирует `workers.bot` и наоборот (контракт independence в import-linter), фабрики у ядра свои.
+
+- Запуск: `uv run python -m workers.mcp`. FastMCP 4.x, транспорт Streamable HTTP, путь `/mcp`,
+  адрес `MCP_HOST:MCP_PORT` (умолчание `127.0.0.1:8790`; в контейнере — `0.0.0.0`)
+- Набор — ровно пять: `find_tasks`, `read_task` (порт задачника, реализация `TodoistTaskReader`),
+  `dropbox_tree`, `dropbox_search`, `dropbox_read` (через `DropboxBoundary`) — `core_tools_factory.py`
+- `BaseToolAdapter` (`base_tool_adapter.py`) — FastMCP `Tool` над `BaseTool`: имя, description и input_schema
+  из `BaseTool` (`parameters` можно подменить), `Input(**args)`, `execute` с пустым `ToolContext` в потоке.
+  Результат — как `_to_mcp_content` ai_framework (`tool_output_content.py`). Ошибка `execute` и неверные
+  аргументы — результат с `isError` и текстом, а не протокольная ошибка: модель видит, что поправить
+- Доступ волны 0 — статический ключ: `Authorization: Bearer <MCP_STATIC_KEY>`, сверка `hmac.compare_digest`
+  (`StaticKeyVerifier` — `TokenVerifier` FastMCP); без ключа или с чужим — 401
+- Сборка — `build_core_server(tools, auth, middleware=())` и `build_core_app(server)`
+  (`core_server_factory.py`): middleware FastMCP (журнал, проект) передаются списком
+- Env: `TODOIST_TOKEN`, `DROPBOX_ROOT`, `MCP_STATIC_KEY` обязательны — без любого ядро не стартует;
+  `MCP_HOST`, `MCP_PORT`, `LOG_LEVEL` необязательны
+- Тест — `tests/mcp/`: ядро на подменах, клиент mcp SDK по Streamable HTTP
 
 ## Инструменты (tools)
 
@@ -430,6 +453,9 @@ SCHEDULER_API_URL=http://localhost:8000         # SCHEDULER_API_* — обе и�
 SCHEDULER_API_KEY=ключ                          # X-API-Key сервиса расписаний; ключ определяет пользователя
 SCHEDULER_AMQP_URL=amqp://schedule-sumarokov:пароль@localhost:5672/assistant  # запуски по расписанию; с SCHEDULER_QUEUE — обе или ни одной
 SCHEDULER_QUEUE=schedule.sumarokov              # очередь «пора» этого пользователя (exchange schedule-due сервиса assistant_scheduler)
+MCP_STATIC_KEY=ключ                             # ядро MCP: Authorization: Bearer <ключ>; с TODOIST_TOKEN и DROPBOX_ROOT обязательна для workers.mcp
+MCP_HOST=127.0.0.1                              # необязательная (дефолт 127.0.0.1); адрес ядра MCP
+MCP_PORT=8790                                   # необязательная (дефолт 8790); порт ядра MCP
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
 ```
 
@@ -801,6 +827,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 - Python 3.13+
 - bot-framework[all]==0.8.2 — фреймворк для Telegram-ботов
 - ai-bot-framework[claude-sdk,s3] (git-тег v0.9.5) — AIApplication, память, ClaudeSdkProvider, вложения в S3, картинки в результате инструмента
+- fastmcp 4.x — ядро MCP (Streamable HTTP поверх mcp 2.x)
 - pika — потребитель уведомлений агентов и почта ассистентов (RabbitMQ)
 - PyYAML — справочник коллег
 - pypdf, python-docx, openpyxl — текст PDF/DOCX/XLSX; pypdfium2 — скан-PDF в PNG; Pillow — ужать картинку под 5 МБ
@@ -810,6 +837,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 
 - Установка зависимостей: `uv sync`
 - Запуск бота: `uv run python -m workers.bot`
+- Запуск ядра MCP: `uv run python -m workers.mcp`
 - Проверки: `uv run ruff check .`, `uv run mypy src workers tests scripts`, `uv run lint-imports`, `uv run pytest`
 
 ## Deploy
