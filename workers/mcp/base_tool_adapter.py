@@ -6,6 +6,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.tools import Tool, ToolResult
 from pydantic import BaseModel, PrivateAttr, ValidationError
 
+from workers.mcp.project.project_parameter import without_project_argument
 from workers.mcp.tool_output_content import to_content_blocks
 
 
@@ -32,6 +33,6 @@ class BaseToolAdapter(Tool):
 
     def _input(self, arguments: dict[str, Any]) -> BaseModel:
         try:
-            return self._base_tool.Input(**arguments)
+            return self._base_tool.Input(**without_project_argument(arguments))
         except ValidationError as error:
             raise ToolError(f"Tool {self.name} failed: {error}") from error

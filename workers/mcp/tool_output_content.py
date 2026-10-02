@@ -7,7 +7,9 @@ from mcp_types import ContentBlock, ImageContent, TextContent
 def to_content_blocks(output: object) -> list[ContentBlock]:
     if isinstance(output, Attachment):
         return [_image(output)]
-    if isinstance(output, list) and any(isinstance(item, Attachment) for item in output):
+    if isinstance(output, list) and any(
+        isinstance(item, Attachment) for item in output
+    ):
         return [_part(item) for item in output]
     text = (
         output

@@ -6,9 +6,14 @@ import uvicorn
 from dotenv import load_dotenv
 
 from src.todoist.repos import TodoistHttpClient
-from workers.mcp.core_server_factory import build_core_app, build_core_server
+from workers.mcp.core_server_factory import (
+    build_core_app,
+    build_core_middleware,
+    build_core_server,
+)
 from workers.mcp.core_settings import CoreSettings
 from workers.mcp.core_tools_factory import build_core_tools
+from workers.mcp.journal.json_lines_file import JsonLinesFile
 from workers.mcp.static_key_verifier import StaticKeyVerifier
 
 TOKEN_LEAKING_LOGGERS = ("httpx", "httpcore", "urllib3", "requests")
@@ -28,7 +33,15 @@ def main(settings: CoreSettings) -> None:
         dropbox_root=settings.dropbox_root,
     )
     logger.info("MCP tools: %s", ", ".join(tool.name for tool in tools))
-    server = build_core_server(tools, auth=StaticKeyVerifier(settings.static_key))
+    settings.journal_file.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("MCP journal: %s", settings.journal_file)
+    server = build_core_server(
+        tools,
+        auth=StaticKeyVerifier(settings.static_key),
+        middleware=build_core_middleware(
+            JsonLinesFile(settings.journal_file), settings.allowed_projects
+        ),
+    )
     uvicorn.run(
         build_core_app(server),
         host=settings.host,
