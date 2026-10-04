@@ -8,6 +8,7 @@ dependencies = [
     "ai-bot-framework[claude-sdk,s3]",
     "bot-framework[all]==0.8.2",
     "cryptography>=50.0.1",
+    "dkimpy>=1.1.8",
     "fastmcp>=4,<5",
     "httpx>=0.28.1",
     "openpyxl>=3.1.5",
@@ -220,6 +221,14 @@ name = "scheduled runs know neither the model nor Telegram"
 type = "forbidden"
 source_modules = ["src.scheduled_runs"]
 forbidden_modules = ["ai_framework", "bot_framework", "src.cases", "src.scheduler"]
+
+# Приёмщик знаний — фоновая обработка почты без Telegram и без своей модели: модель ему
+# подставляет composition root (workers/knowledge_intake) через Protocol, соседей он не знает
+[[tool.importlinter.contracts]]
+name = "knowledge intake knows neither Telegram, the model nor neighbours"
+type = "forbidden"
+source_modules = ["src.knowledge_intake"]
+forbidden_modules = ["ai_framework", "bot_framework", "src.access", "src.agent_notifications", "src.ai_tools", "src.app_migrations", "src.cases", "src.chat", "src.checkup", "src.colleague_mail", "src.conversations", "src.dropbox", "src.files", "src.flows", "src.gmail", "src.memory", "src.scheduled_runs", "src.scheduler", "src.task_manager", "src.task_mirror", "src.telegram_user", "src.todoist", "src.voice_recognition", "src.whatsapp", "src.wiki"]
 
 [tool.uv.sources]
 ai-bot-framework = { git = "https://github.com/sumarokov-vp/ai_bot_framework.git", rev = "v0.9.5" }
