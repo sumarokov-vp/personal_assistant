@@ -2,17 +2,17 @@ from pathlib import Path
 
 import anyio
 from fastmcp import Client
+from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
 from tests.mcp.fake_todoist_read_client import FakeTodoistReadClient
 from workers.mcp.core_server_factory import build_core_server
 from workers.mcp.core_tools_factory import build_core_tools
-from workers.mcp.static_key_verifier import StaticKeyVerifier
 
 
 async def call_with_wrong_arguments(dropbox_root: Path) -> tuple[bool, str]:
     server = build_core_server(
         build_core_tools(FakeTodoistReadClient([]), dropbox_root),
-        auth=StaticKeyVerifier("key"),
+        auth=StaticTokenVerifier({"key": {"client_id": "test"}}),
     )
     async with Client(server) as client:
         result = await client.call_tool("read_task", {"ref": "x"}, raise_on_error=False)
