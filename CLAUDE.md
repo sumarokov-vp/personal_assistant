@@ -147,6 +147,18 @@ deploy/                      # Образ и выкат в colima
   (`openssl rand -hex 32`). Проверка: `docker ps --filter name=personal_assistant_mcp`,
   `docker logs --tail 20 personal_assistant_mcp` (строки `MCP tools:` и `MCP journal:`),
   `tail ~/docker/personal_assistant/mcp/requests.jsonl`
+- Вход снаружи (решение владельца 04.10.2026, не Cloudflare Tunnel): адрес `mcp.smartist.dev` (зона у
+  GoDaddy, A-запись → 93.115.14.100 заводит владелец). Терминирует HTTPS Caddy на сервере ecto-prod
+  (тот же клиент МРС, ssh-алиас `ecto-prod`, `/etc/caddy/Caddyfile`), отдельным блоком рядом с сайтами
+  ЕЦТО — сниппет в `deploy/caddy/mcp.smartist.dev.caddy` этой репы, в живой файл добавляется руками
+  (`caddy validate` на копии → правка → `systemctl reload caddy`, не `restart`). Дальше — не туннель, а
+  mesh ЕЦТО (WireGuard): Mac mini виден в нём как `10.72.0.8` (интерфейс `utun`), Caddy проксирует
+  `reverse_proxy 10.72.0.8:8790` прямо на порт ядра. Для этого сервис `mcp` публикует порт не только на
+  `127.0.0.1` (локальные клиенты вроде Claude Code из `.mcp.json`), но и на `10.72.0.8` —
+  `deploy/compose.yaml`. Входных портов на Mac mini не открывается: он только слушает внутри mesh,
+  наружу торчит Caddy на ecto-prod. Проверка: `ssh ecto-prod curl -s -o /dev/null -w '%{http_code}'
+  http://10.72.0.8:8790/mcp` → `401` (ядро живо и видно по mesh) ещё до DNS; после A-записи —
+  `curl https://mcp.smartist.dev/mcp` → `401`
 - Подключение Claude Code — `.mcp.json` в папке проекта. Ключ не пишется в файл: его печатает `headersHelper`
   (shell-команда, stdout — JSON-объект заголовков, перекрывает одноимённые `headers`; запускается на каждое
   подключение, таймаут 10 с, у проектного `.mcp.json` — только после принятия доверия папке). `X-Project` —
