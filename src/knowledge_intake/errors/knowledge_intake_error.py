@@ -1,0 +1,2 @@
+class KnowledgeIntakeError(Exception):
+    pass
