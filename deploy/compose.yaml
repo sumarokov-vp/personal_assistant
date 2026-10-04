@@ -126,7 +126,7 @@ services:
   # Ядро MCP (workers.mcp): тот же образ, свой composition root, Streamable HTTP на /mcp.
   # Порт публикуется на двух адресах Mac mini: 127.0.0.1 (локальные клиенты, напр. Claude Code
   # из .mcp.json) и 10.72.0.8 — адрес Mac mini в mesh ЕЦТО (WireGuard), откуда его забирает Caddy
-  # на ecto-prod блоком mcp.smartist.dev (деталь — «Deploy» CLAUDE.md). Снаружи DNS и Caddy заводит
+  # на ecto-prod блоком mrsmcp.smartist.dev (деталь — «Deploy» CLAUDE.md). Снаружи DNS и Caddy заводит
   # отдельная задача волны; входных портов на Mac mini при этом не открывается — слушает он только
   # внутри mesh. Доступ — Authorization: Bearer <MCP_STATIC_KEY> (pass mcp-key, up.sh).
   # Dropbox — тот же том, что у bot, но только на чтение, с теми же оверлеями закрытых папок.

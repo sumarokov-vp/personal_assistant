@@ -1,11 +1,11 @@
 # Блок для /etc/caddy/Caddyfile на ecto-prod (не разворачивается туда автоматически —
-# добавляется вручную, после появления A-записи mcp.smartist.dev → 93.115.14.100
+# добавляется вручную, после появления A-записи mrsmcp.smartist.dev → 93.115.14.100
 # в зоне smartist.dev у GoDaddy).
 #
 # Вход в ядро MCP снаружи: Caddy на ecto-prod терминирует HTTPS и проксирует внутрь mesh
 # ЕЦТО (WireGuard) на Mac mini, где слушает ядро (сервис mcp, deploy/compose.yaml,
 # порт опубликован на 10.72.0.8:8790). Авторизацию (Authorization: Bearer <MCP_STATIC_KEY>)
 # проверяет само ядро — Caddy только проксирует.
-mcp.smartist.dev {
+mrsmcp.smartist.dev {
 	reverse_proxy 10.72.0.8:8790
 }

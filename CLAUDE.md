@@ -166,10 +166,10 @@ deploy/                      # Образ и выкат в colima
   compose и `up.sh` заводит таск выката 01a0fa9e-5c29; до него прод-описание ниже про `mcp-key` устарело. Проверка: `docker ps --filter name=personal_assistant_mcp`,
   `docker logs --tail 20 personal_assistant_mcp` (строки `MCP tools:` и `MCP journal:`),
   `tail ~/docker/personal_assistant/mcp/requests.jsonl`
-- Вход снаружи (решение владельца 04.10.2026, не Cloudflare Tunnel): адрес `mcp.smartist.dev` (зона у
+- Вход снаружи (решение владельца 04.10.2026, не Cloudflare Tunnel): адрес `mrsmcp.smartist.dev` (зона у
   GoDaddy, A-запись → 93.115.14.100 заводит владелец). Терминирует HTTPS Caddy на сервере ecto-prod
   (тот же клиент МРС, ssh-алиас `ecto-prod`, `/etc/caddy/Caddyfile`), отдельным блоком рядом с сайтами
-  ЕЦТО — сниппет в `deploy/caddy/mcp.smartist.dev.caddy` этой репы, в живой файл добавляется руками
+  ЕЦТО — сниппет в `deploy/caddy/mrsmcp.smartist.dev.caddy` этой репы, в живой файл добавляется руками
   (`caddy validate` на копии → правка → `systemctl reload caddy`, не `restart`). Дальше — не туннель, а
   mesh ЕЦТО (WireGuard): Mac mini виден в нём как `10.72.0.8` (интерфейс `utun`), Caddy проксирует
   `reverse_proxy 10.72.0.8:8790` прямо на порт ядра. Для этого сервис `mcp` публикует порт не только на
@@ -177,7 +177,7 @@ deploy/                      # Образ и выкат в colima
   `deploy/compose.yaml`. Входных портов на Mac mini не открывается: он только слушает внутри mesh,
   наружу торчит Caddy на ecto-prod. Проверка: `ssh ecto-prod curl -s -o /dev/null -w '%{http_code}'
   http://10.72.0.8:8790/mcp` → `401` (ядро живо и видно по mesh) ещё до DNS; после A-записи —
-  `curl https://mcp.smartist.dev/mcp` → `401`
+  `curl https://mrsmcp.smartist.dev/mcp` → `401`
 - Подключение Claude Code — `.mcp.json` в папке проекта, по публичному адресу (`MCP_PUBLIC_URL/mcp`: metadata ресурса
   называет его, локальный `127.0.0.1` с ним не совпадёт). Вход — тот же OAuth: Claude Code сам регистрируется (DCR),
   открывает браузер и ловит код на loopback; `/mcp` в Claude Code — повторный вход. `X-Project` — статическим заголовком:
