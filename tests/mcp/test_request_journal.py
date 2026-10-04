@@ -6,6 +6,7 @@ from typing import Any, cast
 import anyio
 import httpx2
 import pytest
+from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp_types import CallToolResult, Implementation, RequestParamsMeta
@@ -15,7 +16,6 @@ from tests.mcp.running_core import running_core
 from workers.mcp.core_server_factory import build_core_middleware, build_core_server
 from workers.mcp.core_tools_factory import build_core_tools
 from workers.mcp.journal.json_lines_file import JsonLinesFile
-from workers.mcp.static_key_verifier import StaticKeyVerifier
 
 STATIC_KEY = "journal-secret-key"
 CLIENT_NAME = "journal-test-client"
@@ -33,7 +33,7 @@ def core_url(tmp_path: Path, journal_file: Path) -> Iterator[str]:
     journal_file.parent.mkdir()
     server = build_core_server(
         build_core_tools(todoist=FakeTodoistReadClient([]), dropbox_root=tmp_path),
-        auth=StaticKeyVerifier(STATIC_KEY),
+        auth=StaticTokenVerifier({STATIC_KEY: {"client_id": "test"}}),
         middleware=build_core_middleware(
             JsonLinesFile(journal_file), {ALLOWED_PROJECT}
         ),

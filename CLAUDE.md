@@ -114,8 +114,23 @@ deploy/                      # Образ и выкат в colima
   из `BaseTool` (`parameters` можно подменить), `Input(**args)`, `execute` с пустым `ToolContext` в потоке.
   Результат — как `_to_mcp_content` ai_framework (`tool_output_content.py`). Ошибка `execute` и неверные
   аргументы — результат с `isError` и текстом, а не протокольная ошибка: модель видит, что поправить
-- Доступ волны 0 — статический ключ: `Authorization: Bearer <MCP_STATIC_KEY>`, сверка `hmac.compare_digest`
-  (`StaticKeyVerifier` — `TokenVerifier` FastMCP); без ключа или с чужим — 401
+- Вход — OAuth через FastMCP `OIDCProxy` (`auth/`, сборка — `build_core_auth` в `core_auth_factory.py`). Ядро —
+  тонкий сервер авторизации: клиентам DCR (`/register`), `/authorize`, `/token` и свои JWT (ключ подписи
+  `MCP_JWT_SIGNING_KEY`), вход пользователя — у OIDC-провайдера по discovery `MCP_OIDC_CONFIG_URL` (код провайдера не
+  знает; Google и прочие — только в env). Callback у провайдера — `<MCP_PUBLIC_URL>/auth/callback`. Перед уходом к
+  провайдеру — экран согласия FastMCP (`/consent`, защита от confused deputy). Провайдеру всегда уходит
+  `scope=openid email`; свои параметры провайдера (например, офлайн-доступ ради refresh) — `MCP_OIDC_EXTRA_AUTHORIZE_PARAMS`
+  строкой query. Redirect клиентов — только `https://claude.ai/*`, `https://claude.com/*`, `https://chatgpt.com/*` и
+  loopback (Claude Code). Сверяется `id_token` (`verify_id_token=True`, JWKS провайдера, aud = client id): access token
+  у многих провайдеров непрозрачный
+- Допуск — `EmailAllowlist`: claim `email` ∈ `MCP_ALLOWED_EMAILS` (без учёта регистра) и `email_verified` строго `true`.
+  Проверка в двух местах одним `AllowlistTokenVerifier` (обёртка над `JWTVerifier`): при обмене кода на токен
+  (`AllowlistOIDCProxy._extract_upstream_claims` — посторонний получает `invalid_grant`, токена ядра нет) и на каждом
+  запросе (`OAuthProxy.load_access_token` перепроверяет `id_token` — сужение списка действует на выданные токены, ответ 401).
+  Отказ пишется в журнал строкой `method: "auth"`, `outcome: "denied"`, `user` — email (`DenialJournal`)
+- Регистрации клиентов и токены переживают перезапуск: `FileTreeStore` в `MCP_OAUTH_STORAGE_DIR` под
+  `FernetEncryptionWrapper`, ключ шифрования выводится из `MCP_JWT_SIGNING_KEY` (смена ключа — клиенты
+  регистрируются заново). Каталог создаётся при старте
 - Сборка — `build_core_server(tools, auth, middleware=())` и `build_core_app(server)`
   (`core_server_factory.py`): middleware FastMCP передаются списком; набор ядра —
   `build_core_middleware(journal, allowed_projects)`: снаружи журнал, внутри проект (порядок важен — журнал
@@ -129,45 +144,46 @@ deploy/                      # Образ и выкат в colima
 - Журнал (`journal/`): `RequestJournal` (`on_message`) пишет JSON-строку на каждый входящий запрос, включая
   notifications и запросы, упавшие исключением (try/finally). Поля: `time` (UTC), `method`, `client`
   (clientInfo: из initialize, дальше — из `client_params` сессии), `headers`, `meta` (wire `_meta` запроса),
-  `tool`, `project`, `project_source` (null вне tools/call), `outcome` ok|error|denied. Заголовки с `auth`,
+  `tool`, `project`, `project_source` (null вне tools/call), `user` (email из токена ядра), `outcome` ok|error|denied. Заголовки с `auth`,
   `cookie`, `token`, `secret`, `api-key`, `apikey`, `password` в имени — значением `***`. Запись —
   `JsonLinesFile`: append с закрытием файла на каждую строку, без ротации
-- Env: `TODOIST_TOKEN`, `DROPBOX_ROOT`, `MCP_STATIC_KEY`, `MCP_JOURNAL_FILE` (путь к файлу журнала, каталог
-  создаётся при старте) обязательны — без любого ядро не стартует; `MCP_ALLOWED_PROJECTS` (через запятую,
+- Env: `TODOIST_TOKEN`, `DROPBOX_ROOT`, `MCP_JOURNAL_FILE` (путь к файлу журнала, каталог создаётся при старте),
+  `MCP_OIDC_CONFIG_URL`, `MCP_OIDC_CLIENT_ID`, `MCP_OIDC_CLIENT_SECRET`, `MCP_PUBLIC_URL` (публичный адрес ядра, без
+  `/mcp`), `MCP_JWT_SIGNING_KEY`, `MCP_OAUTH_STORAGE_DIR`, `MCP_ALLOWED_EMAILS` (через запятую, хотя бы один)
+  обязательны — без любого ядро не стартует; `MCP_OIDC_EXTRA_AUTHORIZE_PARAMS`, `MCP_ALLOWED_PROJECTS` (через запятую,
   пусто — любой `project` параметром отклоняется), `MCP_HOST`, `MCP_PORT`, `LOG_LEVEL` необязательны
-- Тест — `tests/mcp/`: ядро на подменах, клиент mcp SDK по Streamable HTTP (`running_core`); журнал и
-  проект — `test_request_journal.py`
+- Тест — `tests/mcp/`: ядро на подменах, клиент mcp SDK по Streamable HTTP (`running_core`), вход в тестах ядра без
+  OAuth — `StaticTokenVerifier` FastMCP; журнал и проект — `test_request_journal.py`; OAuth целиком (DCR → согласие →
+  подменный OIDC-провайдер `FakeOidcProvider` → callback → `/token` → `tools/call`, и отказ постороннему) —
+  `test_core_oauth.py`
 - Прод (Mac mini): сервис `mcp` в `deploy/compose.yaml`, контейнер `personal_assistant_mcp` из того же образа
   `personal_assistant-bot:latest`, `command: python -m workers.mcp`, выкат вместе с ботом через `deploy/up.sh`.
   Порт — только `127.0.0.1:8790` хоста (`MCP_HOST=0.0.0.0` внутри контейнера). Dropbox — тот же `~/Dropbox`, но
   `/dropbox:ro`, с теми же оверлеями закрытых папок (при `:ro` docker не создаёт точку монтирования — папка оверлея
   обязана существовать в `~/Dropbox`, иначе контейнер не стартует). Журнал — том `~/docker/personal_assistant/mcp` → `/mcp`,
   `MCP_JOURNAL_FILE=/mcp/requests.jsonl`. `MCP_ALLOWED_PROJECTS` — env compose (умолчание `assistant`).
-  Ключ — pass `assistant/personal_assistant/mcp-key` (первая строка); нет записи — `up.sh` заводит её сам
-  (`openssl rand -hex 32`). Проверка: `docker ps --filter name=personal_assistant_mcp`,
+  Env OAuth (`MCP_OIDC_*`, `MCP_PUBLIC_URL`, `MCP_JWT_SIGNING_KEY`, `MCP_OAUTH_STORAGE_DIR`, `MCP_ALLOWED_EMAILS`) в
+  compose и `up.sh` заводит таск выката 01a0fa9e-5c29; до него прод-описание ниже про `mcp-key` устарело. Проверка: `docker ps --filter name=personal_assistant_mcp`,
   `docker logs --tail 20 personal_assistant_mcp` (строки `MCP tools:` и `MCP journal:`),
   `tail ~/docker/personal_assistant/mcp/requests.jsonl`
-- Подключение Claude Code — `.mcp.json` в папке проекта. Ключ не пишется в файл: его печатает `headersHelper`
-  (shell-команда, stdout — JSON-объект заголовков, перекрывает одноимённые `headers`; запускается на каждое
-  подключение, таймаут 10 с, у проектного `.mcp.json` — только после принятия доверия папке). `X-Project` —
-  статическим заголовком:
+- Подключение Claude Code — `.mcp.json` в папке проекта, по публичному адресу (`MCP_PUBLIC_URL/mcp`: metadata ресурса
+  называет его, локальный `127.0.0.1` с ним не совпадёт). Вход — тот же OAuth: Claude Code сам регистрируется (DCR),
+  открывает браузер и ловит код на loopback; `/mcp` в Claude Code — повторный вход. `X-Project` — статическим заголовком:
 
   ```json
   {
     "mcpServers": {
       "assistant-core": {
         "type": "http",
-        "url": "http://127.0.0.1:8790/mcp",
-        "headers": {"X-Project": "assistant"},
-        "headersHelper": "printf '{\"Authorization\": \"Bearer %s\"}' \"$(GNUPGHOME=$HOME/docker/personal_assistant/gnupg pass show assistant/personal_assistant/mcp-key | head -n 1)\""
+        "url": "https://<MCP_PUBLIC_URL>/mcp",
+        "headers": {"X-Project": "assistant"}
       }
     }
   }
   ```
 
-  `GNUPGHOME` — связка ассистента (без пина, работает и из `claude -p`). Сервер из проектного `.mcp.json` Claude
-  Code включает после одобрения (`enabledMcpjsonServers` в `.claude/settings.local.json`), инструменты —
-  `mcp__assistant-core__*`
+  Сервер из проектного `.mcp.json` Claude Code включает после одобрения (`enabledMcpjsonServers` в
+  `.claude/settings.local.json`), инструменты — `mcp__assistant-core__*`
 
 ## Инструменты (tools)
 
@@ -500,7 +516,14 @@ SCHEDULER_API_URL=http://localhost:8000         # SCHEDULER_API_* — обе и�
 SCHEDULER_API_KEY=ключ                          # X-API-Key сервиса расписаний; ключ определяет пользователя
 SCHEDULER_AMQP_URL=amqp://schedule-sumarokov:пароль@localhost:5672/assistant  # запуски по расписанию; с SCHEDULER_QUEUE — обе или ни одной
 SCHEDULER_QUEUE=schedule.sumarokov              # очередь «пора» этого пользователя (exchange schedule-due сервиса assistant_scheduler)
-MCP_STATIC_KEY=ключ                             # ядро MCP: Authorization: Bearer <ключ>; с TODOIST_TOKEN и DROPBOX_ROOT обязательна для workers.mcp
+MCP_OIDC_CONFIG_URL=https://issuer/.well-known/openid-configuration  # ядро MCP: discovery OIDC-провайдера входа; обязательна для workers.mcp
+MCP_OIDC_CLIENT_ID=id                           # ядро MCP: OAuth-клиент ядра у провайдера; обязательна
+MCP_OIDC_CLIENT_SECRET=секрет                   # ядро MCP: секрет этого клиента; обязательна
+MCP_OIDC_EXTRA_AUTHORIZE_PARAMS=                # необязательная; доп. параметры authorize провайдера строкой query (a=1&b=2)
+MCP_PUBLIC_URL=https://core.example.org         # ядро MCP: публичный адрес (без /mcp); callback провайдера — <адрес>/auth/callback; обязательна
+MCP_JWT_SIGNING_KEY=ключ                        # ядро MCP: подпись JWT ядра и (выводом) шифрование хранилища OAuth; обязательна
+MCP_OAUTH_STORAGE_DIR=/path/to/oauth            # ядро MCP: каталог регистраций клиентов и токенов (шифрован); обязательна
+MCP_ALLOWED_EMAILS=owner@example.org            # ядро MCP: список допуска (через запятую); вход только при email_verified; обязательна
 MCP_HOST=127.0.0.1                              # необязательная (дефолт 127.0.0.1); адрес ядра MCP
 MCP_JOURNAL_FILE=/path/to/requests.jsonl        # ядро MCP: журнал запросов (JSON-строка на запрос); обязательна для workers.mcp
 MCP_ALLOWED_PROJECTS=assistant                  # необязательная; проекты, разрешённые параметром project (через запятую); пусто — любой отклоняется
