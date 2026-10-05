@@ -112,12 +112,6 @@ services:
       SCHEDULER_API_KEY: ${SCHEDULER_API_KEY:?}
       SCHEDULER_AMQP_URL: ${SCHEDULER_AMQP_URL:?}
       SCHEDULER_QUEUE: schedule.sumarokov
-      # Приёмщик знаний (workers.knowledge_intake, docker exec из cron хоста) — см. up.sh
-      KNOWLEDGE_IMAP_HOST: ${KNOWLEDGE_IMAP_HOST:?}
-      KNOWLEDGE_IMAP_USER: ${KNOWLEDGE_IMAP_USER:?}
-      KNOWLEDGE_IMAP_PASSWORD: ${KNOWLEDGE_IMAP_PASSWORD:?}
-      KNOWLEDGE_TOOLKIT_SSH_KEY_PATH: /run/secrets/knowledge/claude_toolkit_deploy_key
-      KNOWLEDGE_ALLOWLIST_FILE: /run/secrets/knowledge/allowlist
     volumes:
       - ${PA_DATA_DIR:?}/wiki:/wiki
       - ${WIKI_DEPLOY_KEY_FILE:?}:/run/secrets/wiki_deploy_key:ro
@@ -125,7 +119,6 @@ services:
       - ${PA_DATA_DIR:?}/whatsapp:/whatsapp:ro
       - ${TELEGRAM_SECRETS_DIR:?}:/run/secrets/telegram:ro
       - ${ASSISTANT_DIRECTORY_FILE:?}:/run/config/directory.yaml:ro
-      - ${KNOWLEDGE_SECRETS_DIR:?}:/run/secrets/knowledge:ro
       # Пустые заглушки поверх закрытых папок; docker монтирует родителя раньше вложенных
       - ${PA_DATA_DIR:?}/empty:/dropbox/Vault:ro
       - ${PA_DATA_DIR:?}/empty:/dropbox/03_home/07_ecp/egov.kz:ro
