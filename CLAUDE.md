@@ -871,6 +871,40 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   `ASSISTANT_DIRECTORY_FILE` необязательна); в проде — `docker exec personal_assistant_bot python -m workers.colleague_digest`.
   Отмечает показанным так же, как по расписанию: утренняя сводка после ручной покажет только новое
 
+## Приёмщик знаний
+
+Сотрудники MRS шлют письма агенту (`knowledge-mrs@smartist.dev`, скилл `mrs-core:agent-letter` в claude-toolkit),
+приёмщик вливает из них знания в `plugins/<плагин>/knowledge/` claude-toolkit. Контекст — `src/knowledge_intake/`
+(без модели и Telegram, import-linter), composition root — `workers/knowledge_intake/`.
+
+- Запуск — `python -m workers.knowledge_intake`, в проде cron хоста раз в 30 минут:
+  `docker exec personal_assistant_bot python -m workers.knowledge_intake >> ~/Library/Logs/personal_assistant/knowledge_intake.log 2>&1`.
+  Строку crontab (метка `# knowledge-intake`) и ротацию лога ставит `deploy/knowledge_intake/install.sh` (один раз
+  при выкате, просит sudo для `/etc/newsyslog.d/personal-assistant-knowledge-intake.conf`); `up.sh` его не зовёт
+- Модель — `AIApplication` ai_framework (`Provider.CLAUDE_SDK`, `AI_MODEL`, память `AI_DB_URL`), инструментов нет,
+  один раунд; промпт — `data/knowledge_intake_prompt.txt`. Адаптер `AiKnowledgeModel` даёт контексту `answer(thread_id, request)`
+- Ящик — `ImapMailbox` по `KNOWLEDGE_IMAP_HOST`, `KNOWLEDGE_IMAP_USER`, `KNOWLEDGE_IMAP_PASSWORD` (`KNOWLEDGE_IMAP_PORT`,
+  умолчание 993). Допуск — `KNOWLEDGE_ALLOWLIST_FILE` (адрес на строку). claude-toolkit — `KNOWLEDGE_TOOLKIT_SSH_KEY_PATH`
+  (deploy-ключ с записью), `KNOWLEDGE_TOOLKIT_REMOTE_URL` (умолчание `git@github.com:mineradiosystems/claude-toolkit.git`),
+  `KNOWLEDGE_TOOLKIT_DIR` (клон, умолчание во временном каталоге — после пересоздания контейнера клонируется заново),
+  `KNOWLEDGE_PLUGINS` (через запятую, умолчание `mrs-finance`). Владелец — `BOT_TOKEN`, `OWNER_TELEGRAM_ID`
+- `up.sh`: pass `knowledge-mailbox` (первая строка пароль, ниже `user=`, `host=`) → `KNOWLEDGE_IMAP_*`; pass
+  `claude-toolkit-deploy-key` → `~/docker/personal_assistant/secrets/knowledge/claude_toolkit_deploy_key`; адреса строк
+  `email:` из `vault:MineRadioSystems/registry/employees.yaml` (записи `key`, `name`, `email`, `role`; волт открывается
+  ключами оператора и закрывается сразу после чтения) → `secrets/knowledge/allowlist`. Файлы 0600, каталог 0700, в
+  контейнер бота — `/run/secrets/knowledge:ro`. Нет записи, ключа, реестра или в нём ни одного адреса — выкат
+  останавливается. Смена штата — повторный `up.sh`. Заглушки для `docker compose build` без `up.sh` — дополнительно
+  `KNOWLEDGE_IMAP_HOST=x KNOWLEDGE_IMAP_USER=x KNOWLEDGE_IMAP_PASSWORD=x KNOWLEDGE_SECRETS_DIR=x`
+- Лог: на каждый запуск одна строка INFO `knowledge_intake run started=<UTC> duration=<с> fetched=<забрано из INBOX>
+  merged=<влито> declined=<не принято> rejected=<отклонено на входе> push=ok|error` — и на пустом прогоне. Сбой —
+  ERROR `knowledge_intake run failed` с traceback и сообщение владельцу с типом ошибки. Ротация — newsyslog
+  (`deploy/knowledge_intake/newsyslog.conf`): раз в сутки, 30 архивов, gzip
+- Владельцу — сводка `IntakeSummary` (влито / не принято / отклонено / сбой вливания), `ParseMode.PLAIN`. Пустой
+  прогон владельцу молчит
+- Откат знания — `git revert <sha>` коммита знания в claude-toolkit **и подъём patch-версии плагина** в
+  `plugins/<плагин>/.claude-plugin/plugin.json` отдельным коммитом, затем push в main. Без подъёма версии откат до
+  сотрудников не доедет: обновление плагина приходит только по новой версии
+
 ## Технологический стек
 
 - Python 3.13+
