@@ -1,2 +1,0 @@
-class KnowledgeIntakeError(Exception):
-    pass

@@ -1,4 +1,0 @@
-# Приёмщик знаний: раз в 30 минут — прогон в контейнере бота (секреты контейнер получил от up.sh).
-# Ставит install.sh (строку с меткой # knowledge-intake он заменяет целиком). Лог — строка
-# «knowledge_intake run …» на запуск, ротация — newsyslog.conf рядом
-*/30 * * * * /opt/homebrew/bin/docker exec personal_assistant_bot python -m workers.knowledge_intake >> /Users/sumarokov/Library/Logs/personal_assistant/knowledge_intake.log 2>&1 # knowledge-intake
