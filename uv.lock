@@ -466,15 +466,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dkimpy"
-version = "1.1.8"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "dnspython" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f0/6f/84e91828186bbfcedd7f9385ef5e0d369632444195c20e08951b7ffe0481/dkimpy-1.1.8.tar.gz", hash = "sha256:b5f60fb47bbf5d8d762f134bcea0c388eba6b498342a682a21f1686545094b77", size = 66979, upload-time = "2024-07-04T22:16:38.321Z" }
-
-[[package]]
 name = "dnspython"
 version = "2.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1649,7 +1640,6 @@ dependencies = [
     { name = "ai-bot-framework", extra = ["claude-sdk", "s3"] },
     { name = "bot-framework", extra = ["all"] },
     { name = "cryptography" },
-    { name = "dkimpy" },
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "openpyxl" },
@@ -1684,7 +1674,6 @@ requires-dist = [
     { name = "ai-bot-framework", extras = ["claude-sdk", "s3"], git = "https://github.com/sumarokov-vp/ai_bot_framework.git?rev=v0.9.5" },
     { name = "bot-framework", extras = ["all"], specifier = "==0.8.2" },
     { name = "cryptography", specifier = ">=50.0.1" },
-    { name = "dkimpy", specifier = ">=1.1.8" },
     { name = "fastmcp", specifier = ">=4,<5" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "openai-whisper", marker = "extra == 'whisper'", specifier = ">=20250625" },

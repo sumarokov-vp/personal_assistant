@@ -873,35 +873,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 
 ## Приёмщик знаний
 
-Сотрудники MRS шлют письма агенту (`knowledge-mrs@smartist.dev`, скилл `mrs-core:agent-letter` в claude-toolkit),
-приёмщик вливает из них знания в `plugins/<плагин>/knowledge/` claude-toolkit. Контекст — `src/knowledge_intake/`
-(без модели и Telegram, import-linter), composition root — `workers/knowledge_intake/`.
-
-- Запуск — `python -m workers.knowledge_intake`; задуманный прод (сейчас не выкачен, см. ниже) — cron хоста раз в 30 минут:
-  `docker exec personal_assistant_bot python -m workers.knowledge_intake >> ~/Library/Logs/personal_assistant/knowledge_intake.log 2>&1`.
-  Строку crontab (метка `# knowledge-intake`) и ротацию лога ставит `deploy/knowledge_intake/install.sh` (один раз
-  при выкате, просит sudo для `/etc/newsyslog.d/personal-assistant-knowledge-intake.conf`); `up.sh` его не зовёт
-- Модель — `AIApplication` ai_framework (`Provider.CLAUDE_SDK`, `AI_MODEL`, память `AI_DB_URL`), инструментов нет,
-  один раунд; промпт — `data/knowledge_intake_prompt.txt`. Адаптер `AiKnowledgeModel` даёт контексту `answer(thread_id, request)`
-- Ящик — `ImapMailbox` по `KNOWLEDGE_IMAP_HOST`, `KNOWLEDGE_IMAP_USER`, `KNOWLEDGE_IMAP_PASSWORD` (`KNOWLEDGE_IMAP_PORT`,
-  умолчание 993). Допуск — `KNOWLEDGE_ALLOWLIST_FILE` (адрес на строку). claude-toolkit — `KNOWLEDGE_TOOLKIT_SSH_KEY_PATH`
-  (deploy-ключ с записью), `KNOWLEDGE_TOOLKIT_REMOTE_URL` (умолчание `git@github.com:mineradiosystems/claude-toolkit.git`),
-  `KNOWLEDGE_TOOLKIT_DIR` (клон, умолчание во временном каталоге — после пересоздания контейнера клонируется заново),
-  `KNOWLEDGE_PLUGINS` (через запятую, умолчание `mrs-finance`). Владелец — `BOT_TOKEN`, `OWNER_TELEGRAM_ID`
-- Выкат отключён (решение владельца 05.10.2026): приёмщик вместе с claude-toolkit выносится из personal_assistant
-  в отдельный продукт, реестр сотрудников в волте владельца не хранится. `up.sh` и `compose.yaml` приёмщика не
-  проводят: ни `KNOWLEDGE_*` в контейнер, ни файла допуска, ни deploy-ключа, волт не открывается; cron не ставится.
-  Код остаётся до выноса. Ящик — pass `knowledge-mailbox` (первая строка пароль, ниже `user=`, `host=`), deploy-ключ
-  claude-toolkit с записью — pass `claude-toolkit-deploy-key`
-- Лог: на каждый запуск одна строка INFO `knowledge_intake run started=<UTC> duration=<с> fetched=<забрано из INBOX>
-  merged=<влито> declined=<не принято> rejected=<отклонено на входе> push=ok|error` — и на пустом прогоне. Сбой —
-  ERROR `knowledge_intake run failed` с traceback и сообщение владельцу с типом ошибки. Ротация — newsyslog
-  (`deploy/knowledge_intake/newsyslog.conf`): раз в сутки, 30 архивов, gzip
-- Владельцу — сводка `IntakeSummary` (влито / не принято / отклонено / сбой вливания), `ParseMode.PLAIN`. Пустой
-  прогон владельцу молчит
-- Откат знания — `git revert <sha>` коммита знания в claude-toolkit **и подъём patch-версии плагина** в
-  `plugins/<плагин>/.claude-plugin/plugin.json` отдельным коммитом, затем push в main. Без подъёма версии откат до
-  сотрудников не доедет: обновление плагина приходит только по новой версии
+Вынесен в `mineradiosystems/knowledge_intake`.
 
 ## Технологический стек
 
