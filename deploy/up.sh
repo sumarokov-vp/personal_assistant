@@ -213,6 +213,47 @@ require_value "$MCP_KEY_ENTRY" "$MCP_STATIC_KEY"
 MCP_ALLOWED_PROJECTS="${MCP_ALLOWED_PROJECTS:-assistant}"
 mkdir -p "$MCP_JOURNAL_DIR"
 
+# Приёмщик знаний (workers.knowledge_intake; cron хоста зовёт docker exec в контейнер бота —
+# deploy/knowledge_intake/install.sh). Ящик — pass knowledge-mailbox: первая строка пароль, ниже
+# user=, host=. Deploy-ключ claude-toolkit с записью и список допуска — файлы 0600 в каталоге 0700
+# $SECRETS_DIR/knowledge, в контейнер каталогом только на чтение. Допуск — адреса строк email:
+# реестра vault:MineRadioSystems/registry/employees.yaml (волт читается ключами оператора, папка
+# закрывается сразу после чтения). Нет записи, ключа или реестра — выкат останавливается
+KNOWLEDGE_MAILBOX_ENTRY="$PASS_ROOT/knowledge-mailbox"
+KNOWLEDGE_IMAP_PASSWORD="$(pass_first_line "$KNOWLEDGE_MAILBOX_ENTRY")"
+KNOWLEDGE_IMAP_USER="$(pass_field "$KNOWLEDGE_MAILBOX_ENTRY" user)"
+KNOWLEDGE_IMAP_HOST="$(pass_field "$KNOWLEDGE_MAILBOX_ENTRY" host)"
+require_value "$KNOWLEDGE_MAILBOX_ENTRY (password)" "$KNOWLEDGE_IMAP_PASSWORD"
+require_value "$KNOWLEDGE_MAILBOX_ENTRY user" "$KNOWLEDGE_IMAP_USER"
+require_value "$KNOWLEDGE_MAILBOX_ENTRY host" "$KNOWLEDGE_IMAP_HOST"
+KNOWLEDGE_SECRETS_DIR="$SECRETS_DIR/knowledge"
+KNOWLEDGE_DEPLOY_KEY_FILE="$KNOWLEDGE_SECRETS_DIR/claude_toolkit_deploy_key"
+KNOWLEDGE_ALLOWLIST_FILE="$KNOWLEDGE_SECRETS_DIR/allowlist"
+KNOWLEDGE_REGISTRY="vault:MineRadioSystems/registry"
+( umask 077 && mkdir -p "$KNOWLEDGE_SECRETS_DIR" )
+chmod 700 "$KNOWLEDGE_SECRETS_DIR"
+( umask 077 && pass show "$PASS_ROOT/claude-toolkit-deploy-key" > "$KNOWLEDGE_DEPLOY_KEY_FILE.tmp" )
+chmod 600 "$KNOWLEDGE_DEPLOY_KEY_FILE.tmp"
+mv -f "$KNOWLEDGE_DEPLOY_KEY_FILE.tmp" "$KNOWLEDGE_DEPLOY_KEY_FILE"
+trap 'GNUPGHOME="$OPERATOR_GNUPGHOME" vault close "$KNOWLEDGE_REGISTRY" > /dev/null || true' EXIT
+KNOWLEDGE_REGISTRY_DIR="$(GNUPGHOME="$OPERATOR_GNUPGHOME" vault open "$KNOWLEDGE_REGISTRY")"
+(
+    umask 077
+    sed -n -E "s/^[[:space:]-]*email:[[:space:]]*[\"']?([^\"'[:space:]#]+).*$/\1/p" \
+        "$KNOWLEDGE_REGISTRY_DIR/employees.yaml" | tr '[:upper:]' '[:lower:]' | sort -u \
+        > "$KNOWLEDGE_ALLOWLIST_FILE.tmp"
+)
+GNUPGHOME="$OPERATOR_GNUPGHOME" vault close "$KNOWLEDGE_REGISTRY" > /dev/null
+trap - EXIT
+if [ ! -s "$KNOWLEDGE_ALLOWLIST_FILE.tmp" ]; then
+    rm -f "$KNOWLEDGE_ALLOWLIST_FILE.tmp"
+    echo "up.sh: в $KNOWLEDGE_REGISTRY/employees.yaml нет ни одного email" >&2
+    exit 1
+fi
+chmod 600 "$KNOWLEDGE_ALLOWLIST_FILE.tmp"
+mv -f "$KNOWLEDGE_ALLOWLIST_FILE.tmp" "$KNOWLEDGE_ALLOWLIST_FILE"
+echo "up.sh: допуск приёмщика — $(wc -l < "$KNOWLEDGE_ALLOWLIST_FILE" | tr -d ' ') адресов"
+
 export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN VOICE_RECOGNITION_API_KEY AI_MODEL \
     CLAUDE_CODE_EFFORT_LEVEL \
     WIKI_REMOTE_URL PA_DATA_DIR WIKI_DEPLOY_KEY_FILE DROPBOX_DIR \
@@ -224,6 +265,7 @@ export BOT_TOKEN OWNER_TELEGRAM_ID BOT_DB_URL AI_DB_URL CLAUDE_CODE_OAUTH_TOKEN 
     ASSISTANT_MAIL_URL ASSISTANT_KEY ASSISTANT_DIRECTORY_FILE \
     WHATSAPP_WEB_URL WHATSAPP_WEB_TOKEN \
     TELEGRAM_SECRETS_DIR \
-    MCP_STATIC_KEY MCP_ALLOWED_PROJECTS
+    MCP_STATIC_KEY MCP_ALLOWED_PROJECTS \
+    KNOWLEDGE_IMAP_HOST KNOWLEDGE_IMAP_USER KNOWLEDGE_IMAP_PASSWORD KNOWLEDGE_SECRETS_DIR
 
 docker compose -f deploy/compose.yaml up -d --build
