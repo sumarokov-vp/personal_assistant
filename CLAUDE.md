@@ -877,7 +877,7 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
 приёмщик вливает из них знания в `plugins/<плагин>/knowledge/` claude-toolkit. Контекст — `src/knowledge_intake/`
 (без модели и Telegram, import-linter), composition root — `workers/knowledge_intake/`.
 
-- Запуск — `python -m workers.knowledge_intake`, в проде cron хоста раз в 30 минут:
+- Запуск — `python -m workers.knowledge_intake`; задуманный прод (сейчас не выкачен, см. ниже) — cron хоста раз в 30 минут:
   `docker exec personal_assistant_bot python -m workers.knowledge_intake >> ~/Library/Logs/personal_assistant/knowledge_intake.log 2>&1`.
   Строку crontab (метка `# knowledge-intake`) и ротацию лога ставит `deploy/knowledge_intake/install.sh` (один раз
   при выкате, просит sudo для `/etc/newsyslog.d/personal-assistant-knowledge-intake.conf`); `up.sh` его не зовёт
@@ -888,13 +888,11 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   (deploy-ключ с записью), `KNOWLEDGE_TOOLKIT_REMOTE_URL` (умолчание `git@github.com:mineradiosystems/claude-toolkit.git`),
   `KNOWLEDGE_TOOLKIT_DIR` (клон, умолчание во временном каталоге — после пересоздания контейнера клонируется заново),
   `KNOWLEDGE_PLUGINS` (через запятую, умолчание `mrs-finance`). Владелец — `BOT_TOKEN`, `OWNER_TELEGRAM_ID`
-- `up.sh`: pass `knowledge-mailbox` (первая строка пароль, ниже `user=`, `host=`) → `KNOWLEDGE_IMAP_*`; pass
-  `claude-toolkit-deploy-key` → `~/docker/personal_assistant/secrets/knowledge/claude_toolkit_deploy_key`; адреса строк
-  `email:` из `vault:MineRadioSystems/registry/employees.yaml` (записи `key`, `name`, `email`, `role`; волт открывается
-  ключами оператора и закрывается сразу после чтения) → `secrets/knowledge/allowlist`. Файлы 0600, каталог 0700, в
-  контейнер бота — `/run/secrets/knowledge:ro`. Нет записи, ключа, реестра или в нём ни одного адреса — выкат
-  останавливается. Смена штата — повторный `up.sh`. Заглушки для `docker compose build` без `up.sh` — дополнительно
-  `KNOWLEDGE_IMAP_HOST=x KNOWLEDGE_IMAP_USER=x KNOWLEDGE_IMAP_PASSWORD=x KNOWLEDGE_SECRETS_DIR=x`
+- Выкат отключён (решение владельца 05.10.2026): приёмщик вместе с claude-toolkit выносится из personal_assistant
+  в отдельный продукт, реестр сотрудников в волте владельца не хранится. `up.sh` и `compose.yaml` приёмщика не
+  проводят: ни `KNOWLEDGE_*` в контейнер, ни файла допуска, ни deploy-ключа, волт не открывается; cron не ставится.
+  Код остаётся до выноса. Ящик — pass `knowledge-mailbox` (первая строка пароль, ниже `user=`, `host=`), deploy-ключ
+  claude-toolkit с записью — pass `claude-toolkit-deploy-key`
 - Лог: на каждый запуск одна строка INFO `knowledge_intake run started=<UTC> duration=<с> fetched=<забрано из INBOX>
   merged=<влито> declined=<не принято> rejected=<отклонено на входе> push=ok|error` — и на пустом прогоне. Сбой —
   ERROR `knowledge_intake run failed` с traceback и сообщение владельцу с типом ошибки. Ротация — newsyslog
