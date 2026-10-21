@@ -6,6 +6,7 @@ import anyio
 import httpx
 import httpx2
 import pytest
+from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -14,7 +15,6 @@ from tests.mcp.fake_todoist_read_client import INBOX_ID, FakeTodoistReadClient
 from tests.mcp.running_core import running_core
 from workers.mcp.core_server_factory import build_core_server
 from workers.mcp.core_tools_factory import build_core_tools
-from workers.mcp.static_key_verifier import StaticKeyVerifier
 
 STATIC_KEY = "test-static-key"
 CORE_TOOLS = {
@@ -34,7 +34,7 @@ def core_url(tmp_path: Path) -> Iterator[str]:
     )
     server = build_core_server(
         build_core_tools(todoist=todoist, dropbox_root=tmp_path),
-        auth=StaticKeyVerifier(STATIC_KEY),
+        auth=StaticTokenVerifier({STATIC_KEY: {"client_id": "test"}}),
     )
     with running_core(server) as url:
         yield url

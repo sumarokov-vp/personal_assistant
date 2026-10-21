@@ -17,4 +17,5 @@ class JournalEntry(BaseModel):
     tool: str | None
     project: str | None
     project_source: ProjectSource | None
+    user: str | None
     outcome: Outcome

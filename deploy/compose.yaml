@@ -124,8 +124,11 @@ services:
       - ${PA_DATA_DIR:?}/empty:/dropbox/03_home/07_ecp/egov.kz:ro
 
   # Ядро MCP (workers.mcp): тот же образ, свой composition root, Streamable HTTP на /mcp.
-  # Порт — только на 127.0.0.1 Mac mini (colima пробрасывает его на localhost хоста); наружу —
-  # туннелем волны 1. Доступ — Authorization: Bearer <MCP_STATIC_KEY> (pass mcp-key, up.sh).
+  # Порт публикуется на двух адресах Mac mini: 127.0.0.1 (локальные клиенты, напр. Claude Code
+  # из .mcp.json) и 10.72.0.8 — адрес Mac mini в mesh ЕЦТО (WireGuard), откуда его забирает Caddy
+  # на ecto-prod блоком mrsmcp.smartist.dev (деталь — «Deploy» CLAUDE.md). Снаружи DNS и Caddy заводит
+  # отдельная задача волны; входных портов на Mac mini при этом не открывается — слушает он только
+  # внутри mesh. Доступ — Authorization: Bearer <MCP_STATIC_KEY> (pass mcp-key, up.sh).
   # Dropbox — тот же том, что у bot, но только на чтение, с теми же оверлеями закрытых папок.
   # При :ro docker не создаёт точку монтирования оверлея: папка обязана быть в ~/Dropbox, иначе
   # контейнер не стартует (отказ в закрытую сторону, а не открытая папка).
@@ -151,6 +154,7 @@ services:
       LOG_LEVEL: INFO
     ports:
       - "127.0.0.1:8790:8790"
+      - "${MCP_MESH_HOST:-10.72.0.8}:8790:8790"
     volumes:
       - ${PA_DATA_DIR:?}/mcp:/mcp
       - ${DROPBOX_DIR:?}:/dropbox:ro

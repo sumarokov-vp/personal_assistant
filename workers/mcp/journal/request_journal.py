@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 from fastmcp.server.context import Context
-from fastmcp.server.dependencies import get_http_headers
+from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools import ToolResult
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from workers.mcp.project.project_resolution import (
 )
 
 TOOL_CALL_METHOD = "tools/call"
+EMAIL_CLAIM = "email"
 
 
 class RequestJournal(Middleware):
@@ -49,6 +50,7 @@ class RequestJournal(Middleware):
             tool=_tool_name(context),
             project=resolution.project if resolution else None,
             project_source=resolution.source if resolution else None,
+            user=_user_email(),
             outcome=_outcome(result, completed, resolution),
         )
         self._sink.append(
@@ -106,3 +108,9 @@ def _outcome(
     if not completed or (isinstance(result, ToolResult) and result.is_error):
         return "error"
     return "ok"
+
+
+def _user_email() -> str | None:
+    access_token = get_access_token()
+    email = access_token.claims.get(EMAIL_CLAIM) if access_token else None
+    return email if isinstance(email, str) else None
