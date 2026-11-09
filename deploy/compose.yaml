@@ -145,6 +145,7 @@ services:
       DROPBOX_ROOT: /dropbox
       MCP_STATIC_KEY: ${MCP_STATIC_KEY:?}
       MCP_JOURNAL_FILE: /mcp/requests.jsonl
+      MCP_RECORDINGS_FOLDER: ${MCP_RECORDINGS_FOLDER:-Записи разговоров}
       MCP_ALLOWED_PROJECTS: ${MCP_ALLOWED_PROJECTS:-assistant}
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8790"
@@ -156,6 +157,9 @@ services:
       - ${DROPBOX_DIR:?}:/dropbox:ro
       - ${PA_DATA_DIR:?}/empty:/dropbox/Vault:ro
       - ${PA_DATA_DIR:?}/empty:/dropbox/03_home/07_ecp/egov.kz:ro
+      # Запись ядру открыта только в папку записей: вложенный bind поверх :ro корня. Папку в
+      # ~/Dropbox создаёт выкат бота; код ядра пишет только в неё (DropboxFolderWriter)
+      - ${DROPBOX_DIR:?}/${MCP_RECORDINGS_FOLDER:-Записи разговоров}:/dropbox/${MCP_RECORDINGS_FOLDER:-Записи разговоров}
 
 networks:
   default:
