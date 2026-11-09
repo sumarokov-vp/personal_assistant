@@ -1,3 +1,5 @@
+from logging import getLogger
+
 from telebot import TeleBot
 from telebot.types import (
     InlineKeyboardButton,
@@ -8,6 +10,8 @@ from telebot.types import (
 from src.flows.recordings.services.entities.url_button import UrlButton
 
 HTML_PARSE_MODE = "HTML"
+
+logger = getLogger(__name__)
 
 
 class TelegramUrlButtonsSender:
@@ -24,10 +28,15 @@ class TelegramUrlButtonsSender:
                 for button in buttons
             )
         )
-        self._bot.send_message(
+        message = self._bot.send_message(
             chat_id,
             text,
             parse_mode=HTML_PARSE_MODE,
             reply_markup=markup,
             link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+        logger.info(
+            "Recording outcome sent: chat %d, message_id %d",
+            chat_id,
+            message.message_id,
         )
