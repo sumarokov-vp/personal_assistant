@@ -24,6 +24,7 @@ CORE_TOOLS = {
     "dropbox_search",
     "dropbox_read",
     "transcript_read",
+    "protocol_make",
 }
 
 
