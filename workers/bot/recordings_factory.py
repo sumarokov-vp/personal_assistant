@@ -4,6 +4,7 @@ from pathlib import Path
 
 from bot_framework.app import BotApplication
 from bot_framework.platform.telegram import TelegramMessageCore
+from telebot import TeleBot
 
 from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
 from src.dropbox.services.boundary.dropbox_boundary import DropboxBoundary
@@ -28,6 +29,7 @@ from src.flows.recordings.services import (
     TelegramRecordingOutcome,
     TelegramUrlButtonsSender,
 )
+from src.flows.recordings.services.outcome.protocols import IOutcomeMessageSender
 from src.flows.recordings.services.recording_run.protocols import (
     IRecordingDownloader,
     IRecordingOutcome,
@@ -76,6 +78,17 @@ def build_recording_run(
     )
 
 
+def build_telegram_outcome(
+    bot: TeleBot, message_sender: IOutcomeMessageSender
+) -> TelegramRecordingOutcome:
+    return TelegramRecordingOutcome(
+        message_sender=message_sender,
+        url_buttons_sender=TelegramUrlButtonsSender(bot),
+        links=RecordingLinks(),
+        text=RecordingOutcomeText(),
+    )
+
+
 def register_configured_recording_flow(
     app: BotApplication,
     storage: DropboxBoundary | None,
@@ -108,12 +121,7 @@ def register_recording_flow(
 ) -> None:
     if not isinstance(app.core, TelegramMessageCore):
         raise TypeError("Recordings flow requires TelegramMessageCore")
-    outcome = TelegramRecordingOutcome(
-        message_sender=app.message_sender,
-        url_buttons_sender=TelegramUrlButtonsSender(app.core.bot),
-        links=RecordingLinks(),
-        text=RecordingOutcomeText(),
-    )
+    outcome = build_telegram_outcome(app.core.bot, app.message_sender)
     transcriber = BackgroundRecordingTranscriber(
         recording_run=build_recording_run(
             downloader=app.core.document_downloader,
