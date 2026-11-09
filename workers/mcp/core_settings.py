@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 DEFAULT_MCP_HOST = "127.0.0.1"
 DEFAULT_MCP_PORT = 8790
+DEFAULT_RECORDINGS_FOLDER = "Записи разговоров"
 
 
 class CoreSettings(BaseModel):
@@ -16,6 +17,7 @@ class CoreSettings(BaseModel):
     host: str = DEFAULT_MCP_HOST
     port: int = DEFAULT_MCP_PORT
     log_level: str = "INFO"
+    recordings_folder: str = DEFAULT_RECORDINGS_FOLDER
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "CoreSettings":
@@ -28,6 +30,8 @@ class CoreSettings(BaseModel):
             host=env.get("MCP_HOST") or DEFAULT_MCP_HOST,
             port=int(env.get("MCP_PORT") or DEFAULT_MCP_PORT),
             log_level=env.get("LOG_LEVEL") or "INFO",
+            recordings_folder=env.get("MCP_RECORDINGS_FOLDER")
+            or DEFAULT_RECORDINGS_FOLDER,
         )
 
 

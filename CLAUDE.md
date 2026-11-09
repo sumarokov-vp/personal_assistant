@@ -19,6 +19,8 @@ Telegram <-> bot_framework <-> SendToAgentAction <-> ai_framework.AIApplication 
 workers/bot/
 ├── __main__.py              # Composition root: env, AIApplication, список tools, сборка хендлеров
 ├── transcriber_factory.py   # Выбор транскрайбера по VOICE_RECOGNITION_MODE
+├── recordings_factory.py    # Поток «Записи разговоров»: сборка и регистрация, Recordings flow: on|off
+├── recording_check.py       # python -m workers.bot.recording_check <файл> [--notify-owner] — сверка распознавания записи
 ├── cases_tools_factory.py   # клиент сервиса кейсов по CASES_* + case_* и task_add, task_list, task_update, task_close
 ├── scheduler_tools_factory.py # клиент сервиса расписаний по SCHEDULER_API_* + schedule_add, schedule_list, schedule_cancel
 ├── todoist_tools_factory.py # Todoist как задачник: find_tasks, read_task, task_link; build_task_mirror — отражение задач
@@ -64,7 +66,8 @@ src/
 │   └── web_media/           # Клиент сервиса WhatsApp Web на хосте: документ, удалённый с CDN (платформенно-нейтральный)
 ├── telegram_user/           # Переписка Telegram владельца: MTProto (Telethon) от его аккаунта, только чтение
 ├── files/                   # Механика «файл»: WorkFolder, источники (IFileSource; mail/dropbox/chat), ридеры, растр, OverflowFolder, Sweeper
-└── voice_recognition/       # HttpTranscriber, NativeTranscriber
+├── flows/recordings/        # Записи разговоров: приём аудио и карточка «Распознать?» (card/, handlers/), фон и результат (services/)
+└── voice_recognition/       # HttpTranscriber, NativeTranscriber; repos/RecognitionJobsClient — асинхронные задания сервиса
 scripts/
 └── gmail_auth.py            # Получение refresh token Gmail владельца в pass (standalone, uv run)
 data/
@@ -506,6 +509,8 @@ MCP_JOURNAL_FILE=/path/to/requests.jsonl        # ядро MCP: журнал з�
 MCP_ALLOWED_PROJECTS=assistant                  # необязательная; проекты, разрешённые параметром project (через запятую); пусто — любой отклоняется
 MCP_PORT=8790                                   # необязательная (дефолт 8790); порт ядра MCP
 PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (дефолт — <tempdir>/personal_assistant/files); рабочая папка файлов, уборка через сутки
+RECORDINGS_FOLDER=Записи разговоров             # необязательная (это дефолт); папка от корня Dropbox для JSON распознанных записей
+RECORDING_MAX_BYTES=20971520                    # необязательная (дефолт 20 МБ — предел облачного Bot API на скачивание); запись крупнее отклоняется
 ```
 
 Обязательны на старте бота: `OWNER_TELEGRAM_ID`, `BOT_TOKEN`, `BOT_DB_URL`, `REDIS_URL`, `AI_DB_URL`, `AI_MODEL`,
@@ -525,8 +530,74 @@ PA_WORK_DIR=/tmp/personal_assistant/files       # необязательная (
 Импорт `whisper` ленивый (`importlib.import_module` внутри `NativeTranscriber`), поэтому код нативного
 транскрайбера импортируется и проверяется линтерами без установленного пакета.
 
+Транскрайберы выше — для голосовых (`voice`): короткое сообщение, синхронный `POST /transcribe`, текст уходит
+в модель бота. Записи разговоров (`audio` и аудио-документы) идут мимо них — асинхронным клиентом
+`RecognitionJobsClient` (`src/voice_recognition/repos/`), см. «Записи разговоров»:
+
+- `submit(path, language)` — `POST /transcribe/async` (multipart), 202 → `job_id`; таймаут загрузки растёт с
+  размером файла (`upload_bytes_per_second`, 256 КБ/с)
+- `wait_for_result(job_id)` — опрос `GET /transcribe/async/{job_id}` раз в 10 с, предел ожидания у потока записи —
+  2 ч; `completed` → исходный `result` сервиса (dict: `text`, `language`, `segments`)
+- Ошибки — `VoiceRecognitionError` и наследники (`src/voice_recognition/errors/`): недоступен (сеть, 5xx),
+  ключ (401/403), задание пропало (404 — сервис перезапускался), `failed` с текстом сервиса, не уложилось в
+  предел ожидания
+- Адрес и ключ — те же `VOICE_RECOGNITION_URL` / `VOICE_RECOGNITION_API_KEY`: потребитель сервиса один,
+  `personal_assistant`. `VOICE_RECOGNITION_MODE` на записи не влияет — `native` для них нет
+
+## Записи разговоров
+
+Владелец пересылает боту запись разговора (M4A с диктофона, mp3, wav, ogg, aac) — бот распознаёт её сервисом
+распознавания и кладёт расшифровку в Dropbox, откуда протокол собирает модель приложения (Claude) через ядро MCP.
+Код — `src/flows/recordings/`, сборка — `workers/bot/recordings_factory.py`.
+
+- **Включение.** Поток подключается, если есть `DROPBOX_ROOT` и `VOICE_RECOGNITION_API_KEY`; в логе старта —
+  `Recordings flow: on, folder 'Записи разговоров', max 20971520 bytes` или `Recordings flow: off (…)`.
+  Включён — `VoiceMessageHandler` берёт только `voice`, `audio` уходит сюда. Регистрация — до хендлеров
+  голосовых и документов (telebot берёт первый подошедший)
+- **Приём.** `audio` и `document` с mime `audio/*` или расширением m4a/mp3/wav/ogg/aac → карточка «Распознать
+  запись <имя>, <размер>?» с кнопками «Да»/«Нет». Ожидающая запись — в памяти (`PendingRecordings`); бот
+  перезапустился — нажатие даёт alert «перешлите запись заново». Повторное нажатие — без действия
+- **Предел размера.** `RECORDING_MAX_BYTES`, умолчание 20 МБ — предел облачного Bot API на `getFile`, файл
+  крупнее бот скачать не может. Такая запись отклоняется сразу сообщением с её размером и пределом, без кнопок.
+  Локального Bot API нет (решение владельца 09.11.2026): длинную запись режут или распознают в обход бота
+  (скилл `voice_recognition`)
+- **«Да».** Карточка → «Распознаю…», дальше фон: поток `recording-<message_id карточки>`
+  (`BackgroundRecordingTranscriber`), обработчик возвращается сразу. `RecordingRun`: скачать файл в рабочую
+  папку (`WorkFolder`) → `RecognitionJobsClient.submit` → `wait_for_result` → исходный `result` сервиса
+  JSON-ом (`ensure_ascii=False`, отступ 2) в `<RECORDINGS_FOLDER>/<имя записи без расширения>.json`
+  (`DropboxBoundary.write_new_file`; имя занято — « (2)», « (3)»). Аудио удаляется из рабочей папки в
+  `finally` — при любом исходе
+- **Задание — в памяти бота**, своей таблицы нет: очередь сервиса тоже в памяти, перезапуск бота или сервиса
+  теряет задание — запись пересылается заново
+- **Результат** — новым сообщением (не правкой карточки: правка беззвучна): ссылка на JSON в веб-Dropbox
+  владельца `https://www.dropbox.com/home/<папка>?preview=<имя>` (без токенов Dropbox API) и две URL-кнопки
+  «Протокол встречи» / «Протокол звонка» на `https://claude.ai/new?q=<просьба с путём JSON>`; та же просьба —
+  текстом в `<code>`, если claude.ai не подставит `q`. Кнопки шлёт `TelegramUrlButtonsSender` прямо через
+  telebot (`Button` bot_framework не умеет url); в лог — `Recording outcome sent: chat <id>, message_id <id>`.
+  Ошибка — «Запись X не распознана: <причина>. Перешлите её позже.»; непредвиденное исключение — в лог и
+  владельцу «внутренняя ошибка бота»
+- **Папка** `~/Dropbox/Записи разговоров` на Mac mini: бот пишет в неё JSON, ядро MCP — PDF протоколов (у ядра
+  на запись открыта только она). Создаётся до выката (`mkdir -p`) — её монтирует ядро
+- **Сверка без Telegram-приёма** — `recording_check`, тот же `RecordingRun`, что после «Да», только файл
+  берётся с диска (`LocalRecordingSource`, исходник не трогается — в рабочую папку идёт копия):
+
+  ```
+  say -v Milena "Добрый день. Обсудим сроки поставки." -o x.aiff && afconvert -f m4af -d aac x.aiff x.m4a
+  docker cp x.m4a personal_assistant_bot:/tmp/x.m4a
+  docker exec personal_assistant_bot python -m workers.bot.recording_check /tmp/x.m4a [--notify-owner]
+  ```
+
+  Вывод: `ok: <имя> -> Записи разговоров/<имя>.json`, `link: …`, две строки `button «…»: …`, код выхода 0;
+  ошибка — `failed: <имя>: <причина>`, код 1. Без флага Telegram не трогается. С `--notify-owner` итоговое
+  сообщение (ссылка и кнопки или текст ошибки) уходит владельцу (`OWNER_TELEGRAM_ID`, `BOT_TOKEN`) тем же
+  `TelegramRecordingOutcome`, что после «Да», а в вывод — строка `Recording outcome sent: … message_id <id>`.
+  Вывод `docker exec` в `docker logs` бота не попадает — строка с message_id остаётся в выводе команды
+
 ## Вложения: фото и документы
 
+- Аудио (`audio` и документы с mime `audio/*` или расширением m4a/mp3/wav/ogg/aac) — не вложение: при
+  включённом потоке записей их берёт «Записи разговоров» раньше хендлера документов, `MAX_ATTACHMENT_BYTES`
+  к ним не применяется (свой предел `RECORDING_MAX_BYTES`)
 - Фото (Telegram отдаёт JPEG) и документы JPEG/PNG/GIF/WebP/PDF уходят в `process_message(attachments=[Attachment(...)])`,
   модель читает их сама. Текстовые `.txt/.md/.csv` (и `text/*`) декодируются и уходят текстом. Прочее — «Такой формат
   пока не читаю.» без вызова AI
@@ -939,7 +1010,13 @@ import-linter запрещает ему `ai_framework` и `bot_framework`): ин
   `deploy/rabbitmq/setup.sh` репы `assistant_scheduler`). На проде все четыре обязательны (`${VAR:?}`): в логе старта
   `AI tools:` с `schedule_add`/`schedule_list`/`schedule_cancel`, `Prompt connectors:` со `scheduler` и поток
   `scheduled-runs`
-- Распознавание речи — GPU-сервер по mesh `http://10.72.0.199:8000`, из контейнера достижим
+- Распознавание речи — GPU-сервер по mesh `http://10.72.0.199:8000`, из контейнера достижим. Здоровье до сверки:
+  `ssh ecto-prod curl -s http://10.72.0.199:8000/health` (станция `sumarokov-home` бывает выключена — тогда
+  записи падают «недоступен»)
+- Записи разговоров: env потока (`RECORDINGS_FOLDER`, `RECORDING_MAX_BYTES`) в compose не заданы — умолчания
+  кода. До первого выката с потоком — `mkdir -p "$HOME/Dropbox/Записи разговоров"` (папку монтирует ядро MCP).
+  После выката: в логе бота `Recordings flow: on`, сверка — `recording_check` (см. «Записи разговоров»), JSON
+  появляется в `~/Dropbox/Записи разговоров`, в `/tmp/personal_assistant/files` контейнера аудио не остаётся
 - Dropbox: `~/Dropbox` хоста (синхронизирует Maestral на Mac mini) — том `/dropbox` на запись, `DROPBOX_ROOT=/dropbox`.
   colima отдаёт `$HOME` через virtiofs (`~/.colima/default/colima.yaml`: `mounts: []`), файл из контейнера ложится
   на хост под владельцем, и Maestral его подхватывает как обычную правку. Закрытые папки перекрыты пустым каталогом

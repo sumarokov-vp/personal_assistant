@@ -150,6 +150,7 @@ from workers.bot.telegram_tools_factory import (
     build_telegram_source,
     build_telegram_tools,
 )
+from workers.bot.recordings_factory import register_configured_recording_flow
 from workers.bot.transcriber_factory import build_transcriber
 from workers.scheduled_run.composition import start_scheduled_runs
 from workers.scheduled_run.scheduler_settings import read_scheduler_settings
@@ -848,9 +849,17 @@ def main() -> None:
         max_image_bytes=MAX_IMAGE_BYTES,
     )
 
+    recordings_enabled = register_configured_recording_flow(
+        app=app,
+        storage=dropbox_boundary,
+        work_folder=WorkFolder(work_dir),
+        recognition_url=voice_recognition_url,
+        recognition_api_key=voice_recognition_api_key,
+    )
+
     app.core.message_handler_registry.register(
         handler=voice_message_handler,
-        content_types=["voice", "audio"],
+        content_types=["voice"] if recordings_enabled else ["voice", "audio"],
     )
 
     app.core.message_handler_registry.register(

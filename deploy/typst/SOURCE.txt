@@ -1,0 +1,15 @@
+Пакеты typst для образа personal_assistant-bot (TYPST_PACKAGE_PATH=/usr/local/share/typst/packages).
+
+Источник: репа sumarokov-vp/pyinfra_dotfiles, каталог dotfiles/typst/packages/local/,
+коммит b6cb4e0684d190750886514e75745f358c273571 (17.09.2026). Скопировано 09.11.2026 без правок.
+
+  packages/local/smartist/1.0.0/   — @local/smartist:1.0.0 (smartist.typ, шаблон версии 1.3.0)
+  packages/local/fonts/1.0.0/      — @local/fonts:1.0.0; fonts.typ здесь — копия fonts-linux.typ
+                                     (на машинах раскатка pyinfra линкует его же под именем fonts.typ)
+
+Шрифты, которые называет fonts-linux.typ, ставятся в образ пакетами Debian (deploy/Dockerfile):
+PT Sans — fonts-paratype, Noto Color Emoji — fonts-noto-color-emoji, JetBrains Mono — fonts-jetbrains-mono.
+
+Обновление: скопировать файлы заново из pyinfra_dotfiles и поправить коммит выше.
+Смоук: smoke.typ (в образе /usr/local/share/typst/smoke.typ) — `typst compile /usr/local/share/typst/smoke.typ /tmp/smoke.pdf` не печатает
+предупреждений о шрифтах.

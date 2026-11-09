@@ -23,6 +23,8 @@ CORE_TOOLS = {
     "dropbox_tree",
     "dropbox_search",
     "dropbox_read",
+    "transcript_read",
+    "protocol_make",
 }
 
 
@@ -55,7 +57,7 @@ async def list_and_find(url: str) -> tuple[set[str], dict]:
     return {tool.name for tool in listed.tools}, json.loads(content.text)
 
 
-def test_core_serves_five_tools_and_finds_fake_tasks(core_url: str):
+def test_core_serves_its_tools_and_finds_fake_tasks(core_url: str):
     names, found = anyio.run(list_and_find, core_url)
 
     assert names == CORE_TOOLS

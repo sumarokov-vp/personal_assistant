@@ -1,0 +1,7 @@
+[package]
+name = "smartist"
+version = "1.0.0"
+entrypoint = "smartist.typ"
+authors = ["Smartist LLC"]
+description = "Document template with Russian support and optional title page"
+license = "MIT"
