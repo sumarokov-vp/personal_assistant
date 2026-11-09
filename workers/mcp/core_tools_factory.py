@@ -6,6 +6,7 @@ from src.ai_tools.dropbox_read import DropboxReadTool
 from src.ai_tools.dropbox_search import DropboxSearchTool
 from src.ai_tools.dropbox_tree import DropboxTreeTool
 from src.ai_tools.find_tasks import FindTasksTool
+from src.ai_tools.protocol_make import ProtocolMakeTool
 from src.ai_tools.read_task import ReadTaskTool
 from src.ai_tools.transcript_read import TranscriptReadTool
 from src.dropbox.services.boundary.dropbox_access_policy import DropboxAccessPolicy
@@ -15,6 +16,9 @@ from src.dropbox.services.reader.dropbox_reader import DropboxReader
 from src.dropbox.services.search.dropbox_search import DropboxSearch
 from src.dropbox.services.tree.dropbox_tree import DropboxTree
 from src.files.readers.file_text_reader import FileTextReader
+from src.protocols.services.protocol_maker import ProtocolMaker
+from src.protocols.services.typst_compiler import TypstCompiler
+from src.protocols.services.typst_protocol_source import TypstProtocolSource
 from src.todoist.services.todoist_task_reader import TodoistTaskReader
 from src.todoist.services.todoist_task_reader.protocols import ITodoistReadClient
 from src.voice_recognition.services.timecoded_transcript import TimecodedTranscript
@@ -64,4 +68,7 @@ def build_transcript_tools(boundary: DropboxBoundary) -> list[BaseTool]:
 
 
 def build_recording_tools(recordings: DropboxFolderWriter) -> list[BaseTool]:
-    return []
+    maker = ProtocolMaker(
+        source=TypstProtocolSource(), compiler=TypstCompiler(), storage=recordings
+    )
+    return [ProtocolMakeTool(maker=maker)]
