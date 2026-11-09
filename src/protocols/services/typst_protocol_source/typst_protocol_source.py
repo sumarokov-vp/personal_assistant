@@ -1,7 +1,15 @@
 from pathlib import Path
 
 from src.protocols.models.protocol_content import ProtocolContent
-from src.protocols.models.protocol_kind import ProtocolKind
+from src.protocols.services.entities.protocol_sections import (
+    ACTIONS_TITLE,
+    AGENDA_TITLE,
+    AGREEMENTS_TITLES,
+    DISCUSSION_TITLE,
+    DOCUMENT_TITLES,
+    OPEN_QUESTIONS_TITLE,
+    PARTIES_TITLES,
+)
 from src.protocols.services.typst_protocol_source.typst_markup import (
     bullet_list,
     escaped,
@@ -11,18 +19,6 @@ from src.protocols.services.typst_protocol_source.typst_markup import (
 )
 
 TEMPLATE_PATH = Path(__file__).with_name("protocol.typ")
-DOCUMENT_TITLES = {
-    ProtocolKind.MEETING: "Протокол встречи",
-    ProtocolKind.CALL: "Протокол звонка",
-}
-PARTIES_TITLES = {
-    ProtocolKind.MEETING: "Участники",
-    ProtocolKind.CALL: "Стороны",
-}
-AGREEMENTS_TITLES = {
-    ProtocolKind.MEETING: "Решения",
-    ProtocolKind.CALL: "Договорённости",
-}
 ACTIONS_HEADER = ["№", "Что", "Кто", "Срок"]
 NO_DUE = "—"
 
@@ -37,13 +33,13 @@ class TypstProtocolSource:
     def render(self, content: ProtocolContent) -> str:
         sections = [
             self._parties(content),
-            self._section("Повестка", numbered_list(content.agenda)),
+            self._section(AGENDA_TITLE, numbered_list(content.agenda)),
             self._discussion(content),
             self._section(
                 AGREEMENTS_TITLES[content.kind], numbered_list(content.agreements)
             ),
             self._actions(content),
-            self._section("Открытые вопросы", bullet_list(content.open_questions)),
+            self._section(OPEN_QUESTIONS_TITLE, bullet_list(content.open_questions)),
         ]
         return (
             self._template.replace("{{document_title}}", self.document_title(content))
@@ -66,14 +62,14 @@ class TypstProtocolSource:
             f"{heading(escaped(topic.topic), level=2)}\n\n{bullet_list(topic.points)}"
             for topic in content.discussion
         ]
-        return self._section("Обсуждение", "\n\n".join(topics))
+        return self._section(DISCUSSION_TITLE, "\n\n".join(topics))
 
     def _actions(self, content: ProtocolContent) -> str:
         rows = [
             [str(number), action.what, action.who, action.due or NO_DUE]
             for number, action in enumerate(content.actions, start=1)
         ]
-        return self._section("Поручения", table(ACTIONS_HEADER, rows) if rows else "")
+        return self._section(ACTIONS_TITLE, table(ACTIONS_HEADER, rows) if rows else "")
 
     @staticmethod
     def _section(title: str, body: str) -> str:

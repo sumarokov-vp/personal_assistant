@@ -10,6 +10,9 @@ from src.flows.recordings.services.recording_run.protocols.i_recording_outcome i
 from src.flows.recordings.services.recording_run.protocols.i_recording_work_folder import (
     IRecordingWorkFolder,
 )
+from src.flows.recordings.services.recording_run.protocols.i_transcript_memory import (
+    ITranscriptMemory,
+)
 from src.flows.recordings.services.recording_run.protocols.i_transcripts_storage import (
     ITranscriptsStorage,
 )
@@ -19,5 +22,6 @@ __all__ = [
     "IRecordingDownloader",
     "IRecordingOutcome",
     "IRecordingWorkFolder",
+    "ITranscriptMemory",
     "ITranscriptsStorage",
 ]

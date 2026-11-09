@@ -1,8 +1,8 @@
 from pydantic import BaseModel, ConfigDict
 
 
-class UrlButton(BaseModel):
+class CallbackButton(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     text: str
-    url: str
+    data: str

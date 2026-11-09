@@ -547,11 +547,13 @@ RECORDING_MAX_BYTES=20971520                    # необязательная (
 ## Записи разговоров
 
 Владелец пересылает боту запись разговора (M4A с диктофона, mp3, wav, ogg, aac) — бот распознаёт её сервисом
-распознавания и кладёт расшифровку в Dropbox, откуда протокол собирает модель приложения (Claude) через ядро MCP.
-Код — `src/flows/recordings/`, сборка — `workers/bot/recordings_factory.py`.
+распознавания, кладёт расшифровку в Dropbox и по кнопке сам составляет протокол встречи или звонка своей моделью
+(решение владельца 09.11.2026, исключение из правила 0 платформы). Код — `src/flows/recordings/`, документ
+протокола — `src/protocols/`, сборка — `workers/bot/recordings_factory.py`.
 
 - **Включение.** Поток подключается, если есть `DROPBOX_ROOT` и `VOICE_RECOGNITION_API_KEY`; в логе старта —
-  `Recordings flow: on, folder 'Записи разговоров', max 20971520 bytes` или `Recordings flow: off (…)`.
+  `Recordings flow: on, folder 'Записи разговоров', max 20971520 bytes, protocols by model <AI_MODEL>` или
+  `Recordings flow: off (…)`.
   Включён — `VoiceMessageHandler` берёт только `voice`, `audio` уходит сюда. Регистрация — до хендлеров
   голосовых и документов (telebot берёт первый подошедший)
 - **Приём.** `audio` и `document` с mime `audio/*` или расширением m4a/mp3/wav/ogg/aac → карточка «Распознать
@@ -567,31 +569,71 @@ RECORDING_MAX_BYTES=20971520                    # необязательная (
   JSON-ом (`ensure_ascii=False`, отступ 2) в `<RECORDINGS_FOLDER>/<имя записи без расширения>.json`
   (`DropboxBoundary.write_new_file`; имя занято — « (2)», « (3)»). Аудио удаляется из рабочей папки в
   `finally` — при любом исходе
-- **Задание — в памяти бота**, своей таблицы нет: очередь сервиса тоже в памяти, перезапуск бота или сервиса
-  теряет задание — запись пересылается заново
+- **Расшифровка для протокола — у бота, не в Dropbox.** Тот же JSON кладётся рабочей копией в `WorkFolder`
+  (`source=transcript`, id копии — 8 hex, он же id расшифровки в кнопках) и запоминается в памяти
+  (`RecordingTranscripts`, последние 20). Нажатие берёт расшифровку из памяти; после перезапуска — из рабочей
+  копии (её уберёт уборщик рабочей папки через сутки); и только если нет обеих — архивный JSON в Dropbox по
+  ссылке из того же сообщения (`TranscriptSource`). Нет нигде — «перешлите запись заново»
+- **Задание распознавания — в памяти бота**, своей таблицы нет: очередь сервиса тоже в памяти, перезапуск
+  бота или сервиса теряет задание — запись пересылается заново
 - **Результат** — новым сообщением (не правкой карточки: правка беззвучна): ссылка на JSON в веб-Dropbox
-  владельца `https://www.dropbox.com/home/<папка>?preview=<имя>` (без токенов Dropbox API) и две URL-кнопки
-  «Протокол встречи» / «Протокол звонка» на `https://claude.ai/new?q=<просьба с путём JSON>`; та же просьба —
-  текстом в `<code>`, если claude.ai не подставит `q`. Кнопки шлёт `TelegramUrlButtonsSender` прямо через
-  telebot (`Button` bot_framework не умеет url); в лог — `Recording outcome sent: chat <id>, message_id <id>`.
+  владельца `https://www.dropbox.com/home/<папка>?preview=<имя>` (без токенов Dropbox API; сам JSON в Telegram
+  не уходит) и две callback-кнопки «Протокол встречи» / «Протокол звонка» с данными `prt:m:<id>` / `prt:c:<id>`
+  (≤ 64 байт). Сообщение с кнопками шлёт `TelegramButtonsSender` прямо через telebot (отключённое превью
+  ссылки); в лог — `Recording outcome sent: chat <id>, message_id <id>`.
   Ошибка — «Запись X не распознана: <причина>. Перешлите её позже.»; непредвиденное исключение — в лог и
   владельцу «внутренняя ошибка бота»
-- **Папка** `~/Dropbox/Записи разговоров` на Mac mini: бот пишет в неё JSON, ядро MCP — PDF протоколов (у ядра
-  на запись открыта только она). Создаётся до выката (`mkdir -p`) — её монтирует ядро
+- **Кнопка протокола.** `MakeProtocolHandler` сразу отвечает на callback, дальше фон: поток
+  `protocol-<meeting|call>-<id>` (`BackgroundProtocolMaker`) → `ProtocolRun`:
+  1. сообщение «Составляю протокол встречи…» / «…звонка…»;
+  2. расшифровка (`TranscriptSource`, см. выше) → текст с таймкодами (`TimecodedTranscript`);
+  3. `ProtocolDrafter` → модель бота (`ClaudeProtocolModel`, `workers/bot/protocol_model.py`: claude-agent-sdk
+     напрямую, модель `AI_MODEL`, подписка `CLAUDE_CODE_OAUTH_TOKEN`, без инструментов CLI и без настроек,
+     structured output по JSON-схеме полей `CallProtocolDraft`/`MeetingProtocolDraft`, таймаут 15 мин на
+     вызов). Промпт — `data/protocol_prompt.txt`, вид протокола задаёт код, а не модель; дата записи — дата
+     распознавания в `OWNER_TIMEZONE` (после перезапуска — mtime файла расшифровки), модель берёт другую, если
+     дата встречи названа в разговоре. Поля не прошли проверку `ProtocolContent` — одна повторная попытка с
+     текстом ошибки;
+  4. текст протокола — сообщениями с HTML-разметкой (`TelegramProtocolText`, `src/protocols/`): длиннее
+     4096 знаков — несколько сообщений по границам разделов, раздел крупнее сообщения — с «(продолжение)»;
+  5. PDF — `ProtocolMaker.compose` (`TypstProtocolSource` + `TypstCompiler`, шаблон Smartist; call — без
+     «Повестки» и «Обсуждения») в памяти, архивная копия `.typ` + `.pdf` — `ProtocolMaker.store` в
+     `<RECORDINGS_FOLDER>` (`DropboxFolderWriter`), PDF — документом в чат (`TelegramProtocolChat`, подпись с
+     путём копии). Копия не записалась — PDF всё равно уходит, ошибка архива — отдельным сообщением.
+
+  Ошибки — текстом без трейсбека: «Не получилось составить протокол …: <причина>» (нет расшифровки, модель
+  ответила ошибкой, поля дважды не прошли проверку, таймаут); typst упал — текст протокола уже в чате, ниже
+  «PDF протокола не собрался: …»; непредвиденное — «внутренняя ошибка бота» и трейсбек в лог.
+  В логе — `Protocol model: <subtype>, input N tokens (…), output N, N ms`, `Protocol message sent: … message_id`,
+  `Protocol PDF sent: … message_id`
+- **Длинная расшифровка.** Час разговора (~10 000 слов) — ~73 000 знаков текста с таймкодами, ~35 000 входных
+  токенов вместе с промптом (замер 09.11.2026, claude-sonnet-5): один вызов. Текст длиннее 240 000 знаков
+  (≈ 110 000 токенов) идёт частями по 120 000: конспект каждой части (`data/protocol_prompt_notes.txt`), затем
+  протокол по конспектам
+- **Папка** `~/Dropbox/Записи разговоров` на Mac mini: бот пишет в неё JSON и архив протоколов, ядро MCP —
+  PDF протоколов `protocol_make` (у ядра на запись открыта только она). Создаётся до выката (`mkdir -p`) — её
+  монтирует ядро
 - **Сверка без Telegram-приёма** — `recording_check`, тот же `RecordingRun`, что после «Да», только файл
   берётся с диска (`LocalRecordingSource`, исходник не трогается — в рабочую папку идёт копия):
 
   ```
   say -v Milena "Добрый день. Обсудим сроки поставки." -o x.aiff && afconvert -f m4af -d aac x.aiff x.m4a
   docker cp x.m4a personal_assistant_bot:/tmp/x.m4a
-  docker exec personal_assistant_bot python -m workers.bot.recording_check /tmp/x.m4a [--notify-owner]
+  docker exec personal_assistant_bot python -m workers.bot.recording_check /tmp/x.m4a [--notify-owner] [--protocol meeting|call]
+  docker exec personal_assistant_bot python -m workers.bot.recording_check /tmp/x.json --from-transcript --protocol meeting
   ```
 
-  Вывод: `ok: <имя> -> Записи разговоров/<имя>.json`, `link: …`, две строки `button «…»: …`, код выхода 0;
-  ошибка — `failed: <имя>: <причина>`, код 1. Без флага Telegram не трогается. С `--notify-owner` итоговое
+  Вывод: `ok: <имя> -> Записи разговоров/<имя>.json`, `link: …`, две строки `button «…»: prt:…`, код выхода 0;
+  ошибка — `failed: <имя>: <причина>`, код 1. Без флагов Telegram не трогается. С `--notify-owner` итоговое
   сообщение (ссылка и кнопки или текст ошибки) уходит владельцу (`OWNER_TELEGRAM_ID`, `BOT_TOKEN`) тем же
   `TelegramRecordingOutcome`, что после «Да», а в вывод — строка `Recording outcome sent: … message_id <id>`.
-  Вывод `docker exec` в `docker logs` бота не попадает — строка с message_id остаётся в выводе команды
+  С `--protocol meeting|call` после распознавания протокол составляется тем же `ProtocolRun`, что по кнопке
+  (нужен ещё `AI_MODEL`): владельцу — «Составляю…», текст и PDF, в папку — `.typ` + `.pdf`; в вывод —
+  `protocol progress message_id …`, `protocol text message_id …` (по сообщению), `protocol pdf message_id …`,
+  `protocol archive: <typ>, <pdf>`; ошибка — `protocol failed: …` / `protocol archive failed: …`, код 1.
+  `--from-transcript` — файл уже JSON распознавания, сервис распознавания не зовётся (сверка длинной
+  расшифровки). Вывод `docker exec` в `docker logs` бота не попадает — строки с message_id остаются в выводе
+  команды
 
 ## Вложения: фото и документы
 
