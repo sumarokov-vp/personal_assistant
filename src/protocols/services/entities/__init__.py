@@ -1,0 +1,19 @@
+from src.protocols.services.entities.protocol_sections import (
+    ACTIONS_TITLE,
+    AGENDA_TITLE,
+    AGREEMENTS_TITLES,
+    DISCUSSION_TITLE,
+    DOCUMENT_TITLES,
+    OPEN_QUESTIONS_TITLE,
+    PARTIES_TITLES,
+)
+
+__all__ = [
+    "ACTIONS_TITLE",
+    "AGENDA_TITLE",
+    "AGREEMENTS_TITLES",
+    "DISCUSSION_TITLE",
+    "DOCUMENT_TITLES",
+    "OPEN_QUESTIONS_TITLE",
+    "PARTIES_TITLES",
+]

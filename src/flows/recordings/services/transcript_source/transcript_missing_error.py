@@ -1,0 +1,2 @@
+class TranscriptMissingError(LookupError):
+    pass
