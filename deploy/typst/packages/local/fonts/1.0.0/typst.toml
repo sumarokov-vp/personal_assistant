@@ -1,0 +1,7 @@
+[package]
+name = "fonts"
+version = "1.0.0"
+entrypoint = "fonts.typ"
+authors = ["Sumarokov V.P."]
+description = "Font families installed on this machine, picked per OS at deploy time"
+license = "MIT"
