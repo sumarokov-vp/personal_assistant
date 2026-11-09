@@ -1,6 +1,7 @@
 import json
 import threading
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -29,12 +30,14 @@ from src.flows.recordings import (
 from src.flows.recordings.services import (
     THREAD_NAME_PREFIX,
     BackgroundRecordingTranscriber,
+    CallbackButton,
+    ProtocolCallback,
     RecognitionFailureText,
     RecordingLinks,
     RecordingOutcomeText,
     RecordingRun,
+    RecordingTranscripts,
     TelegramRecordingOutcome,
-    UrlButton,
 )
 from src.voice_recognition.repos import RecognitionJobsClient
 
@@ -44,6 +47,7 @@ CARD_MESSAGE_ID = 555
 FILE_ID = "telegram-file-id"
 RECORDING_NAME = "Встреча с подрядчиком.m4a"
 RECORDINGS_FOLDER = "Записи разговоров"
+WORK_FILE_METADATA = ".work_file.json"
 AUDIO = b"fake m4a bytes"
 JOB_ID = "job-1"
 SERVICE_URL = "http://recognition.test"
@@ -61,7 +65,7 @@ class Chat:
     def __init__(self) -> None:
         self.sent: list[str] = []
         self.keyboards: list[Keyboard] = []
-        self.with_buttons: list[tuple[str, list[UrlButton]]] = []
+        self.with_buttons: list[tuple[str, list[CallbackButton]]] = []
 
     def send(
         self,
@@ -106,8 +110,8 @@ class Chat:
     ) -> None:
         return None
 
-    def send_with_url_buttons(
-        self, chat_id: int, text: str, buttons: list[UrlButton]
+    def send_with_buttons(
+        self, chat_id: int, text: str, buttons: list[CallbackButton]
     ) -> None:
         self.with_buttons.append((text, buttons))
 
@@ -151,10 +155,12 @@ class RecordingKit:
         self.service = service
         outcome = TelegramRecordingOutcome(
             message_sender=self.chat,
-            url_buttons_sender=self.chat,
+            buttons_sender=self.chat,
             links=RecordingLinks(),
             text=RecordingOutcomeText(),
+            protocol_callback=ProtocolCallback(),
         )
+        self.memory = RecordingTranscripts()
         recording_run = RecordingRun(
             downloader=Telegram(),
             work_folder=WorkFolder(self.work_dir),
@@ -168,6 +174,8 @@ class RecordingKit:
             outcome=outcome,
             failure_text=RecognitionFailureText(),
             transcripts_folder=RECORDINGS_FOLDER,
+            memory=self.memory,
+            timezone=ZoneInfo("Asia/Almaty"),
         )
         transcriber = BackgroundRecordingTranscriber(recording_run, outcome)
         pending = PendingRecordings()
@@ -204,7 +212,14 @@ class RecordingKit:
         _wait_for_recording_threads()
 
     def audio_left_in_work_folder(self) -> list[Path]:
-        return [path for path in self.work_dir.rglob("*") if path.is_file()]
+        return [path for path in self.work_dir.rglob("*.m4a") if path.is_file()]
+
+    def transcript_work_copies(self) -> list[Path]:
+        return sorted(
+            path
+            for path in self.work_dir.rglob("*.json")
+            if path.name != WORK_FILE_METADATA
+        )
 
     def transcripts(self) -> list[Path]:
         folder = self.storage_root / RECORDINGS_FOLDER
@@ -266,8 +281,15 @@ class TestRecognizedRecording:
         assert transcript.name == "Встреча с подрядчиком.json"
         assert json.loads(transcript.read_text(encoding="utf-8")) == RESULT
         assert kit.audio_left_in_work_folder() == []
+        [work_copy] = kit.transcript_work_copies()
+        assert json.loads(work_copy.read_text(encoding="utf-8")) == RESULT
+        remembered = kit.memory.recall(work_copy.parent.name)
+        assert remembered is not None
+        assert remembered.result == RESULT
 
-    def test_owner_gets_link_and_two_protocol_buttons(self, tmp_path: Path) -> None:
+    def test_owner_gets_link_and_two_protocol_callback_buttons(
+        self, tmp_path: Path
+    ) -> None:
         kit = RecordingKit(tmp_path, RecognitionService(_completed()))
         kit.forward_recording_and_press_yes()
 
@@ -281,11 +303,15 @@ class TestRecognizedRecording:
             "Протокол встречи",
             "Протокол звонка",
         ]
-        for button in buttons:
-            url = urlsplit(button.url)
-            assert (url.netloc, url.path) == ("claude.ai", "/new")
-            assert transcript_path in parse_qs(url.query)["q"][0]
-            assert transcript_path in text
+        [work_copy] = kit.transcript_work_copies()
+        transcript_id = work_copy.parent.name
+        assert [button.data for button in buttons] == [
+            f"prt:m:{transcript_id}",
+            f"prt:c:{transcript_id}",
+        ]
+        assert all(len(button.data.encode()) <= 64 for button in buttons)
+        assert transcript_path in text
+        assert "claude.ai" not in text
 
     def test_repeated_name_gets_numbered_transcript(self, tmp_path: Path) -> None:
         kit = RecordingKit(tmp_path, RecognitionService(_completed()))
@@ -309,6 +335,7 @@ class TestFailedRecognition:
 
         assert kit.transcripts() == []
         assert kit.audio_left_in_work_folder() == []
+        assert kit.transcript_work_copies() == []
         assert kit.chat.with_buttons == []
         assert "не распознана" in kit.chat.sent[-1]
         assert "CUDA out of memory" in kit.chat.sent[-1]
@@ -322,6 +349,7 @@ class TestFailedRecognition:
 
         assert kit.transcripts() == []
         assert kit.audio_left_in_work_folder() == []
+        assert kit.transcript_work_copies() == []
         assert kit.chat.with_buttons == []
         assert "сервис распознавания недоступен" in kit.chat.sent[-1]
         assert "Перешлите её позже" in kit.chat.sent[-1]

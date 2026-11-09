@@ -1,9 +1,8 @@
 from pydantic import BaseModel, ConfigDict
 
 
-class ProtocolPrompt(BaseModel):
+class ProtocolPrompts(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    title: str
-    request: str
-    url: str
+    protocol: str
+    notes: str

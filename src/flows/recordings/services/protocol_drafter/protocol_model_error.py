@@ -1,0 +1,2 @@
+class ProtocolModelError(RuntimeError):
+    pass

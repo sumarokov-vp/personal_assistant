@@ -1,6 +1,10 @@
 from src.flows.recordings.handlers.dismiss_recording_handler import (
     DismissRecordingHandler,
 )
+from src.flows.recordings.handlers.make_protocol_handler import MakeProtocolHandler
+from src.flows.recordings.handlers.outcome_message_transcript_path import (
+    OutcomeMessageTranscriptPath,
+)
 from src.flows.recordings.handlers.pending import PendingRecording, PendingRecordings
 from src.flows.recordings.handlers.protocols.i_recording_transcriber import (
     IRecordingTranscriber,
@@ -24,6 +28,8 @@ __all__ = [
     "DEFAULT_RECORDING_MAX_BYTES",
     "DismissRecordingHandler",
     "IRecordingTranscriber",
+    "MakeProtocolHandler",
+    "OutcomeMessageTranscriptPath",
     "PendingRecording",
     "PendingRecordings",
     "RecognizeRecordingHandler",
