@@ -31,6 +31,7 @@ def main(settings: CoreSettings) -> None:
     tools = build_core_tools(
         todoist=TodoistHttpClient(settings.todoist_token),
         dropbox_root=settings.dropbox_root,
+        recordings_folder=settings.recordings_folder,
     )
     logger.info("MCP tools: %s", ", ".join(tool.name for tool in tools))
     settings.journal_file.parent.mkdir(parents=True, exist_ok=True)
