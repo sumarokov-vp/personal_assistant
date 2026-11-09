@@ -1,0 +1,33 @@
+from telebot import TeleBot
+from telebot.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LinkPreviewOptions,
+)
+
+from src.flows.recordings.services.entities.url_button import UrlButton
+
+HTML_PARSE_MODE = "HTML"
+
+
+class TelegramUrlButtonsSender:
+    def __init__(self, bot: TeleBot) -> None:
+        self._bot = bot
+
+    def send_with_url_buttons(
+        self, chat_id: int, text: str, buttons: list[UrlButton]
+    ) -> None:
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            *(
+                InlineKeyboardButton(text=button.text, url=button.url)
+                for button in buttons
+            )
+        )
+        self._bot.send_message(
+            chat_id,
+            text,
+            parse_mode=HTML_PARSE_MODE,
+            reply_markup=markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )

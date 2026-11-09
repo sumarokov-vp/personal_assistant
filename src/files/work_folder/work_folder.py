@@ -1,6 +1,7 @@
 import os
 import re
 import secrets
+import shutil
 from pathlib import Path
 
 from src.files.work_folder.work_file import WorkFile
@@ -49,6 +50,15 @@ class WorkFolder:
         if not content.is_file():
             raise WorkFileNotFoundError(f"Файла {file_id} нет в рабочей папке")
         return content.read_bytes()
+
+    def path(self, file_id: str) -> Path:
+        work_file = self.get(file_id)
+        return self._directory(file_id) / work_file.name
+
+    def remove(self, file_id: str) -> None:
+        directory = self._directory(file_id)
+        if os.path.lexists(directory):
+            shutil.rmtree(directory)
 
     def _directory(self, file_id: str) -> Path:
         if not FILE_ID_PATTERN.fullmatch(file_id):
