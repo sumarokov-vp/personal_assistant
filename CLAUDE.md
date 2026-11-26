@@ -331,6 +331,9 @@ deploy/                      # Образ и выкат в colima
 Refresh token Gmail: `uv run scripts/gmail_auth.py` (из корня репы, на машине с ключом pass ассистента) — берёт
 OAuth-клиент из pass `assistant/personal_assistant/gmail-oauth-client`, открывает согласие (offline,
 `prompt=consent`) и кладёт токен в `assistant/personal_assistant/gmail-refresh-token`, на экран его не выводит.
+Второй токен — `uv run scripts/gmail_auth.py --modify`: scope `gmail.modify` (снять звёздочку), запись
+`assistant/personal_assistant/gmail-modify-refresh-token` (`--entry <путь>` перекрывает). Его читает скилл
+`gmail-starred` (pyinfra_dotfiles), бот его не берёт; токен бота при этом не отзывается и не трогается.
 Экран согласия проекта Google — «In production»: в Testing refresh token живёт 7 дней
 
 Добавить инструмент:

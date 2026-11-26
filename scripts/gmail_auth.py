@@ -7,11 +7,16 @@
 
 Запуск (из корня репы personal_assistant, на машине с ключом pass ассистента):
 
-    uv run scripts/gmail_auth.py
+    uv run scripts/gmail_auth.py            # токен бота: gmail.readonly + gmail.compose
+    uv run scripts/gmail_auth.py --modify   # второй токен: gmail.modify (снять звёздочку)
+
+``--modify`` меняет scope на ``gmail.modify`` и запись по умолчанию на
+``assistant/personal_assistant/gmail-modify-refresh-token``; ``--entry <путь pass>`` перекрывает
+запись. Без флагов поведение прежнее. Новый refresh token того же клиента старый не отзывает.
 
 OAuth-клиент (Desktop app, JSON client_secret_*.json целиком) берётся из pass
 ``assistant/personal_assistant/gmail-oauth-client``. Скрипт печатает ссылку согласия
-(scope gmail.readonly + gmail.compose, offline, prompt=consent) и ждёт код двумя путями:
+(offline, prompt=consent) и ждёт код двумя путями:
 
 - браузер на этой же машине — Google перенаправит на ``http://localhost:<порт>``, код
   примет локальный сервер сам;
@@ -24,6 +29,7 @@ Refresh token уходит в ``pass insert -m`` и на экран не выв�
 
 from __future__ import annotations
 
+import argparse
 import base64
 import hashlib
 import http.server
@@ -45,6 +51,8 @@ SCOPES = (
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
 )
+MODIFY_TOKEN_PASS_ENTRY = "assistant/personal_assistant/gmail-modify-refresh-token"
+MODIFY_SCOPES = ("https://www.googleapis.com/auth/gmail.modify",)
 AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 PROFILE_URI = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
@@ -151,9 +159,9 @@ def fetch_email(access_token: str) -> str:
         return f"не прочитан: Gmail API ответил {exc.code} — {body}"
 
 
-def store_token(refresh_token: str) -> None:
+def store_token(refresh_token: str, entry: str) -> None:
     subprocess.run(
-        ["pass", "insert", "-m", "-f", TOKEN_PASS_ENTRY],
+        ["pass", "insert", "-m", "-f", entry],
         input=refresh_token + "\n",
         check=True,
         text=True,
@@ -161,7 +169,30 @@ def store_token(refresh_token: str) -> None:
     )
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Получить refresh token Gmail владельца и положить его в pass.",
+    )
+    parser.add_argument(
+        "--modify",
+        action="store_true",
+        help=(
+            "scope gmail.modify вместо gmail.readonly + gmail.compose; запись по умолчанию — "
+            f"{MODIFY_TOKEN_PASS_ENTRY}"
+        ),
+    )
+    parser.add_argument(
+        "--entry",
+        metavar="ПУТЬ",
+        help=f"запись pass для токена (по умолчанию {TOKEN_PASS_ENTRY}, с --modify — {MODIFY_TOKEN_PASS_ENTRY})",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
+    scopes = MODIFY_SCOPES if args.modify else SCOPES
+    entry = args.entry or (MODIFY_TOKEN_PASS_ENTRY if args.modify else TOKEN_PASS_ENTRY)
     if isinstance(sys.stdout, io.TextIOWrapper):
         sys.stdout.reconfigure(line_buffering=True)
     client_id, client_secret = load_client()
@@ -175,7 +206,7 @@ def main() -> None:
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "response_type": "code",
-            "scope": " ".join(SCOPES),
+            "scope": " ".join(scopes),
             "access_type": "offline",
             "prompt": "consent",
             "state": state,
@@ -206,11 +237,11 @@ def main() -> None:
     if not refresh_token:
         sys.exit("Google не выдал refresh token — отзови доступ на myaccount.google.com/permissions и повтори")
     granted = set(tokens.get("scope", "").split())
-    missing = [scope for scope in SCOPES if scope not in granted]
+    missing = [scope for scope in scopes if scope not in granted]
     if missing:
         sys.exit(f"Выданы не все права, не хватает: {', '.join(missing)} — повтори и отметь все галочки")
-    store_token(refresh_token)
-    print(f"сохранено в pass {TOKEN_PASS_ENTRY}")
+    store_token(refresh_token, entry)
+    print(f"сохранено в pass {entry}")
     print(f"аккаунт: {fetch_email(tokens['access_token'])}")
 
 
